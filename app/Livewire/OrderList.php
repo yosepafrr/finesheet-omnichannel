@@ -14,18 +14,24 @@ class OrderList extends Component
     public $selectedStatuses = [];
     public $selectedStores = [];
 
+    protected $listeners = ['echo:orders,OrderCreated' => '$refresh'];
+
     public function mount()
     {
         $this->stores = Auth::user()->stores()->get();
+        
+        // FIX 1: Load session HANYA di mount, jangan di render
         $this->selectedStatuses = session('selectedStatuses', []);
         $this->selectedStores = session('selectedStores', []);
     }
-    
+
+    // method ini otomatis dipanggil livewire saat properti berubah
     public function updatedSelectedStatuses()
     {
         session(['selectedStatuses' => $this->selectedStatuses]);
     }
 
+    // method ini otomatis dipanggil livewire saat properti berubah
     public function updatedSelectedStores()
     {
         session(['selectedStores' => $this->selectedStores]);
@@ -38,42 +44,51 @@ class OrderList extends Component
         } else {
             $this->selectedStatuses[] = $status;
         }
-        // Update session setiap kali berubah
+        
+        // Re-index array supaya rapi (0, 1, 2...)
+        $this->selectedStatuses = array_values($this->selectedStatuses);
+        
         session(['selectedStatuses' => $this->selectedStatuses]);
     }
+
     public function toggleStoreFilter($storeId)
     {
-        if (in_array($storeId, $this->selectedStores)) {
-            $this->selectedStores = array_diff($this->selectedStores, [$storeId]);
+        // 1. Jika value kosong (Pilih "Semua Toko"), kosongkan filter
+        if (empty($storeId)) {
+            $this->selectedStores = [];
         } else {
-            $this->selectedStores[] = $storeId;
+            // 2. Set array dengan ID baru (Single Select behavior untuk Dropdown)
+            $this->selectedStores = [$storeId];
         }
-        // Update session setiap kali berubah
+
+        // Simpan ke session
         session(['selectedStores' => $this->selectedStores]);
     }
 
-    protected $listeners = ['echo:orders,OrderCreated' => '$refresh'];
-
-
     public function render()
     {
-        $this->stores = Auth::user()->stores()->get();
+        // Kita tidak perlu load Auth::user()->stores() lagi disini karena sudah di mount
+        // kecuali jika ada kemungkinan store bertambah realtime saat user membuka halaman
+        
+        // Ambil semua ID store milik user untuk security (agar user tidak query store orang lain)
+        $userStoreIds = $this->stores->pluck('id');
 
-        $storeIds = $this->stores->pluck('id');
-
-        $this->selectedStatuses = session('selectedStatuses', []);
-        $this->selectedStores = session('selectedStores', []);
-
-        // Load ulang orders setiap render (dipanggil juga saat poll)
-        $query = Order::whereIn('store_id', $storeIds)
+        $query = Order::whereIn('store_id', $userStoreIds)
             ->with('orderItems.item')
             ->latest();
 
+        // Filter Status
         if (!empty($this->selectedStatuses)) {
             $query->whereIn('order_status', $this->selectedStatuses);
         }
-        if (!empty($this->selectedStores)) {
-            $query->whereIn('store_id', $this->selectedStores);
+
+        // FIX 2: Sanitasi Array Store ID sebelum masuk Query
+        // Hapus value kosong/null/string kosong dari array
+        $cleanSelectedStores = array_filter($this->selectedStores, fn($value) => !empty($value));
+
+        if (!empty($cleanSelectedStores)) {
+            // Gunakan array yang sudah dibersihkan
+            $query->whereIn('store_id', $cleanSelectedStores);
         }
 
         $orders = $query->get()->sortByDesc('order_time');

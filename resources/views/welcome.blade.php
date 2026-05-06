@@ -24,8 +24,8 @@
         
         <nav class="absolute top-0 left-0 right-0 p-6 flex justify-between items-center max-w-7xl mx-auto w-full">
             <div class="flex items-center gap-2">
-                <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold text-xs">R</div>
-                <span class="font-bold text-gray-700 tracking-tight">Ramdani Konveksi</span>
+                <div class="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold text-xs">F</div>
+                <span class="font-bold text-gray-700 tracking-tight">Finesheet</span>
             </div>
             
             @if (Route::has('login'))
@@ -50,14 +50,14 @@
                     </span>
                     
                     <h1 class="text-4xl lg:text-6xl font-extrabold tracking-tight text-slate-900 mb-6 leading-tight">
-                        Kelola Produksi <br>
+                        Kelola Finansial <br>
                         <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
                             Lebih Efisien.
                         </span>
                     </h1>
                     
                     <p class="text-lg text-gray-600 mb-8 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-                        Wilujeng Sumping di Sistem Informasi Ramdani Konveksi. Pantau stok, profit, cashflow, dan pesanan Shopee dalam satu dashboard terintegrasi.
+                        Wilujeng Sumping di Sistem Informasi Ramdani Konveksi. Pantau stok, profit, cashflow, dan pesanan dari berbagai <br><span class="font-bold">E-Commerce</span> dalam satu dashboard terintegrasi.
                     </p>
 
                     <div class="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
@@ -111,7 +111,7 @@
         </div>
 
         <footer class="absolute bottom-4 left-0 right-0 text-center text-xs text-gray-400">
-            &copy; {{ date('Y') }} Ramdani Konveksi. Built with Laravel Livewire.
+            &copy; {{ date('Y') }} Finesheet. Built with Love and Semangat.
         </footer>
     </div>
 

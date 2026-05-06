@@ -29,16 +29,24 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>
+<body class="font-sans antialiased bg-gray-50 text-gray-900">
+    
+    <div class="flex h-screen overflow-hidden">
+        
+        <livewire:layout.sidebar />
 
-<body class="font-sans antialiased flex p-3 bg-[#f5f7fb] min-h-screen">
-    <livewire:layout.sidebar />
-    <div class=" w-screen shadow-xl rounded-xl  dark:bg-zinc-800">
-        <livewire:layout.navigation />
-        <main>
-            {{ $slot }}
-        </main>
+        <div class="relative flex flex-col flex-1 overflow-y-auto overflow-x-hidden transition-all duration-300">
+            
+            <livewire:layout.navigation />
+
+            <main class="p-6">
+                {{ $slot }}
+            </main>
+            <livewire:layout.footer />
+        </div>
+
     </div>
-    @livewireScripts
+        @livewireScripts
 </body>
 
 </html>

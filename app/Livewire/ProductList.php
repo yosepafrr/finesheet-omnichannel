@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Auth;
 class ProductList extends Component
 {
     public $stores;
-    public $products;
+    // public $products;
+    public $search = '';
 
     public $editingHppId = null;
     public $newHppValue = null;
@@ -61,15 +62,34 @@ class ProductList extends Component
         $this->stores = Auth::user()->stores;
 
         // Ambil produk hanya untuk toko-toko tersebut
-        $storeIds = $this->stores->pluck('id');
-        $this->products = Item::whereIn('store_id', $storeIds)->latest()->get();
+        // $storeIds = $this->stores->pluck('id');
+        // $this->products = Item::whereIn('store_id', $storeIds)->latest()->get();
     }
 
     public function render()
     {
+        $user = Auth::user();
+        $stores = $user->stores()->get();
+        $storeIds = $stores->pluck('id');
+        
+
+        // 2. Modifikasi Query
+        $products = Item::whereIn('store_id', $storeIds)
+            // Fitur SEARCH dimulai di sini
+            ->when($this->search, function ($query) {
+                // Kita bungkus dalam closure function ($q) agar logika OR tidak merusak filter store_id
+                $query->where(function ($q) {
+                    $q->where('item_name', 'ilike', '%' . $this->search . '%') // Cari berdasarkan Nama
+                        ->orWhere('item_sku', 'ilike', '%' . $this->search . '%'); // Atau cari berdasarkan SKU
+                });
+            })
+            // End Fitur SEARCH
+            ->latest()
+            ->get();
+
         return view('livewire.product-list', [
-            'stores' => $this->stores,
-            'products' => $this->products,
+            // 'stores' => $stores,
+            'products' => $products,
         ]);
     }
 }
