@@ -1,0 +1,11 @@
+version: "2"
+authtoken: 3DMAS85bpz4zYXqxTOTwo6W1WDc_4RUskJaPY6gnEoC2aDCHQ  # dari https://dashboard.ngrok.com/get-started/your-authtoken
+tunnels:
+  laravel:
+    proto: http
+    addr: 8000
+    host_header: rewrite
+  vite:
+    proto: http
+    addr: 5173
+    host_header: rewrite

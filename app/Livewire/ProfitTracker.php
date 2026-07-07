@@ -9,7 +9,7 @@ use App\Models\User;
 use App\Models\Order;
 use App\Models\Store;
 
-#[Layout('layouts.app', ['title' => 'Profit Tracker'])]
+#[Layout('components.layouts.app', ['title' => 'Profit Tracker'])]
 
 class ProfitTracker extends Component
 {

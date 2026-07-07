@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ShopeeController;
 use App\Http\Controllers\ShopeeWebhookController;
 use App\Http\Controllers\TikTokController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\StoreController;
 
 Route::view('/', 'welcome');
 
@@ -30,6 +32,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/product-list', ProductList::class)->name('product.list');
     Route::get('/order-list', OrderList::class)->name('order.list');
     Route::get('/cashflow', Cashflow::class)->name('cashflow');
+    Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
+
+    // React views
+    Route::view('/react/stores', 'react')->name('react.stores');
+    Route::view('/react' , 'react')->name('react');
 });
 
 

@@ -5,7 +5,7 @@ namespace App\Livewire;
 use Livewire\Component;
 use Livewire\Attributes\Layout;
 
-#[Layout('layouts.app', ['title' => 'Meet the Creators'])]
+#[Layout('components.layouts.app', ['title' => 'Meet the Creators'])]
 class MeetCreators extends Component
 {
     public $creators = [

@@ -5,7 +5,7 @@ namespace App\Livewire;
 use Livewire\Component;
 use Livewire\Attributes\Layout;
 
-#[Layout('layouts.app', ['title' => 'Cashflow'])]
+#[Layout('components.layouts.app', ['title' => 'Cashflow'])]
 class Cashflow extends Component
 {
     public function render()

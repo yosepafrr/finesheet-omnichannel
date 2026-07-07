@@ -7,7 +7,7 @@ use Livewire\Component;
 use Livewire\Attributes\Layout;
 use Illuminate\Support\Facades\Auth; // 1. Jangan lupa import Facade Auth
 
-#[Layout('layouts.app', ['title' => 'Store List'])]
+#[Layout('components.layouts.app', ['title' => 'Store List'])]
 class StoreList extends Component
 {
     public function render()

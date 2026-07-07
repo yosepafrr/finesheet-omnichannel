@@ -5,11 +5,11 @@
             <div class="text-center md:text-left">
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                     &copy; {{ date('Y') }} 
-                    <span class="font-bold text-gray-700 dark:text-gray-200">Ramdani Konveksi</span>. 
+                    <span class="font-bold text-gray-700 dark:text-gray-200">Finesheet</span>. 
                     <span class="hidden sm:inline">All rights reserved.</span>
                 </p>
                 <p class="text-[10px] text-gray-400 mt-0.5">
-                    Sistem Informasi Manajemen Produksi v2.0
+                    E-commerce Omnichannel v1.0
                 </p>
             </div>
 

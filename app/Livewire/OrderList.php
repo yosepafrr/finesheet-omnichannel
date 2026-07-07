@@ -7,7 +7,7 @@ use Livewire\Component;
 use Livewire\Attributes\Layout;
 use Illuminate\Support\Facades\Auth;
 
-#[Layout('layouts.app', ['title' => 'Store List'])]
+#[Layout('components.layouts.app', ['title' => 'Store List'])]
 class OrderList extends Component
 {
     public $stores;

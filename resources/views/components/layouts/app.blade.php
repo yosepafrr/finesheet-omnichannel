@@ -26,7 +26,7 @@
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600&display=swap" rel="stylesheet" />
 
     <!-- Scripts -->
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @vite(['resources/css/app.css', 'resources/js/app.jsx'])
     @livewireStyles
 </head>
 <body class="font-sans antialiased bg-gray-50 text-gray-900">
@@ -38,10 +38,15 @@
         <div class="relative flex flex-col flex-1 overflow-y-auto overflow-x-hidden transition-all duration-300">
             
             <livewire:layout.navigation />
+                <main class="p-6">
 
-            <main class="p-6">
-                {{ $slot }}
-            </main>
+                    @isset($slot)
+                        {{ $slot }}
+                    @endisset
+
+                    @yield('content')
+
+                </main>
             <livewire:layout.footer />
         </div>
 
