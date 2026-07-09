@@ -30,7 +30,7 @@ class ShopeeController extends Controller
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
 
-        $redirectUrl = 'https://groggy-enjoyable-unfair.ngrok-free.dev/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
+        $redirectUrl = 'https://478f-157-85-212-45.ngrok-free.app/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
         $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
@@ -201,7 +201,7 @@ class ShopeeController extends Controller
                     }
                 }
             }
-            return redirect()->route('profit.tracker')->with('success', 'Toko Shopee berhasil terhubung.');
+            return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
         }
     }
 
@@ -301,7 +301,7 @@ class ShopeeController extends Controller
         }
         // dd("Variant berhasil disimpan: {$model['model_id']} - {$model['model_name']}");
 
-        return redirect(route('product.list'));
+        return redirect('/#/products');
     }
 
     // AMBIL PESANAN SELAMA 3 BULAN KEBELAKANG
@@ -423,7 +423,7 @@ class ShopeeController extends Controller
             // sleep(1); // hindari rate limit
         }
 
-        return redirect(route('profit.tracker'));
+        return redirect('/#/profit-tracker');
         // dd($detailsResponse);
     }
 }

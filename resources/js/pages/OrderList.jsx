@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
-
+import { motion, AnimatePresence } from "framer-motion";
 const POLLING_INTERVAL = 10000;
 
 function formatRp(n) {
@@ -10,6 +10,7 @@ function formatRp(n) {
 
 const STATUS_CONFIG = {
     READY_TO_SHIP: { label: "Perlu Dikirim", bg: "bg-yellow-50 dark:bg-yellow-500/10", text: "text-yellow-700 dark:text-yellow-400", border: "border-yellow-200 dark:border-yellow-500/20" },
+    TO_CONFIRM_RECEIVE: { label: "Perlu Diproses", bg: "bg-green-50 dark:bg-green-500/10", text: "text-green-700 dark:text-green-400", border: "border-green-200 dark:border-green-500/20" },
     PROCESSED: { label: "Diproses", bg: "bg-blue-50 dark:bg-blue-500/10", text: "text-blue-700 dark:text-blue-400", border: "border-blue-200 dark:border-blue-500/20" },
     SHIPPED: { label: "Sedang Dikirim", bg: "bg-purple-50 dark:bg-purple-500/10", text: "text-purple-700 dark:text-purple-400", border: "border-purple-200 dark:border-purple-500/20" },
     COMPLETED: { label: "Selesai", bg: "bg-green-50 dark:bg-green-500/10", text: "text-green-700 dark:text-green-400", border: "border-green-200 dark:border-green-500/20" },
@@ -49,7 +50,35 @@ export default function OrderList() {
     const [loading, setLoading] = useState(true);
     const [selectedStatuses, setSelectedStatuses] = useState([]);
     const [selectedStore, setSelectedStore] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
     const [expandedOrders, setExpandedOrders] = useState({});
+    const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
+    const storeDropdownRef = useRef(null);
+    const [syncing, setSyncing] = useState(false);
+
+    const handleSync = async () => {
+        setSyncing(true);
+        try {
+            await axios.post("/api/sync/orders");
+            // Re-fetch immediately in case some data was updated fast,
+            // the 10s polling will catch the rest.
+            fetchData();
+        } catch (err) {
+            console.error("Failed to sync orders", err);
+        } finally {
+            setTimeout(() => setSyncing(false), 2000); // Visual feedback
+        }
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (storeDropdownRef.current && !storeDropdownRef.current.contains(e.target)) {
+                setIsStoreDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     const fetchData = useCallback(async () => {
         try {
@@ -90,6 +119,16 @@ export default function OrderList() {
     const ordersByStore = {};
     if (data?.orders) {
         data.orders.forEach(order => {
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const matchOrderId = order.order_sn?.toLowerCase().includes(q);
+                const matchItemName = order.items?.some(item => item.item_name?.toLowerCase().includes(q)) || 
+                                      order.first_item?.item_name?.toLowerCase().includes(q);
+                if (!matchOrderId && !matchItemName) {
+                    return;
+                }
+            }
+
             if (!ordersByStore[order.store_id]) ordersByStore[order.store_id] = [];
             ordersByStore[order.store_id].push(order);
         });
@@ -108,20 +147,93 @@ export default function OrderList() {
                                 <p className="text-sm text-gray-500 dark:text-slate-400">Kelola dan pantau status pesanan dari semua marketplace.</p>
                             </div>
 
-                            {/* Store Filter */}
-                            <div className="relative w-full md:w-64">
-                                <select
-                                    value={selectedStore}
-                                    onChange={(e) => setSelectedStore(e.target.value)}
-                                    className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 shadow-sm text-sm appearance-none"
+                            {/* Search and Store Filter */}
+                            <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
+                                <button 
+                                    onClick={handleSync}
+                                    disabled={syncing}
+                                    className="flex w-full md:w-auto items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
                                 >
-                                    <option value="">Semua Toko</option>
-                                    {data?.stores?.map(store => (
-                                        <option key={store.id} value={store.id}>
-                                            {store.store_name} ({store.platform})
-                                        </option>
-                                    ))}
-                                </select>
+                                    <span className={`material-symbols-rounded text-[20px] ${syncing ? 'animate-spin' : ''}`}>sync</span>
+                                    {syncing ? 'Menyelaraskan...' : 'Tarik Data Shopee'}
+                                </button>
+                                <div className="relative w-full md:w-64">
+                                    <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">search</span>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Cari order ID atau produk..." 
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 pl-10 pr-4 rounded-xl focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 shadow-sm text-sm transition-all outline-none"
+                                    />
+                                </div>
+                                <div className="relative w-full md:w-64" ref={storeDropdownRef}>
+                                    <button
+                                        onClick={() => setIsStoreDropdownOpen(!isStoreDropdownOpen)}
+                                        className="flex items-center justify-between w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 pl-4 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#304674] dark:focus:ring-blue-500 shadow-sm text-sm transition-all hover:border-gray-300 dark:hover:border-slate-600"
+                                    >
+                                        <span className="truncate pr-2">
+                                            {selectedStore === "" 
+                                                ? "Semua Toko" 
+                                                : data?.stores?.find(s => s.id == selectedStore)?.store_name || "Toko Tidak Diketahui"
+                                            }
+                                        </span>
+                                        <span className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}>
+                                            expand_more
+                                        </span>
+                                    </button>
+
+                                    <AnimatePresence>
+                                        {isStoreDropdownOpen && (
+                                            <motion.div
+                                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                transition={{ duration: 0.2, ease: "easeOut" }}
+                                                className="absolute right-0 md:left-0 mt-2 w-full min-w-[240px] bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 overflow-hidden z-50 origin-top"
+                                            >
+                                                <div className="max-h-64 overflow-y-auto p-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedStore("");
+                                                            setIsStoreDropdownOpen(false);
+                                                        }}
+                                                        className={`w-full text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${
+                                                            selectedStore === ""
+                                                                ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                                : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                        }`}
+                                                    >
+                                                        Semua Toko
+                                                    </button>
+                                                    {data?.stores?.map(store => (
+                                                        <button
+                                                            key={store.id}
+                                                            onClick={() => {
+                                                                setSelectedStore(store.id);
+                                                                setIsStoreDropdownOpen(false);
+                                                            }}
+                                                            className={`w-full flex items-center justify-between text-left px-3 py-2 mt-1 text-sm font-medium rounded-xl transition-colors ${
+                                                                selectedStore == store.id
+                                                                    ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                                    : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                            }`}
+                                                        >
+                                                            <span className="truncate">{store.store_name}</span>
+                                                            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                                                selectedStore == store.id
+                                                                    ? "bg-white/20 text-white"
+                                                                    : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
+                                                            }`}>
+                                                                {store.platform}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             </div>
                         </div>
 

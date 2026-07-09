@@ -4,37 +4,7 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 
 const POLLING_INTERVAL = 10000;
 
-// --- Komponen Tema (Light/Dark Mode Toggle) ---
-function ThemeToggle({ isDark, toggleDark }) {
-    return (
-        <button
-            onClick={toggleDark}
-            className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95"
-            aria-label="Toggle Dark Mode"
-        >
-            {isDark ? (
-                // Moon Icon
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                </svg>
-            ) : (
-                // Sun Icon
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="5"></circle>
-                    <line x1="12" y1="1" x2="12" y2="3"></line>
-                    <line x1="12" y1="21" x2="12" y2="23"></line>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                    <line x1="1" y1="12" x2="3" y2="12"></line>
-                    <line x1="21" y1="12" x2="23" y2="12"></line>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                </svg>
-            )}
-        </button>
-    );
-}
-
+// Removed ThemeToggle as it is now in navbar.jsx
 // --- Komponen Status Pill ---
 function StatusPill({ isActive }) {
     return (
@@ -130,33 +100,6 @@ export default function StoreList() {
     const [search, setSearch] = useState("");
     const [lastSync, setLastSync] = useState(Date.now());
     const [syncing, setSyncing] = useState(false);
-    
-    // Theme State
-    const [isDark, setIsDark] = useState(false);
-
-    // Inisialisasi Dark Mode
-    useEffect(() => {
-        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            setIsDark(true);
-            document.documentElement.classList.add('dark');
-        } else {
-            setIsDark(false);
-            document.documentElement.classList.remove('dark');
-        }
-    }, []);
-
-    const toggleDark = () => {
-        if (isDark) {
-            document.documentElement.classList.remove('dark');
-            localStorage.theme = 'light';
-            setIsDark(false);
-        } else {
-            document.documentElement.classList.add('dark');
-            localStorage.theme = 'dark';
-            setIsDark(true);
-        }
-    };
-
     const fetchStores = useCallback(async (manual = false) => {
         if (manual) setSyncing(true);
         try {
@@ -205,8 +148,6 @@ export default function StoreList() {
                             </p>
                         </div>
                         <div className="flex items-center gap-3 w-full sm:w-auto">
-                            <ThemeToggle isDark={isDark} toggleDark={toggleDark} />
-                            
                             <a
                                 href="/shopee/connect"
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#203155] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-lg shadow-[#304674]/20 dark:shadow-blue-900/30 transition-all active:scale-95"
@@ -331,12 +272,22 @@ export default function StoreList() {
                                     <div className="flex w-full sm:w-auto items-center justify-between sm:justify-end gap-6 pt-4 sm:pt-0 border-t sm:border-0 border-slate-100 dark:border-slate-700">
                                         <StatusPill isActive={store.is_active} />
                                         
-                                        <button className="p-2 text-slate-400 hover:text-[#304674] dark:hover:text-blue-400 bg-slate-50 dark:bg-slate-900 rounded-xl transition-colors">
-                                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                        </button>
+                                        <div className="relative group">
+                                            <a 
+                                                href={`/connect/${store.platform.toLowerCase()}`}
+                                                className="flex items-center justify-center p-2 text-slate-400 hover:text-[#304674] dark:hover:text-blue-400 bg-slate-50 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all"
+                                            >
+                                                <span className="material-symbols-rounded text-lg group-hover:rotate-180 transition-transform duration-500">
+                                                    sync
+                                                </span>
+                                            </a>
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none w-max z-10">
+                                                <div className="bg-slate-800 text-white text-[10px] font-medium px-2.5 py-1.5 rounded-lg shadow-lg">
+                                                    Otorisasi Ulang Toko
+                                                </div>
+                                                <div className="w-2 h-2 bg-slate-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             ))

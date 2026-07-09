@@ -6,7 +6,31 @@ import axios from "axios";
 export default function Navigation({ onMenuClick, user = { name: "Loading...", email: "" } }) {
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+    const [isDark, setIsDark] = useState(false);
     const dropdownRef = useRef(null);
+
+    // Inisialisasi Dark Mode
+    useEffect(() => {
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            setIsDark(true);
+            document.documentElement.classList.add('dark');
+        } else {
+            setIsDark(false);
+            document.documentElement.classList.remove('dark');
+        }
+    }, []);
+
+    const toggleDark = () => {
+        if (isDark) {
+            document.documentElement.classList.remove('dark');
+            localStorage.theme = 'light';
+            setIsDark(false);
+        } else {
+            document.documentElement.classList.add('dark');
+            localStorage.theme = 'dark';
+            setIsDark(true);
+        }
+    };
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -58,11 +82,32 @@ export default function Navigation({ onMenuClick, user = { name: "Loading...", e
                         </a>
                     </div>
 
-                    {/* --- KANAN: Notifikasi & Profil --- */}
+                    {/* --- KANAN: Theme Toggle & Profil --- */}
                     <div className="flex items-center gap-1 sm:gap-4">
-                        <button className="relative p-2 text-slate-500 hover:text-[#304674] hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
+                        <button
+                            onClick={toggleDark}
+                            className="p-2 text-slate-500 hover:text-[#304674] hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors active:scale-95 focus:outline-none"
+                            aria-label="Toggle Dark Mode"
+                        >
+                            {isDark ? (
+                                // Moon Icon
+                                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                                </svg>
+                            ) : (
+                                // Sun Icon
+                                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="5"></circle>
+                                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                                </svg>
+                            )}
                         </button>
 
                         <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1 hidden  sm:block"></div>

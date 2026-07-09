@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Fragment } from "react";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
 
@@ -10,7 +10,6 @@ function formatRp(n) {
 
 function PlatformIcon({ platform }) {
     if (platform === "Shopee") return <span className="text-orange-500 font-bold text-lg">S</span>;
-    if (platform === "Tokopedia") return <span className="text-green-500 font-bold text-lg">T</span>;
     if (platform === "Tiktokshop") return <span className="text-black dark:text-white font-bold text-lg">♪</span>;
     return <span className="material-symbols-rounded text-gray-400">store</span>;
 }
@@ -169,6 +168,21 @@ export default function ProductList() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [expandedProducts, setExpandedProducts] = useState({});
+    const [syncing, setSyncing] = useState(false);
+
+    const handleSync = async () => {
+        setSyncing(true);
+        try {
+            await axios.post("/api/sync/products");
+            // Re-fetch immediately in case some data was updated fast, 
+            // the 10s polling will catch the rest.
+            fetchData();
+        } catch (err) {
+            console.error("Failed to sync products", err);
+        } finally {
+            setTimeout(() => setSyncing(false), 2000); // Visual feedback
+        }
+    };
 
     const fetchData = useCallback(async () => {
         try {
@@ -208,17 +222,27 @@ export default function ProductList() {
                             <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-tight">Product Management</h1>
                             <p className="text-sm text-gray-500 dark:text-slate-400">Kelola stok, harga, dan HPP produk dari semua toko Anda.</p>
                         </div>
-                        <div className="relative w-full md:w-64">
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                                <span className="material-symbols-rounded text-lg">search</span>
-                            </span>
-                            <input
-                                type="text"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Cari produk..."
-                                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-800 dark:text-white focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 transition"
-                            />
+                        <div className="flex items-center gap-3 w-full md:w-auto">
+                            <button 
+                                onClick={handleSync}
+                                disabled={syncing}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
+                            >
+                                <span className={`material-symbols-rounded text-[20px] ${syncing ? 'animate-spin' : ''}`}>sync</span>
+                                {syncing ? 'Menyelaraskan...' : 'Tarik Data Shopee'}
+                            </button>
+                            <div className="relative w-full md:w-64">
+                                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                    <span className="material-symbols-rounded text-lg">search</span>
+                                </span>
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="Cari produk..."
+                                    className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-800 dark:text-white focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 transition"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -266,6 +290,7 @@ export default function ProductList() {
                                             <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
                                                 <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
                                                     <tr>
+                                                        <th className="px-6 py-4 w-10"></th>
                                                         <th className="px-6 py-4 w-24">Img</th>
                                                         <th className="px-6 py-4 w-1/4">Product Info</th>
                                                         <th className="px-6 py-4">Variant / SKU</th>
@@ -277,67 +302,99 @@ export default function ProductList() {
                                                 <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
                                                     {store.products.map((product) => {
                                                         const variants = product.variants || [];
-                                                        if (variants.length > 0) {
-                                                            return variants.map((variant, i) => (
-                                                                <tr key={`${product.id}-v-${variant.id}`} className="group hover:bg-blue-50/30 dark:hover:bg-blue-500/5 transition-colors">
-                                                                    {i === 0 && (
+                                                        const hasVariants = variants.length > 0;
+                                                        
+                                                        return (
+                                                            <Fragment key={product.id}>
+                                                                <tr className="group hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                                                                    <td className="px-6 py-4 align-top">
+                                                                        {hasVariants && (
+                                                                            <button
+                                                                                onClick={() => toggleExpand(product.id)}
+                                                                                className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}
+                                                                            >
+                                                                                <span className="material-symbols-rounded">expand_more</span>
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 align-top">
+                                                                        {product.image ? (
+                                                                            <img src={product.image} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm" alt="" />
+                                                                        ) : (
+                                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                                                                                <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">image</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 align-top">
+                                                                        <p className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-snug line-clamp-2">{product.item_name || "Unknown"}</p>
+                                                                        <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">{product.item_sku || "-"}</p>
+                                                                        {hasVariants && (
+                                                                            <div className="mt-2 flex gap-2">
+                                                                                <span className="text-[10px] bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-2 py-0.5 rounded">{variants.length} Varian</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {hasVariants ? (
+                                                                        <td className="px-6 py-4 align-middle text-center" colSpan={4}>
+                                                                            <span className="text-xs font-medium text-gray-400 dark:text-slate-500 italic bg-gray-50 dark:bg-slate-800 px-3 py-1 rounded-md">
+                                                                                Silakan perluas untuk melihat detail varian
+                                                                            </span>
+                                                                        </td>
+                                                                    ) : (
                                                                         <>
-                                                                            <td className="px-6 py-4 align-top border-r border-dashed border-gray-100 dark:border-slate-700" rowSpan={variants.length}>
-                                                                                {product.image ? (
-                                                                                    <img src={product.image} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm" alt="" />
-                                                                                ) : (
-                                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
-                                                                                        <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">image</span>
-                                                                                    </div>
-                                                                                )}
+                                                                            <td className="px-6 py-4 align-middle">
+                                                                                <span className="text-xs text-gray-400 dark:text-slate-500 italic">Single Product</span>
                                                                             </td>
-                                                                            <td className="px-6 py-4 align-top border-r border-dashed border-gray-100 dark:border-slate-700" rowSpan={variants.length}>
-                                                                                <p className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-snug line-clamp-2">{product.item_name || "Unknown"}</p>
-                                                                                <div className="mt-2 flex gap-2">
-                                                                                    <span className="text-[10px] bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-2 py-0.5 rounded">{variants.length} Varian</span>
-                                                                                </div>
+                                                                            <td className="px-6 py-4 text-center"><StockBadge stock={product.stock} /></td>
+                                                                            <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{formatRp(product.price)}</td>
+                                                                            <td className="px-6 py-4">
+                                                                                <HppEditor type="item" id={product.id} hpp={product.hpp} onSave={() => fetchData()} />
                                                                             </td>
                                                                         </>
                                                                     )}
-                                                                    <td className="px-6 py-3 align-middle">
-                                                                        <div className="flex flex-col">
-                                                                            <span className="font-medium text-gray-700 dark:text-slate-300 text-xs">{variant.model_name}</span>
-                                                                            <span className="text-[10px] text-gray-400 dark:text-slate-500 font-mono mt-0.5">{variant.model_sku || "-"}</span>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-3 text-center"><StockBadge stock={variant.stock} /></td>
-                                                                    <td className="px-6 py-3 font-medium text-gray-700 dark:text-slate-300">{formatRp(variant.price)}</td>
-                                                                    <td className="px-6 py-3">
-                                                                        <HppEditor type="variant" id={variant.id} hpp={variant.hpp} onSave={() => fetchData()} />
-                                                                    </td>
                                                                 </tr>
-                                                            ));
-                                                        }
 
-                                                        return (
-                                                            <tr key={product.id} className="group hover:bg-blue-50/30 dark:hover:bg-blue-500/5 transition-colors">
-                                                                <td className="px-6 py-4 align-top">
-                                                                    {product.image ? (
-                                                                        <img src={product.image} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm" alt="" />
-                                                                    ) : (
-                                                                        <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
-                                                                            <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">image</span>
-                                                                        </div>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-6 py-4 align-top">
-                                                                    <p className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-snug line-clamp-2">{product.item_name || "Unknown"}</p>
-                                                                    <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">{product.item_sku || "-"}</p>
-                                                                </td>
-                                                                <td className="px-6 py-4 align-middle">
-                                                                    <span className="text-xs text-gray-400 dark:text-slate-500 italic">Single Product</span>
-                                                                </td>
-                                                                <td className="px-6 py-4 text-center"><StockBadge stock={product.stock} /></td>
-                                                                <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{formatRp(product.price)}</td>
-                                                                <td className="px-6 py-4">
-                                                                    <HppEditor type="item" id={product.id} hpp={product.hpp} onSave={() => fetchData()} />
-                                                                </td>
-                                                            </tr>
+                                                                {/* Expanded Variant Details */}
+                                                                {hasVariants && expandedProducts[product.id] && (
+                                                                    <tr key={`${product.id}-detail`} className="bg-gray-50/50 dark:bg-slate-900/30">
+                                                                        <td colSpan={7} className="px-6 py-4">
+                                                                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm ml-10">
+                                                                                <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">Detail Varian</h4>
+                                                                                <div className="overflow-x-auto">
+                                                                                    <table className="w-full text-left text-sm">
+                                                                                        <thead className="text-xs uppercase text-gray-400 dark:text-slate-500 border-b border-gray-100 dark:border-slate-700">
+                                                                                            <tr>
+                                                                                                <th className="pb-3 w-1/3">Varian / SKU</th>
+                                                                                                <th className="pb-3 text-center">Stock</th>
+                                                                                                <th className="pb-3">Price</th>
+                                                                                                <th className="pb-3 w-60">HPP (Modal)</th>
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                                                                                            {variants.map(variant => (
+                                                                                                <tr key={variant.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                                                                                                    <td className="py-3 align-middle pr-4">
+                                                                                                        <div className="flex flex-col">
+                                                                                                            <span className="font-medium text-gray-700 dark:text-slate-300 text-xs">{variant.model_name}</span>
+                                                                                                            <span className="text-[10px] text-gray-400 dark:text-slate-500 font-mono mt-0.5">{variant.model_sku || "-"}</span>
+                                                                                                        </div>
+                                                                                                    </td>
+                                                                                                    <td className="py-3 text-center"><StockBadge stock={variant.stock} /></td>
+                                                                                                    <td className="py-3 font-medium text-gray-700 dark:text-slate-300">{formatRp(variant.price)}</td>
+                                                                                                    <td className="py-3">
+                                                                                                        <HppEditor type="variant" id={variant.id} hpp={variant.hpp} onSave={() => fetchData()} />
+                                                                                                    </td>
+                                                                                                </tr>
+                                                                                            ))}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </Fragment>
                                                         );
                                                     })}
                                                 </tbody>

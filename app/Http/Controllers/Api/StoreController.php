@@ -28,7 +28,9 @@ class StoreController extends Controller
 
                 'is_active' =>
                     $store->shop_expired_at &&
-                    Carbon::parse($store->shop_expired_at)->isFuture(),
+                    Carbon::parse($store->shop_expired_at)->isFuture() &&
+                    $store->token_expired_at &&
+                    Carbon::parse($store->token_expired_at)->isFuture(),
             ];
         });
 

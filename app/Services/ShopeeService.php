@@ -27,8 +27,6 @@ class ShopeeService
         if (Carbon::now('Asia/Jakarta')->gte($store->token_expired_at)) {
             $this->refreshAccessToken($store);
         }
-        // $this->refreshAccessToken($store);
-
         return $store->access_token;
     }
 

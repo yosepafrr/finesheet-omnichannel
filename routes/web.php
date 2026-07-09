@@ -25,7 +25,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/products', [ProductController::class, 'index']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
+        Route::post('/sync/products', function () {
+            dispatch(new \App\Jobs\SyncShopeeProductJob())->onQueue('products');
+            return response()->json(['message' => 'Product sync started']);
+        });
         Route::get('/orders', [OrderController::class, 'index']);
+        Route::post('/sync/orders', function () {
+            dispatch(new \App\Jobs\SyncShopeeOrderJob())->onQueue('orders');
+            return response()->json(['message' => 'Order sync started']);
+        });
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
     });
 });
