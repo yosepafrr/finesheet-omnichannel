@@ -9,9 +9,9 @@ use Carbon\Carbon;
 
 class StoreController extends Controller
 {
-        public function index()
+    public function index()
     {
-        $stores = Store::all()->map(function ($store) {
+        $stores = \Illuminate\Support\Facades\Auth::user()->stores()->get()->map(function ($store) {
 
             $logos = [
                 'Shopee' => asset('Marketplace-logo/shopee.png'),

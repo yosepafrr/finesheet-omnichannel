@@ -1,44 +1,34 @@
 <?php
 
-use App\Livewire\Cashflow;
-use App\Livewire\Dashboard;
-use App\Livewire\OrderList;
-use App\Livewire\StoreList;
-use App\Livewire\ProductList;
-use App\Livewire\MeetCreators;
-use App\Livewire\ProfitTracker;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ShopeeController;
 use App\Http\Controllers\ShopeeWebhookController;
 use App\Http\Controllers\TikTokController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\StoreController;
 
-Route::view('/', 'welcome');
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\ProfitController;
 
+// Auth Routes (Login, Register, Logout)
+require __DIR__ . '/auth.php';
 
-
-Route::view('profile', 'profile')
-    ->middleware(['auth'])
-    ->name('profile');
-
-
+// Auth-protected React SPA API Endpoints
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/dashboard', Dashboard::class)->name('dashboard');
-    Route::get('/meet-the-creators', MeetCreators::class)->name('meet.creators');
-    Route::get('/profit-tracker', ProfitTracker::class)->name('profit.tracker');
-    Route::get('/store-list', StoreList::class)->name('store.list');
-    Route::get('/product-list', ProductList::class)->name('product.list');
-    Route::get('/order-list', OrderList::class)->name('order.list');
-    Route::get('/cashflow', Cashflow::class)->name('cashflow');
     Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
 
-    // React views
-    Route::view('/react/stores', 'react')->name('react.stores');
-    Route::view('/react' , 'react')->name('react');
+    Route::prefix('api')->group(function () {
+        Route::get('/user', function (\Illuminate\Http\Request $request) {
+            return $request->user();
+        });
+        Route::get('/stores', [\App\Http\Controllers\Api\StoreController::class, 'index']);
+        Route::get('/products', [ProductController::class, 'index']);
+        Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
+        Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
+        Route::get('/orders', [OrderController::class, 'index']);
+        Route::get('/profit-tracker', [ProfitController::class, 'index']);
+    });
 });
-
 
 // SHOPEE AUTHORIZATION
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -46,25 +36,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/shopee/callback', [ShopeeController::class, 'handleShopeeCallback'])->name('shopee.callback');
 });
 
-
 // UPDATE PRODUCTS
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/shopee/update-product', [ShopeeController::class, 'updateProducts'])->name('shopee.update-product');
 });
-
 
 // GET SHOPEE ORDERS
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/shopee/orders', [ShopeeController::class, 'getShopeeOrders'])->name('shopee.orders');
 });
 
-
 // Tiktok SHOP AUTHORIZATION
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/tiktok/callback', [TikTokController::class, 'callback'])->name('tiktok.callback');
     Route::get('/connect/tiktok', [TikTokController::class, 'redirectToTikTok'])->name('tiktok.connect');
 });
+
 // WEBHOOK ROUTE
 Route::post('/webhook/shopee', [ShopeeWebhookController::class, 'handleWebhook']);
 
-require __DIR__ . '/auth.php';
+// React SPA (catch-all for hash routing) - MUST BE AT THE BOTTOM
+Route::view('/{any?}', 'react')->where('any', '.*')->name('react');

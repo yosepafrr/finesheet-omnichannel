@@ -22,7 +22,7 @@ export default function Footer() {
 
                     <div>
                         <a
-                            href="/meet-the-creators"
+                            href="#/meet-the-creators"
                             className="group flex items-center gap-3 px-4 py-2 rounded-full bg-gray-50 hover:bg-[#304674]/5 border border-gray-200 hover:border-[#304674]/20 transition-all duration-300"
                         >
                             <div className="w-6 h-6 rounded-full bg-[#304674] text-white flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
