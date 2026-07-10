@@ -62,6 +62,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // WEBHOOK ROUTE
 Route::post('/webhook/shopee', [ShopeeWebhookController::class, 'handleWebhook']);
+Route::post('/webhook/tiktok', [App\Http\Controllers\TiktokWebhookController::class, 'handleWebhook']);
 
 // React SPA (catch-all for hash routing) - MUST BE AT THE BOTTOM
 Route::view('/{any?}', 'react')->where('any', '.*')->name('react');

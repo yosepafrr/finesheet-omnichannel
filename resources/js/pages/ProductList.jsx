@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, Fragment } from "react";
+import React, { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import { motion, AnimatePresence } from "framer-motion";
 
 const POLLING_INTERVAL = 10000;
 
@@ -79,7 +80,7 @@ function HppEditor({ type, id, hpp, onSave }) {
 
     return (
         <div className="flex items-center justify-between group/edit gap-4">
-            <span className={`text-xs font-medium ${hpp ? "text-gray-600 dark:text-slate-300" : "text-gray-400 dark:text-slate-500 italic"}`}>
+            <span className={`font-medium ${hpp ? "dark:text-slate-300" : "text-gray-400 dark:text-slate-500 italic text-xs"}`}>
                 {hpp ? formatRp(hpp) : "Belum diisi"}
             </span>
             <button
@@ -163,12 +164,73 @@ function SkeletonTable() {
     );
 }
 
+function LimitDropdown({ value, onChange }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setIsOpen(false);
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="group flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all focus:outline-none"
+            >
+                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-[#304674] dark:group-hover:text-blue-400 transition-colors">
+                    {value}
+                </span>
+                <span className={`material-symbols-rounded text-slate-400 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}>
+                    expand_more
+                </span>
+            </button>
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="absolute left-0 bottom-full mb-2 w-32 bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 overflow-hidden origin-bottom-left z-50"
+                    >
+                        <div className="p-2">
+                            {[30, 50, 100].map(option => (
+                                <button
+                                    key={option}
+                                    onClick={() => {
+                                        onChange(option);
+                                        setIsOpen(false);
+                                    }}
+                                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-colors text-left ${value === option ? 'text-[#304674] bg-slate-50 dark:bg-slate-800 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300 hover:text-[#304674] hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                >
+                                    {option} Data
+                                </button>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
 export default function ProductList() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [expandedProducts, setExpandedProducts] = useState({});
     const [syncing, setSyncing] = useState(false);
+    const [limitByStore, setLimitByStore] = useState({});
+    const [pageByStore, setPageByStore] = useState({});
+
+    useEffect(() => {
+        setPageByStore({});
+    }, [search]);
 
     const handleSync = async () => {
         setSyncing(true);
@@ -217,12 +279,12 @@ export default function ProductList() {
                 <div className="space-y-8 pb-10 animate-fade-in-up">
 
                     {/* Header */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 pt-2 pb-2">
                         <div>
                             <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-tight">Product Management</h1>
                             <p className="text-sm text-gray-500 dark:text-slate-400">Kelola stok, harga, dan HPP produk dari semua toko Anda.</p>
                         </div>
-                        <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
                             <button 
                                 onClick={handleSync}
                                 disabled={syncing}
@@ -284,25 +346,60 @@ export default function ProductList() {
                                         <p className="text-xs text-gray-400 dark:text-slate-500 mb-6">Sinkronisasi data untuk mengambil produk terbaru.</p>
                                     </div>
                                 ) : (
-                                    <>
-                                        {/* Desktop Table */}
-                                        <div className="hidden md:block overflow-x-auto">
+                                    (() => {
+                                        const totalProducts = store.products.length;
+                                        const itemsPerPage = limitByStore[store.id] || 30;
+                                        const totalPages = Math.ceil(totalProducts / itemsPerPage);
+                                        const currentPage = pageByStore[store.id] || 1;
+                                        const validPage = Math.min(currentPage, totalPages > 0 ? totalPages : 1);
+                                        const paginatedProducts = store.products.slice((validPage - 1) * itemsPerPage, validPage * itemsPerPage);
+
+                                        return (
+                                            <>
+                                                {/* Desktop Table */}
+                                                <div className="hidden md:block overflow-x-auto">
                                             <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
                                                 <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
                                                     <tr>
                                                         <th className="px-6 py-4 w-10"></th>
-                                                        <th className="px-6 py-4 w-24">Img</th>
+                                                        <th className="px-6 py-4 w-24"></th>
                                                         <th className="px-6 py-4 w-1/4">Product Info</th>
-                                                        <th className="px-6 py-4">Variant / SKU</th>
                                                         <th className="px-6 py-4 text-center">Stock</th>
                                                         <th className="px-6 py-4">Price</th>
                                                         <th className="px-6 py-4 w-60">HPP (Modal)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                                                    {store.products.map((product) => {
+                                                    {paginatedProducts.map((product) => {
                                                         const variants = product.variants || [];
                                                         const hasVariants = variants.length > 0;
+                                                        
+                                                        let totalStock = product.stock;
+                                                        let priceDisplay = formatRp(product.price);
+                                                        let hppDisplay = (product.hpp && product.hpp > 0) ? formatRp(product.hpp) : "Belum diisi";
+                                                        
+                                                        if (hasVariants) {
+                                                            totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+                                                            const prices = variants.map(v => v.price).filter(p => p != null);
+                                                            if (prices.length > 0) {
+                                                                const minPrice = Math.min(...prices);
+                                                                const maxPrice = Math.max(...prices);
+                                                                priceDisplay = minPrice === maxPrice 
+                                                                    ? formatRp(minPrice) 
+                                                                    : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
+                                                            }
+
+                                                            const hpps = variants.map(v => v.hpp).filter(h => h != null && h > 0);
+                                                            if (hpps.length > 0) {
+                                                                const minHpp = Math.min(...hpps);
+                                                                const maxHpp = Math.max(...hpps);
+                                                                hppDisplay = minHpp === maxHpp 
+                                                                    ? formatRp(minHpp) 
+                                                                    : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
+                                                            } else {
+                                                                hppDisplay = "Belum diisi";
+                                                            }
+                                                        }
                                                         
                                                         return (
                                                             <Fragment key={product.id}>
@@ -336,16 +433,19 @@ export default function ProductList() {
                                                                         )}
                                                                     </td>
                                                                     {hasVariants ? (
-                                                                        <td className="px-6 py-4 align-middle text-center" colSpan={4}>
-                                                                            <span className="text-xs font-medium text-gray-400 dark:text-slate-500 italic bg-gray-50 dark:bg-slate-800 px-3 py-1 rounded-md">
-                                                                                Silakan perluas untuk melihat detail varian
-                                                                            </span>
-                                                                        </td>
+                                                                        <>
+                                                                            <td className="px-6 py-4 text-center"><StockBadge stock={totalStock} /></td>
+                                                                            <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{priceDisplay}</td>
+                                                                            <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
+                                                                                {hppDisplay === "Belum diisi" ? (
+                                                                                    <span className="text-gray-400 dark:text-slate-500 italic text-xs">Belum diisi</span>
+                                                                                ) : (
+                                                                                    hppDisplay
+                                                                                )}
+                                                                            </td>
+                                                                        </>
                                                                     ) : (
                                                                         <>
-                                                                            <td className="px-6 py-4 align-middle">
-                                                                                <span className="text-xs text-gray-400 dark:text-slate-500 italic">Single Product</span>
-                                                                            </td>
                                                                             <td className="px-6 py-4 text-center"><StockBadge stock={product.stock} /></td>
                                                                             <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{formatRp(product.price)}</td>
                                                                             <td className="px-6 py-4">
@@ -358,7 +458,7 @@ export default function ProductList() {
                                                                 {/* Expanded Variant Details */}
                                                                 {hasVariants && expandedProducts[product.id] && (
                                                                     <tr key={`${product.id}-detail`} className="bg-gray-50/50 dark:bg-slate-900/30">
-                                                                        <td colSpan={7} className="px-6 py-4">
+                                                                        <td colSpan={6} className="px-6 py-4">
                                                                             <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm ml-10">
                                                                                 <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">Detail Varian</h4>
                                                                                 <div className="overflow-x-auto">
@@ -403,7 +503,38 @@ export default function ProductList() {
 
                                         {/* Mobile Cards */}
                                         <div className="md:hidden p-4 space-y-4 bg-gray-50/50 dark:bg-slate-900/30">
-                                            {store.products.map((product) => (
+                                            {paginatedProducts.map((product) => {
+                                                const variants = product.variants || [];
+                                                const hasVariants = variants.length > 0;
+                                                
+                                                let totalStock = product.stock;
+                                                let priceDisplay = formatRp(product.price);
+                                                let hppDisplay = (product.hpp && product.hpp > 0) ? formatRp(product.hpp) : "Belum diisi";
+                                                
+                                                if (hasVariants) {
+                                                    totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+                                                    const prices = variants.map(v => v.price).filter(p => p != null);
+                                                    if (prices.length > 0) {
+                                                        const minPrice = Math.min(...prices);
+                                                        const maxPrice = Math.max(...prices);
+                                                        priceDisplay = minPrice === maxPrice 
+                                                            ? formatRp(minPrice) 
+                                                            : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
+                                                    }
+
+                                                    const hpps = variants.map(v => v.hpp).filter(h => h != null && h > 0);
+                                                    if (hpps.length > 0) {
+                                                        const minHpp = Math.min(...hpps);
+                                                        const maxHpp = Math.max(...hpps);
+                                                        hppDisplay = minHpp === maxHpp 
+                                                            ? formatRp(minHpp) 
+                                                            : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
+                                                    } else {
+                                                        hppDisplay = "Belum diisi";
+                                                    }
+                                                }
+
+                                                return (
                                                 <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
                                                     <div className="flex gap-4">
                                                         {product.image ? (
@@ -417,21 +548,35 @@ export default function ProductList() {
                                                             <h3 className="text-sm font-bold text-gray-800 dark:text-white leading-tight line-clamp-2">{product.item_name}</h3>
                                                             <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">{product.item_sku || "No SKU"}</p>
 
-                                                            {(!product.variants || product.variants.length === 0) ? (
-                                                                <div className="mt-3 flex items-center justify-between border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
-                                                                    <div>
-                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">Harga Jual</p>
-                                                                        <p className="text-sm font-bold text-[#304674] dark:text-blue-400">{formatRp(product.price)}</p>
+                                                            <div className="mt-3 flex items-center justify-between border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
+                                                                <div className="flex-1">
+                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">Harga Jual</p>
+                                                                    <p className="text-sm font-bold text-[#304674] dark:text-blue-400">{priceDisplay}</p>
+                                                                </div>
+                                                                {hasVariants && (
+                                                                    <div className="flex-1 px-2 text-center">
+                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">HPP (Modal)</p>
+                                                                        <p className="text-sm font-bold text-gray-700 dark:text-slate-300">
+                                                                            {hppDisplay === "Belum diisi" ? <span className="text-[10px] text-rose-500 italic font-normal">Belum diisi</span> : hppDisplay}
+                                                                        </p>
                                                                     </div>
-                                                                    <div className="text-right">
-                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">HPP</p>
-                                                                        <HppEditorMobile type="item" id={product.id} hpp={product.hpp} onSave={() => fetchData()} />
-                                                                    </div>
+                                                                )}
+                                                                <div className="flex-1 text-right">
+                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">Stok Total</p>
+                                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-medium mt-1 inline-block ${totalStock > 0 ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"}`}>
+                                                                        {totalStock}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {!hasVariants ? (
+                                                                <div className="mt-2 flex justify-end">
+                                                                    <HppEditorMobile type="item" id={product.id} hpp={product.hpp} onSave={() => fetchData()} />
                                                                 </div>
                                                             ) : (
                                                                 <button
                                                                     onClick={() => toggleExpand(product.id)}
-                                                                    className="mt-2 text-xs font-medium text-[#304674] dark:text-blue-400 flex items-center gap-1"
+                                                                    className="mt-3 w-full py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-slate-700/50 dark:hover:bg-slate-700 text-xs font-medium text-[#304674] dark:text-blue-400 rounded-lg flex items-center justify-center gap-1 transition-colors"
                                                                 >
                                                                     <span>{expandedProducts[product.id] ? "Tutup Varian" : `Lihat ${product.variants.length} Varian`}</span>
                                                                     <span className={`material-symbols-rounded text-base transition-transform ${expandedProducts[product.id] ? "rotate-180" : ""}`}>expand_more</span>
@@ -465,9 +610,50 @@ export default function ProductList() {
                                                         </div>
                                                     )}
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
+
+                                        {/* Pagination Controls */}
+                                        <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-sm text-gray-500 dark:text-slate-400">Tampilkan maksimal:</span>
+                                                        <LimitDropdown 
+                                                            value={itemsPerPage} 
+                                                            onChange={(val) => {
+                                                                setLimitByStore(prev => ({...prev, [store.id]: val}));
+                                                                setPageByStore(prev => ({...prev, [store.id]: 1}));
+                                                            }} 
+                                                        />
+                                                    </div>
+                                                    <span className="text-sm text-gray-500 dark:text-slate-400">
+                                                        Menampilkan {(validPage - 1) * itemsPerPage + 1} - {Math.min(validPage * itemsPerPage, totalProducts)} dari {totalProducts} produk
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        onClick={() => setPageByStore(p => ({...p, [store.id]: validPage - 1}))}
+                                                        disabled={validPage === 1}
+                                                        className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                                    >
+                                                        <span className="material-symbols-rounded text-xl">chevron_left</span>
+                                                    </button>
+                                                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300 min-w-[60px] text-center">
+                                                        {validPage} / {totalPages}
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => setPageByStore(p => ({...p, [store.id]: validPage + 1}))}
+                                                        disabled={validPage === totalPages}
+                                                        className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                                    >
+                                                        <span className="material-symbols-rounded text-xl">chevron_right</span>
+                                                    </button>
+                                                </div>
+                                            </div>
                                     </>
+                                        );
+                                    })()
                                 )}
                             </div>
                         ))

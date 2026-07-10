@@ -12,5 +12,8 @@ Artisan::command('inspire', function () {
 
 Schedule::call(function () {
     dispatch(new SyncShopeeOrderJob())->onQueue('orders');
+})->everyThirtyMinutes();
+
+Schedule::call(function () {
     dispatch(new SyncShopeeProductJob())->onQueue('products');
-})->everyMinute();
+})->hourly();

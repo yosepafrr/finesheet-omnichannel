@@ -102,7 +102,7 @@ export default function ProfitTracker() {
                                     <div className="relative z-10">
                                         <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Total Ads Spent</p>
                                         <h3 className="text-3xl font-bold text-gray-800 dark:text-white">
-                                            {formatRp(data.total_ads)}
+                                            Coming soon ...
                                         </h3>
                                         <div className="mt-4 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-xs font-medium">
                                             <span className="material-symbols-rounded text-sm">arrow_downward</span>
@@ -120,14 +120,15 @@ export default function ProfitTracker() {
                                     <div className="relative z-10">
                                         <p className="text-xs font-bold text-blue-200 uppercase tracking-wider mb-1">Estimasi Profit Bersih</p>
                                         <h3 className="text-3xl font-bold">
-                                            {formatRp(data.net_estimation)}
+                                            Coming soon ...
                                         </h3>
                                         <div className="mt-4 flex items-center gap-3">
                                             <div className="bg-white/10 backdrop-blur-sm border border-white/20 px-3 py-1 rounded-lg flex items-center gap-2">
                                                 {data.total_escrow_amount > 0 ? (
                                                     <>
                                                         <span className="text-xs text-blue-100">Margin:</span>
-                                                        <span className="text-sm font-bold">{data.margin}%</span>
+                                                        {/* <span className="text-sm font-bold">{data.margin}%</span> */}
+                                                        <span className="text-sm font-bold">Coming soon ...</span>
                                                     </>
                                                 ) : (
                                                     <span className="text-xs text-blue-100">Menunggu Data</span>
@@ -165,9 +166,9 @@ export default function ProfitTracker() {
                                                             <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wide">{store.platform}</p>
                                                         </div>
                                                     </div>
-                                                    <button className="text-gray-300 dark:text-slate-600 hover:text-[#304674] dark:hover:text-blue-400">
+                                                    {/* <button className="text-gray-300 dark:text-slate-600 hover:text-[#304674] dark:hover:text-blue-400">
                                                         <span className="material-symbols-rounded text-lg">more_vert</span>
-                                                    </button>
+                                                    </button> */}
                                                 </div>
 
                                                 <div>

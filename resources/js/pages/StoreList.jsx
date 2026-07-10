@@ -149,7 +149,7 @@ export default function StoreList() {
                         </div>
                         <div className="flex items-center gap-3 w-full sm:w-auto">
                             <a
-                                href="/shopee/connect"
+                                href="/connect/shopee"
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#203155] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-lg shadow-[#304674]/20 dark:shadow-blue-900/30 transition-all active:scale-95"
                             >
                                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
