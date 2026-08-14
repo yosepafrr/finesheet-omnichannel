@@ -5,7 +5,7 @@ namespace App\Jobs;
 use Carbon\Carbon;
 use App\Models\Order;
 use App\Models\Store;
-use App\Models\OrderItem;
+use App\Models\OrderProduct;
 use App\Events\OrderCreated;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
@@ -81,19 +81,19 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
                     'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
                     'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
                     'quantity_purchased' => $firstItem['quantity_purchased'] ?? null,
-                    'item_id' => $firstItem['item_id'] ?? null,
+                    'product_id' => $firstItem['item_id'] ?? null,
                 ]
             );
 
             if (!empty($escrow['order_income']['items'])) {
                 foreach ($escrow['order_income']['items'] as $escrowItem) {
-                    OrderItem::updateOrCreate(
+                    OrderProduct::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
-                            'item_id' => $escrowItem['item_id']
+                            'product_id' => $escrowItem['item_id']
                         ],
                         [
-                            'item_name' => $escrowItem['item_name'] ?? null,
+                            'product_name' => $escrowItem['item_name'] ?? null,
                             'quantity_purchased' => $escrowItem['quantity_purchased'] ?? 0,
                             'price' => $escrowItem['selling_price'] ?? 0,
                             'model_name' => $detail['item_list'][0]['model_name'] ?? null,

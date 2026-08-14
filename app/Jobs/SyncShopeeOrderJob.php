@@ -20,12 +20,22 @@ class SyncShopeeOrderJob implements ShouldQueue
 
     public $tries = 3;
     public $timeout = 120;
+    public $storeId;
+
+    public function __construct($storeId = null)
+    {
+        $this->storeId = $storeId;
+    }
 
     public function handle()
     {
         Log::info('SyncShopeeOrderJob started', ['time' => now()]);
 
-        $stores = Store::where('platform', 'Shopee')->get();
+        $query = Store::where('platform', 'Shopee');
+        if ($this->storeId) {
+            $query->where('id', $this->storeId);
+        }
+        $stores = $query->get();
         if ($stores->isEmpty()) {
             Log::info('No Shopee stores found');
             return;
@@ -86,19 +96,19 @@ class SyncShopeeOrderJob implements ShouldQueue
                                     'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
                                     'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
                                     'quantity_purchased' => $firstItem['quantity_purchased'] ?? null,
-                                    'item_id' => $firstItem['item_id'] ?? null,
+                                    'product_id' => $firstItem['item_id'] ?? null,
                                 ]
                             );
 
                             if (!empty($escrow['order_income']['items'])) {
                                 foreach ($escrow['order_income']['items'] as $escrowItem) {
-                                    \App\Models\OrderItem::updateOrCreate(
+                                    \App\Models\OrderProduct::updateOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'item_id' => $escrowItem['item_id']
+                                            'product_id' => $escrowItem['item_id']
                                         ],
                                         [
-                                            'item_name' => $escrowItem['item_name'] ?? null,
+                                            'product_name' => $escrowItem['item_name'] ?? null,
                                             'quantity_purchased' => $escrowItem['quantity_purchased'] ?? 0,
                                             'price' => $escrowItem['selling_price'] ?? 0,
 

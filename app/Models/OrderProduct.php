@@ -5,17 +5,18 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class OrderItem extends Model
+class OrderProduct extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'order_id',
-        'item_id',
-        'item_name',
+        'product_id',
+        'product_name',
         'model_name',
         'quantity_purchased',
         'price',
+        'image',
     ];
 
     public function order()
@@ -23,13 +24,13 @@ class OrderItem extends Model
         return $this->belongsTo(Order::class)->orderBy('order_time', 'desc');
     }
 
-    public function item()
+    public function product()
     {
-        return $this->belongsTo(Item::class, 'item_id', 'item_id');
+        return $this->belongsTo(Product::class, 'product_id', 'product_id');
     }
 
-    public function variantItems()
+    public function variantProducts()
     {
-        return $this->hasMany(VariantItems::class, 'item_id', 'id');
+        return $this->hasMany(VariantProduct::class, 'product_id', 'id');
     }
 }

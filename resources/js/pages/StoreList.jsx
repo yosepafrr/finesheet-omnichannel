@@ -37,6 +37,10 @@ function PlatformBadge({ platform, logo }) {
         <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${colorClass}`}>
             {logo ? (
                 <img src={logo} alt={platform} className="w-5 h-5 object-contain rounded" />
+            ) : isShopee ? (
+                <img src="/Marketplace-logo/shopee.png" alt="Shopee" className="w-5 h-5 object-contain rounded" />
+            ) : isTiktok ? (
+                <img src="/Marketplace-logo/tts.png" alt="TikTok" className="w-5 h-5 object-contain rounded" />
             ) : (
                 <span className="w-2 h-2 rounded-full bg-current opacity-50"></span>
             )}
@@ -147,16 +151,42 @@ export default function StoreList() {
                                 {stores.length} toko terdaftar · <span className="text-emerald-600 dark:text-emerald-400 font-medium">{activeCount} terhubung</span>
                             </p>
                         </div>
-                        <div className="flex items-center gap-3 w-full sm:w-auto">
-                            <a
-                                href="/connect/shopee"
+                        <div className="flex items-center gap-3 w-full sm:w-auto relative group">
+                            <button
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#203155] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-lg shadow-[#304674]/20 dark:shadow-blue-900/30 transition-all active:scale-95"
                             >
                                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M12 5v14M5 12h14" />
                                 </svg>
                                 Hubungkan Toko
-                            </a>
+                                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="ml-1 transition-transform group-hover:-rotate-180">
+                                    <path d="m6 9 6 6 6-6"/>
+                                </svg>
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden translate-y-2 group-hover:translate-y-0">
+                                <div className="p-1.5">
+                                    <a
+                                        href="/connect/shopee"
+                                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-orange-50 dark:hover:bg-orange-500/10 hover:text-orange-600 dark:hover:text-orange-400 rounded-lg transition-colors"
+                                    >
+                                        <div className="w-8 h-8 rounded bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center font-bold">
+                                            <img src="/Marketplace-logo/shopee.png" alt="Shopee" className="w-5 h-5 object-contain" />
+                                        </div>
+                                        Shopee
+                                    </a>
+                                    <a
+                                        href="/connect/tiktok"
+                                        className="flex items-center gap-3 px-3 py-2.5 mt-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-green-50 dark:hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-400 rounded-lg transition-colors"
+                                    >
+                                        <div className="w-8 h-8 rounded bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center font-bold">
+                                            <img src="/Marketplace-logo/tts.png" alt="TikTok" className="w-5 h-5 object-contain" />
+                                        </div>
+                                        TikTok Shop
+                                    </a>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -215,7 +245,7 @@ export default function StoreList() {
                             </div>
 
                             {/* Sync Button */}
-                            <button
+                            {/* <button
                                 onClick={() => fetchStores(true)}
                                 className="p-2.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors shrink-0"
                                 title="Refresh data"
@@ -227,7 +257,7 @@ export default function StoreList() {
                                     <path d="M21.5 2v6h-6M2.5 22v-6h6" />
                                     <path d="M2 12a10 10 0 0 1 18.76-4.5M22 12a10 10 0 0 1-18.76 4.5" />
                                 </svg>
-                            </button>
+                            </button> */}
                         </div>
                     </div>
 
@@ -300,7 +330,7 @@ export default function StoreList() {
                             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                 Menampilkan {filtered.length} dari {stores.length} toko
                             </span>
-                            <SyncIndicator lastSync={lastSync} />
+                            {/* <SyncIndicator lastSync={lastSync} /> */}
                         </div>
                     )}
                 </div>

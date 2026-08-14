@@ -15,49 +15,82 @@ function formatRp(n) {
 }
 
 const STATUS_CONFIG = {
+    ON_HOLD: {
+        label: "Ditahan",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
+    },
     READY_TO_SHIP: {
         label: "Perlu Dikirim",
-        bg: "bg-yellow-50 dark:bg-yellow-500/10",
-        text: "text-yellow-700 dark:text-yellow-400",
-        border: "border-yellow-200 dark:border-yellow-500/20",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
     TO_CONFIRM_RECEIVE: {
         label: "Perlu Diproses",
-        bg: "bg-green-50 dark:bg-green-500/10",
-        text: "text-green-700 dark:text-green-400",
-        border: "border-green-200 dark:border-green-500/20",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
+    },
+    AWAITING_SHIPMENT: {
+        label: "Menunggu pengiriman",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
+    },
+    AWAITING_COLLECTION: {
+        label: "Menunggu pengambilan",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
     PROCESSED: {
-        label: "Diproses",
-        bg: "bg-blue-50 dark:bg-blue-500/10",
-        text: "text-blue-700 dark:text-blue-400",
-        border: "border-blue-200 dark:border-blue-500/20",
+        label: "Telah Diproses",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
     SHIPPED: {
-        label: "Sedang Dikirim",
-        bg: "bg-purple-50 dark:bg-purple-500/10",
-        text: "text-purple-700 dark:text-purple-400",
-        border: "border-purple-200 dark:border-purple-500/20",
+        label: "Dikirim",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
+    },
+    IN_TRANSIT: {
+        label: "Sedang Transit",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
+    },
+    DELIVERED: {
+        label: "Terkirim",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
     COMPLETED: {
         label: "Selesai",
-        bg: "bg-green-50 dark:bg-green-500/10",
-        text: "text-green-700 dark:text-green-400",
-        border: "border-green-200 dark:border-green-500/20",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
     CANCELLED: {
         label: "Batal",
-        bg: "bg-red-50 dark:bg-red-500/10",
-        text: "text-red-700 dark:text-red-400",
-        border: "border-red-200 dark:border-red-500/20",
+        text: "text-gray-700 dark:text-gray-400 font-bold",
+        border: "border-none",
     },
 };
+
+const FILTER_GROUPS = [
+    { id: "semua", label: "Semua", statuses: [] },
+    { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "TO_CONFIRM_RECEIVE", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
+    { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED"] },
+    { id: "selesai", label: "Selesai", statuses: ["COMPLETED"] },
+    { id: "batal", label: "Pengembalian/Pembatalan", statuses: ["CANCELLED"] }
+];
 
 const PLATFORM_CONFIG = {
     Shopee: {
         bg: "bg-orange-50 dark:bg-orange-500/10",
         text: "text-orange-600 dark:text-orange-400",
-        icon: "S",
+        icon: (
+            <img
+                src="/Marketplace-logo/shopee.png"
+                alt="Shopee"
+                className="w-5 h-5 object-contain"
+            />
+        ),
     },
     Tokopedia: {
         bg: "bg-green-50 dark:bg-green-500/10",
@@ -67,7 +100,13 @@ const PLATFORM_CONFIG = {
     Tiktokshop: {
         bg: "bg-gray-100 dark:bg-slate-700",
         text: "text-black dark:text-white",
-        icon: "♪",
+        icon: (
+            <img
+                src="/Marketplace-logo/tts.png"
+                alt="Tiktokshop"
+                className="w-5 h-5 object-contain"
+            />
+        ),
     },
 };
 
@@ -162,19 +201,20 @@ function LimitDropdown({ value, onChange }) {
 export default function OrderList() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [selectedStatuses, setSelectedStatuses] = useState([]);
+    const [selectedFilterId, setSelectedFilterId] = useState("semua");
     const [selectedStore, setSelectedStore] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [expandedOrders, setExpandedOrders] = useState({});
     const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
     const storeDropdownRef = useRef(null);
     const [syncing, setSyncing] = useState(false);
+    const [syncingStoreId, setSyncingStoreId] = useState(null);
     const [limitByStore, setLimitByStore] = useState({});
     const [pageByStore, setPageByStore] = useState({});
 
     useEffect(() => {
         setPageByStore({});
-    }, [searchQuery, selectedStatuses, selectedStore]);
+    }, [searchQuery, selectedFilterId, selectedStore]);
 
     const handleSync = async () => {
         setSyncing(true);
@@ -187,6 +227,18 @@ export default function OrderList() {
             console.error("Failed to sync orders", err);
         } finally {
             setTimeout(() => setSyncing(false), 2000); // Visual feedback
+        }
+    };
+
+    const handleSyncStore = async (storeId) => {
+        setSyncingStoreId(storeId);
+        try {
+            await axios.post("/api/sync/orders", { store_id: storeId });
+            fetchData();
+        } catch (err) {
+            console.error(`Failed to sync orders for store ${storeId}`, err);
+        } finally {
+            setTimeout(() => setSyncingStoreId(null), 2000);
         }
     };
 
@@ -207,8 +259,10 @@ export default function OrderList() {
     const fetchData = useCallback(async () => {
         try {
             const params = {};
-            if (selectedStatuses.length)
-                params.statuses = selectedStatuses.join(",");
+            const filterGroup = FILTER_GROUPS.find(g => g.id === selectedFilterId);
+            if (filterGroup && filterGroup.statuses.length > 0) {
+                params.statuses = filterGroup.statuses.join(",");
+            }
             if (selectedStore) params.store_id = selectedStore;
             const res = await axios.get("/api/orders", { params });
             setData(res.data);
@@ -217,7 +271,7 @@ export default function OrderList() {
         } finally {
             setLoading(false);
         }
-    }, [selectedStatuses, selectedStore]);
+    }, [selectedFilterId, selectedStore]);
 
     useEffect(() => {
         setLoading(true);
@@ -230,13 +284,7 @@ export default function OrderList() {
         return () => clearInterval(interval);
     }, [fetchData]);
 
-    const toggleStatus = (status) => {
-        setSelectedStatuses((prev) =>
-            prev.includes(status)
-                ? prev.filter((s) => s !== status)
-                : [...prev, status],
-        );
-    };
+
 
     const toggleExpand = (orderId) => {
         setExpandedOrders((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
@@ -250,9 +298,12 @@ export default function OrderList() {
                 const q = searchQuery.toLowerCase();
                 const matchOrderId = order.order_sn?.toLowerCase().includes(q);
                 const matchItemName =
-                    order.items?.some((item) =>
-                        item.item_name?.toLowerCase().includes(q),
-                    ) || order.first_item?.item_name?.toLowerCase().includes(q);
+                    order.products?.some((item) =>
+                        item.product_name?.toLowerCase().includes(q),
+                    ) ||
+                    order.first_product?.product_name
+                        ?.toLowerCase()
+                        .includes(q);
                 if (!matchOrderId && !matchItemName) {
                     return;
                 }
@@ -285,7 +336,7 @@ export default function OrderList() {
                             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
                                 <button
                                     onClick={handleSync}
-                                    disabled={syncing}
+                                    disabled={syncing || syncingStoreId !== null}
                                     className="flex w-full md:w-auto items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
                                 >
                                     <span
@@ -295,7 +346,7 @@ export default function OrderList() {
                                     </span>
                                     {syncing
                                         ? "Menyelaraskan..."
-                                        : "Tarik Data Shopee"}
+                                        : "Sinkronisasi Data"}
                                 </button>
                                 <div className="relative w-full md:w-64">
                                     <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
@@ -431,31 +482,35 @@ export default function OrderList() {
                         {/* Status Tabs */}
                         <div className="border-b border-gray-200 dark:border-slate-700">
                             <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar">
-                                <button
-                                    onClick={() => setSelectedStatuses([])}
-                                    className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors ${
-                                        selectedStatuses.length === 0
-                                            ? "border-[#304674] dark:border-blue-500 text-[#304674] dark:text-blue-400"
-                                            : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
-                                    }`}
-                                >
-                                    Semua
-                                </button>
-                                {Object.entries(STATUS_CONFIG).map(
-                                    ([key, cfg]) => (
+                                {FILTER_GROUPS.map((group) => {
+                                    const isActive = selectedFilterId === group.id;
+                                    const count = group.statuses.reduce((sum, statusKey) => sum + (data?.status_counts?.[statusKey] || 0), 0);
+                                    
+                                    return (
                                         <button
-                                            key={key}
-                                            onClick={() => toggleStatus(key)}
-                                            className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors ${
-                                                selectedStatuses.includes(key)
+                                            key={group.id}
+                                            onClick={() => setSelectedFilterId(group.id)}
+                                            className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                                                isActive
                                                     ? "border-[#304674] dark:border-blue-500 text-[#304674] dark:text-blue-400"
                                                     : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
                                             }`}
                                         >
-                                            {cfg.label}
+                                            {group.label}
+                                            {count > 0 && group.id !== "semua" && (
+                                                <span
+                                                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                                                        isActive
+                                                            ? "bg-[#304674] text-white dark:bg-blue-500"
+                                                            : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400"
+                                                    }`}
+                                                >
+                                                    {count}
+                                                </span>
+                                            )}
                                         </button>
-                                    ),
-                                )}
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
@@ -527,9 +582,19 @@ export default function OrderList() {
                                             <span className="text-xs text-gray-400 dark:text-slate-500 font-mono hidden sm:inline">
                                                 ID: {store.id}
                                             </span>
-                                            <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md">
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md hidden sm:inline-block">
                                                 {storeOrders.length} Orders
                                             </span>
+                                            <button 
+                                                onClick={() => handleSyncStore(store.id)}
+                                                disabled={syncingStoreId === store.id || syncing}
+                                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                                            >
+                                                <span className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id ? 'animate-spin' : ''}`}>sync</span>
+                                                {syncingStoreId === store.id ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
+                                            </button>
                                         </div>
                                     </div>
 
@@ -538,7 +603,7 @@ export default function OrderList() {
                                         <table className="w-full text-left text-sm">
                                             <thead className="bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500 font-medium text-xs uppercase border-b border-gray-100 dark:border-slate-700">
                                                 <tr>
-                                                    <th className="px-6 py-4 w-10"></th>
+                                                    <th className="px-6 py-4 w-8"></th>
                                                     <th className="px-6 py-4">
                                                         Order Details
                                                     </th>
@@ -594,14 +659,10 @@ export default function OrderList() {
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
                                                                     <div className="flex items-center gap-3">
-                                                                        {order
-                                                                            .first_item
-                                                                            ?.image ? (
+                                                                        {order.first_product?.variant_image || order.first_product?.image ? (
                                                                             <img
                                                                                 src={
-                                                                                    order
-                                                                                        .first_item
-                                                                                        .image
+                                                                                    order.first_product?.variant_image || order.first_product?.image
                                                                                 }
                                                                                 className="w-10 h-10 rounded-md border border-gray-200 dark:border-slate-600 object-cover"
                                                                                 alt=""
@@ -617,25 +678,33 @@ export default function OrderList() {
                                                                             <p className="font-medium text-gray-700 dark:text-slate-300 truncate w-48">
                                                                                 {
                                                                                     order
-                                                                                        .first_item
-                                                                                        ?.item_name
+                                                                                        .first_product
+                                                                                        ?.product_name
                                                                                 }
                                                                             </p>
-                                                                            {order.item_count >
+                                                                            {order.product_count >
                                                                             1 ? (
-                                                                                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                                                                                    +
-                                                                                    {order.item_count -
-                                                                                        1}{" "}
-                                                                                    produk
-                                                                                    lainnya
-                                                                                </span>
+                                                                                <button
+                                                                                    onClick={() =>
+                                                                                        toggleExpand(
+                                                                                            order.id,
+                                                                                        )
+                                                                                    }
+                                                                                >
+                                                                                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                                                                        +
+                                                                                        {order.product_count -
+                                                                                            1}{" "}
+                                                                                        produk
+                                                                                        lainnya
+                                                                                    </span>
+                                                                                </button>
                                                                             ) : (
                                                                                 <span className="text-xs text-gray-400 dark:text-slate-500">
                                                                                     Variant:{" "}
                                                                                     {
                                                                                         order
-                                                                                            .first_item
+                                                                                            .first_product
                                                                                             ?.model_name
                                                                                     }
                                                                                 </span>
@@ -681,9 +750,9 @@ export default function OrderList() {
                                                                                 Pesanan
                                                                             </h4>
                                                                             <div className="space-y-3">
-                                                                                {order.items?.map(
+                                                                                {order.products?.map(
                                                                                     (
-                                                                                        item,
+                                                                                        product,
                                                                                         idx,
                                                                                     ) => (
                                                                                         <div
@@ -693,12 +762,12 @@ export default function OrderList() {
                                                                                             className="flex items-start justify-between"
                                                                                         >
                                                                                             <div className="flex items-start gap-3">
-                                                                                                {item.image ? (
+                                                                                                {product.variant_image || product.image ? (
                                                                                                     <img
                                                                                                         src={
-                                                                                                            item.image
+                                                                                                            product.variant_image || product.image
                                                                                                         }
-                                                                                                        className="w-12 h-12 rounded-lg border border-gray-100 dark:border-slate-600"
+                                                                                                        className="w-12 h-12 rounded-lg border border-gray-100 dark:border-slate-600 object-cover"
                                                                                                         alt=""
                                                                                                     />
                                                                                                 ) : (
@@ -711,18 +780,18 @@ export default function OrderList() {
                                                                                                 <div>
                                                                                                     <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">
                                                                                                         {
-                                                                                                            item.item_name
+                                                                                                            product.product_name
                                                                                                         }
                                                                                                     </p>
                                                                                                     <p className="text-xs text-gray-500 dark:text-slate-400">
                                                                                                         Var:{" "}
                                                                                                         {
-                                                                                                            item.model_name
+                                                                                                            product.model_name
                                                                                                         }{" "}
                                                                                                         •
                                                                                                         Qty:{" "}
                                                                                                         {
-                                                                                                            item.quantity_purchased
+                                                                                                            product.quantity_purchased
                                                                                                         }
                                                                                                     </p>
                                                                                                 </div>
@@ -827,13 +896,10 @@ export default function OrderList() {
                                                             )
                                                         }
                                                     >
-                                                        {order.first_item
-                                                            ?.image ? (
+                                                        {order.first_product?.variant_image || order.first_product?.image ? (
                                                             <img
                                                                 src={
-                                                                    order
-                                                                        .first_item
-                                                                        .image
+                                                                    order.first_product?.variant_image || order.first_product?.image
                                                                 }
                                                                 className="w-10 h-10 rounded border border-gray-200 dark:border-slate-600"
                                                                 alt=""
@@ -849,15 +915,15 @@ export default function OrderList() {
                                                             <p className="text-sm font-medium text-gray-700 dark:text-slate-300 truncate">
                                                                 {
                                                                     order
-                                                                        .first_item
-                                                                        ?.item_name
+                                                                        .first_product
+                                                                        ?.product_name
                                                                 }
                                                             </p>
-                                                            {order.item_count >
+                                                            {order.product_count >
                                                             1 ? (
                                                                 <p className="text-xs text-blue-600 dark:text-blue-400">
                                                                     +
-                                                                    {order.item_count -
+                                                                    {order.product_count -
                                                                         1}{" "}
                                                                     produk
                                                                     lainnya
@@ -867,7 +933,7 @@ export default function OrderList() {
                                                                     Qty:{" "}
                                                                     {
                                                                         order
-                                                                            .first_item
+                                                                            .first_product
                                                                             ?.quantity
                                                                     }
                                                                 </p>
@@ -884,8 +950,8 @@ export default function OrderList() {
                                                         order.id
                                                     ] && (
                                                         <div className="mt-3 space-y-3 border-t border-gray-100 dark:border-slate-700 pt-3">
-                                                            {order.items?.map(
-                                                                (item, idx) => (
+                                                            {order.products?.map(
+                                                                (product, idx) => (
                                                                     <div
                                                                         key={
                                                                             idx
@@ -894,13 +960,14 @@ export default function OrderList() {
                                                                     >
                                                                         <span className="text-gray-600 dark:text-slate-300 w-2/3">
                                                                             {
-                                                                                item.item_name
+                                                                                product.product_name
                                                                             }{" "}
                                                                             <span className="text-gray-400 dark:text-slate-500">
                                                                                 (x
                                                                                 {
-                                                                                    item.quantity_purchased
+                                                                                    product.quantity_purchased
                                                                                 }
+
                                                                                 )
                                                                             </span>
                                                                         </span>
@@ -928,81 +995,79 @@ export default function OrderList() {
                                     {/* Pagination Controls */}
                                     <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-sm text-gray-500 dark:text-slate-400">
-                                                        Tampilkan maksimal:
-                                                    </span>
-                                                    <LimitDropdown
-                                                        value={itemsPerPage}
-                                                        onChange={(val) => {
-                                                            setLimitByStore(
-                                                                (prev) => ({
-                                                                    ...prev,
-                                                                    [store.id]:
-                                                                        val,
-                                                                }),
-                                                            );
-                                                            setPageByStore(
-                                                                (prev) => ({
-                                                                    ...prev,
-                                                                    [store.id]: 1,
-                                                                }),
-                                                            );
-                                                        }}
-                                                    />
-                                                </div>
+                                            <div className="flex items-center gap-1">
                                                 <span className="text-sm text-gray-500 dark:text-slate-400">
-                                                    Menampilkan{" "}
-                                                    {(validPage - 1) *
-                                                        itemsPerPage +
-                                                        1}{" "}
-                                                    -{" "}
-                                                    {Math.min(
-                                                        validPage *
-                                                            itemsPerPage,
-                                                        totalOrders,
-                                                    )}{" "}
-                                                    dari {totalOrders} pesanan
+                                                    Tampilkan maksimal:
                                                 </span>
+                                                <LimitDropdown
+                                                    value={itemsPerPage}
+                                                    onChange={(val) => {
+                                                        setLimitByStore(
+                                                            (prev) => ({
+                                                                ...prev,
+                                                                [store.id]: val,
+                                                            }),
+                                                        );
+                                                        setPageByStore(
+                                                            (prev) => ({
+                                                                ...prev,
+                                                                [store.id]: 1,
+                                                            }),
+                                                        );
+                                                    }}
+                                                />
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() =>
-                                                        setPageByStore((p) => ({
-                                                            ...p,
-                                                            [store.id]:
-                                                                validPage - 1,
-                                                        }))
-                                                    }
-                                                    disabled={validPage === 1}
-                                                    className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                                >
-                                                    <span className="material-symbols-rounded text-xl">
-                                                        chevron_left
-                                                    </span>
-                                                </button>
-                                                <span className="text-sm font-medium text-gray-700 dark:text-slate-300 min-w-[60px] text-center">
-                                                    {validPage} / {totalPages}
-                                                </span>
-                                                <button
-                                                    onClick={() =>
-                                                        setPageByStore((p) => ({
-                                                            ...p,
-                                                            [store.id]:
-                                                                validPage + 1,
-                                                        }))
-                                                    }
-                                                    disabled={
-                                                        validPage === totalPages
-                                                    }
-                                                    className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                                >
-                                                    <span className="material-symbols-rounded text-xl">
-                                                        chevron_right
-                                                    </span>
-                                                </button>
-                                            </div>
+                                            <span className="text-sm text-gray-500 dark:text-slate-400">
+                                                Menampilkan{" "}
+                                                {(validPage - 1) *
+                                                    itemsPerPage +
+                                                    1}{" "}
+                                                -{" "}
+                                                {Math.min(
+                                                    validPage * itemsPerPage,
+                                                    totalOrders,
+                                                )}{" "}
+                                                dari {totalOrders} pesanan
+                                            </span>
                                         </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() =>
+                                                    setPageByStore((p) => ({
+                                                        ...p,
+                                                        [store.id]:
+                                                            validPage - 1,
+                                                    }))
+                                                }
+                                                disabled={validPage === 1}
+                                                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                            >
+                                                <span className="material-symbols-rounded text-xl">
+                                                    chevron_left
+                                                </span>
+                                            </button>
+                                            <span className="text-sm font-medium text-gray-700 dark:text-slate-300 min-w-[60px] text-center">
+                                                {validPage} / {totalPages}
+                                            </span>
+                                            <button
+                                                onClick={() =>
+                                                    setPageByStore((p) => ({
+                                                        ...p,
+                                                        [store.id]:
+                                                            validPage + 1,
+                                                    }))
+                                                }
+                                                disabled={
+                                                    validPage === totalPages
+                                                }
+                                                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                            >
+                                                <span className="material-symbols-rounded text-xl">
+                                                    chevron_right
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             );
                         })

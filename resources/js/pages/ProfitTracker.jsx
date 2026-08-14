@@ -9,9 +9,9 @@ function formatRp(n) {
 }
 
 const PLATFORM_CONFIG = {
-    Shopee: { bg: "bg-orange-50 dark:bg-orange-500/10", text: "text-orange-600 dark:text-orange-400", border: "border-orange-100 dark:border-orange-500/20", icon: "S" },
+    Shopee: { bg: "bg-orange-50 dark:bg-orange-500/10", text: "text-orange-600 dark:text-orange-400", border: "border-orange-100 dark:border-orange-500/20", icon: <img src="/Marketplace-logo/shopee.png" alt="Shopee" className="w-5 h-5 object-contain" /> },
     Tokopedia: { bg: "bg-green-50 dark:bg-green-500/10", text: "text-green-600 dark:text-green-400", border: "border-green-100 dark:border-green-500/20", icon: "T" },
-    Tiktokshop: { bg: "bg-gray-100 dark:bg-slate-700", text: "text-black dark:text-white", border: "border-gray-200 dark:border-slate-600", icon: "♪" },
+    Tiktokshop: { bg: "bg-gray-100 dark:bg-slate-700", text: "text-black dark:text-white", border: "border-gray-200 dark:border-slate-600", icon: <img src="/Marketplace-logo/tts.png" alt="Tiktokshop" className="w-5 h-5 object-contain" /> },
 };
 
 function SkeletonCards() {

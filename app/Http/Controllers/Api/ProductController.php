@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use App\Models\Item;
-use App\Models\VariantItems;
+use App\Models\Product;
+use App\Models\VariantProduct;
 use Illuminate\Support\Facades\Auth;
 
 class ProductController extends Controller
@@ -16,14 +16,14 @@ class ProductController extends Controller
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
 
-        $products = Item::whereIn('store_id', $storeIds)
+        $products = Product::whereIn('store_id', $storeIds)
             ->when($request->search, function ($query) use ($request) {
                 $query->where(function ($q) use ($request) {
-                    $q->where('item_name', 'ilike', '%' . $request->search . '%')
-                      ->orWhere('item_sku', 'ilike', '%' . $request->search . '%');
+                    $q->where('product_name', 'ilike', '%' . $request->search . '%')
+                      ->orWhere('product_sku', 'ilike', '%' . $request->search . '%');
                 });
             })
-            ->with('variantItems')
+            ->with('variantProducts')
             ->latest()
             ->get();
 
@@ -38,16 +38,22 @@ class ProductController extends Controller
                     'products' => $storeProducts->map(function ($product) {
                         return [
                             'id' => $product->id,
-                            'item_name' => $product->item_name,
-                            'item_sku' => $product->item_sku,
+                            'platform_product_id' => $product->product_id,
+                            'product_name' => $product->product_name,
+                            'product_sku' => $product->product_sku,
                             'stock' => $product->stock,
                             'price' => $product->price,
                             'hpp' => $product->hpp,
                             'image' => $product->image,
-                            'variants' => $product->variantItems->map(function ($v) {
+                            'variants' => $product->variantProducts->map(function ($v) {
                                 return [
                                     'id' => $v->id,
+                                    'platform_variant_id' => $v->model_id,
                                     'model_name' => $v->model_name,
+                                    'variant_name' => $v->variant_name ?? $v->model_name,
+                                    'variant_image' => $v->variant_image,
+                                    'tier_index' => $v->tier_index,
+                                    'variant_options' => $v->variant_options,
                                     'model_sku' => $v->model_sku,
                                     'stock' => $v->stock,
                                     'price' => $v->price,
@@ -65,33 +71,33 @@ class ProductController extends Controller
     {
         $request->validate(['hpp' => 'required|numeric|min:0']);
 
-        $item = Item::findOrFail($id);
+        $product = Product::findOrFail($id);
 
         // Verify ownership
         $user = Auth::user();
         $storeIds = $user->stores()->pluck('id');
-        if (!$storeIds->contains($item->store_id)) {
+        if (!$storeIds->contains($product->store_id)) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $item->hpp = $request->hpp;
-        $item->save();
+        $product->hpp = $request->hpp;
+        $product->save();
 
-        return response()->json(['message' => 'HPP updated', 'hpp' => $item->hpp]);
+        return response()->json(['message' => 'HPP updated', 'hpp' => $product->hpp]);
     }
 
     public function updateVariantHpp(Request $request, $id)
     {
         $request->validate(['hpp' => 'required|numeric|min:0']);
 
-        $variant = VariantItems::findOrFail($id);
+        $variant = VariantProduct::findOrFail($id);
 
-        // Verify ownership through item -> store
+        // Verify ownership through product -> store
         $user = Auth::user();
         $storeIds = $user->stores()->pluck('id');
-        $item = Item::find($variant->item_id);
+        $product = Product::find($variant->product_id);
 
-        if (!$item || !$storeIds->contains($item->store_id)) {
+        if (!$product || !$storeIds->contains($product->store_id)) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -99,5 +105,31 @@ class ProductController extends Controller
         $variant->save();
 
         return response()->json(['message' => 'HPP updated', 'hpp' => $variant->hpp]);
+    }
+
+    public function updateBulkVariantHpp(Request $request)
+    {
+        $request->validate([
+            'variant_ids' => 'required|array',
+            'variant_ids.*' => 'integer',
+            'hpp' => 'required|numeric|min:0'
+        ]);
+
+        $user = Auth::user();
+        $storeIds = $user->stores()->pluck('id');
+
+        $variants = VariantProduct::whereIn('id', $request->variant_ids)->get();
+
+        $updatedCount = 0;
+        foreach ($variants as $variant) {
+            $product = Product::find($variant->product_id);
+            if ($product && $storeIds->contains($product->store_id)) {
+                $variant->hpp = $request->hpp;
+                $variant->save();
+                $updatedCount++;
+            }
+        }
+
+        return response()->json(['message' => "$updatedCount variants updated", 'hpp' => $request->hpp]);
     }
 }

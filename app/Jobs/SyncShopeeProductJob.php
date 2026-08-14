@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Models\Item;
+use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Support\Arr;
-use App\Models\VariantItems;
+use App\Models\VariantProduct;
 use App\Events\ProductCreated;
 use App\Services\ShopeeService;
 use Illuminate\Support\Facades\Log;
@@ -19,13 +19,15 @@ class SyncShopeeProductJob implements ShouldQueue
 {
     public $tries = 3;
     public $timeout = 120;
+    public $storeId;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
      * Create a new job instance.
      */
-    public function __construct()
+    public function __construct($storeId = null)
     {
+        $this->storeId = $storeId;
         // Log::info('SyncShopeeProductJob on Constructor initialized', ['time' => now()]);
     }
 
@@ -35,7 +37,12 @@ class SyncShopeeProductJob implements ShouldQueue
     public function handle()
     {
         Log::info('SyncShopeeProductJob on handle initialized', ['time' => now()]);
-        $stores = Store::where('platform', 'Shopee')->get();
+        
+        $query = Store::where('platform', 'Shopee');
+        if ($this->storeId) {
+            $query->where('id', $this->storeId);
+        }
+        $stores = $query->get();
         $shopee = new ShopeeService();
 
         foreach ($stores as $store) {
@@ -76,17 +83,17 @@ class SyncShopeeProductJob implements ShouldQueue
 
             foreach ($itemDetails as $item) {
                 try {
-                    $product = Item::updateOrCreate(
+                    $product = Product::updateOrCreate(
                         [
-                            'item_id' => $item['item_id'],
+                            'product_id' => $item['item_id'],
                             'store_id' => $store->id,
                         ],
                         [
-                            'item_name'  => $item['item_name'] ?? 'Unknown',
+                            'product_name'  => $item['item_name'] ?? 'Unknown',
                             'image'      => $item['promotion_image']['image_url_list'][0] ?? null,
                             'price'      => $item['price_info'][0]['current_price'] ?? 0,
-                            'item_sku'   => $item['item_sku'] ?? null,
-                            'item_status' => $item['item_status'] ?? null,
+                            'product_sku'   => $item['item_sku'] ?? null,
+                            'product_status' => $item['item_status'] ?? null,
                             'stock'      => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
                             'category'   => $item['category_id'] ?? null,
                         ]
@@ -100,9 +107,9 @@ class SyncShopeeProductJob implements ShouldQueue
                                     'model_id' => Arr::get($model, 'model_id'),
                                 ]);
 
-                                $variantSaved = VariantItems::updateOrCreate(
+                                $variantSaved = VariantProduct::updateOrCreate(
                                     [
-                                        'item_id'  => $product->id, // id dari tabel products
+                                        'product_id'  => $product->id, // id dari tabel products
                                         'model_id' => Arr::get($model, 'model_id'),
                                     ],
                                     [
@@ -111,6 +118,10 @@ class SyncShopeeProductJob implements ShouldQueue
                                         'stock'      => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
                                         'price'      => Arr::get($model, 'price_info.0.current_price', 0),
                                         'status'     => Arr::get($model, 'model_status'),
+                                        'tier_index'      => Arr::get($model, 'tier_index'),
+                                        'variant_name'    => Arr::get($model, 'variant_name'),
+                                        'variant_options' => Arr::get($model, 'variant_options'),
+                                        'variant_image'   => Arr::get($model, 'variant_image'),
                                     ]
                                 );
 

@@ -302,6 +302,7 @@ class ShopeeService
             }
 
             $response = $json['response'] ?? [];
+            $tierVariation = $response['tier_variation'] ?? [];
 
             if (empty($response['model'])) {
                 Log::info("Item {$itemId} tidak punya variant (single SKU).");
@@ -309,15 +310,86 @@ class ShopeeService
                 Log::info("Item {$itemId} berhasil ambil " . count($response['model']) . " variant.");
             }
 
-            // 🔑 Inject item_id ke setiap model
-            foreach ($response['model'] as &$model) {
-                $model['item_id'] = $itemId;
+            // 🔑 Inject item_id, variant_name, variant_options ke setiap model
+            if (!empty($response['model'])) {
+                foreach ($response['model'] as &$model) {
+                    $model['item_id'] = $itemId;
+                    $tierIndex = $model['tier_index'] ?? [];
+                    
+                    // Fallback jika tidak punya variant / empty tier_index
+                    $defaultName = !empty($model['model_sku']) ? $model['model_sku'] : "Model " . $model['model_id'];
+                    
+                    $model['variant_name'] = $this->buildVariantName($tierVariation, $tierIndex, $defaultName);
+                    $model['variant_options'] = $this->buildVariantOptions($tierVariation, $tierIndex);
+                    $model['variant_image'] = $this->extractVariantImage($tierVariation, $tierIndex);
+                }
             }
 
             $results[$itemId] = $response;
         }
 
         return $results;
-        // return dd($response->json());
+    }
+
+    /**
+     * Membangun string variant_name (misal: "Blue - 40") berdasarkan tier_index dan tier_variation.
+     */
+    private function buildVariantName(array $tierVariation, array $tierIndex, string $defaultName = '')
+    {
+        if (empty($tierVariation) || empty($tierIndex)) {
+            return $defaultName;
+        }
+
+        $names = [];
+        foreach ($tierIndex as $level => $index) {
+            if (isset($tierVariation[$level]['option_list'][$index]['option'])) {
+                $names[] = $tierVariation[$level]['option_list'][$index]['option'];
+            }
+        }
+
+        return !empty($names) ? implode(' - ', $names) : $defaultName;
+    }
+
+    /**
+     * Membangun array variant_options untuk masing-masing tier.
+     */
+    private function buildVariantOptions(array $tierVariation, array $tierIndex)
+    {
+        $options = [];
+        if (empty($tierVariation) || empty($tierIndex)) {
+            return $options;
+        }
+
+        foreach ($tierIndex as $level => $index) {
+            if (isset($tierVariation[$level]['name']) && isset($tierVariation[$level]['option_list'][$index]['option'])) {
+                $options[] = [
+                    'name' => $tierVariation[$level]['name'],
+                    'value' => $tierVariation[$level]['option_list'][$index]['option']
+                ];
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Mengekstrak URL gambar varian (misal dari tier warna).
+     */
+    private function extractVariantImage(array $tierVariation, array $tierIndex)
+    {
+        if (empty($tierVariation) || empty($tierIndex)) {
+            return null;
+        }
+
+        // Biasanya gambar hanya ada di tier pertama (level 0)
+        $level = 0;
+        if (isset($tierIndex[$level])) {
+            $index = $tierIndex[$level];
+            if (!empty($tierVariation[$level]['option_list'][$index]['image']['image_url'])) {
+                return $tierVariation[$level]['option_list'][$index]['image']['image_url'];
+            }
+        }
+
+        return null;
     }
 }

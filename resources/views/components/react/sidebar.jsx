@@ -87,8 +87,17 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
         }`;
 
     const expandListClass = (menuKey, subPaths) =>
-        `w-full group flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-300 text-sm text-slate-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800/50 hover:text-[#304674] dark:hover:text-blue-400
+        `w-full group flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-300 relative text-sm text-slate-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800/50 hover:text-[#304674] dark:hover:text-blue-400
         ${(openSubmenus[menuKey] || isSubmenuActive(subPaths)) ? "bg-slate-50 dark:bg-slate-800/30 text-[#304674] dark:text-blue-400 font-medium" : "font-medium"}`;
+
+    const renderTooltip = (text) => {
+        if (!sidebarCollapsed) return null;
+        return (
+            <div className="fixed ml-[60px] px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 text-white text-xs font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-[999] shadow-sm border border-slate-700">
+                {text}
+            </div>
+        );
+    };
 
     const handleNav = (e, path) => {
         e.preventDefault();
@@ -110,7 +119,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
             <aside
                 className={`flex-shrink-0 fixed inset-y-0 left-0 z-50 flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xl lg:shadow-none transition-all duration-300 ease-in-out lg:static lg:translate-x-0
                 ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
-                ${sidebarCollapsed ? "w-20" : "w-64"}`}
+                ${sidebarCollapsed ? "w-[70px]" : "w-64"}`}
             >
                 {/* COLLAPSE BUTTON */}
                 <button
@@ -135,6 +144,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                 Dashboard
                             </span>
                         )}
+                        {renderTooltip("Dashboard")}
                     </a>
 
                     <a href="#/stores" onClick={(e) => handleNav(e, '/stores')} className={navItemClass('/stores')}>
@@ -146,6 +156,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                 Your Stores
                             </span>
                         )}
+                        {renderTooltip("Your Stores")}
                     </a>
 
                     <a href="#/products" onClick={(e) => handleNav(e, '/products')} className={navItemClass('/products')}>
@@ -157,6 +168,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                 Your Products
                             </span>
                         )}
+                        {renderTooltip("Your Products")}
                     </a>
 
                     <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2"></div>
@@ -184,6 +196,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                     expand_more
                                 </span>
                             )}
+                            {renderTooltip("Finance")}
                         </button>
                         {openSubmenus.finance && !sidebarCollapsed && (
                             <div className="flex flex-col gap-1 mt-1 ml-6 pl-4 border-l-2 border-gray-300 dark:border-slate-700 overflow-hidden">
@@ -228,6 +241,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                     expand_more
                                 </span>
                             )}
+                            {renderTooltip("Orders")}
                         </button>
                         {openSubmenus.orders && !sidebarCollapsed && (
                             <div className="flex flex-col gap-1 mt-1 ml-6 pl-4 border-l-2 border-gray-300 dark:border-slate-700 overflow-hidden">
@@ -246,10 +260,10 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                 {/* USER PROFILE */}
                 <div className="p-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-slate-50/50 dark:bg-slate-800/30">
                     <div
-                        className={`flex items-center gap-3 transition-all duration-300 ${sidebarCollapsed ? "justify-center" : ""}`}
+                        className="flex items-center gap-3 transition-all duration-300"
                     >
                         <div className="w-9 h-9 rounded-full bg-[#304674] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
-                            {user.name ? user.name.charAt(0) : "?"}
+                            <span className="material-symbols-rounded text-[20px]">person</span>
                         </div>
                         {!sidebarCollapsed && (
                             <div className="overflow-hidden whitespace-nowrap">

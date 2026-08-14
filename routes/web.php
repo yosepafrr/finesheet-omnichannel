@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ShopeeController;
 use App\Http\Controllers\ShopeeWebhookController;
-use App\Http\Controllers\TikTokController;
+use App\Http\Controllers\TiktokController;
 use App\Http\Controllers\DashboardController;
 
 use App\Http\Controllers\Api\ProductController;
@@ -24,14 +24,45 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/stores', [\App\Http\Controllers\Api\StoreController::class, 'index']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
+        Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
-        Route::post('/sync/products', function () {
+        Route::post('/sync/products', function (\Illuminate\Http\Request $request) {
+            $storeId = $request->input('store_id');
+            if ($storeId) {
+                $store = \App\Models\Store::find($storeId);
+                if ($store) {
+                    if ($store->platform === 'Shopee') {
+                        dispatch(new \App\Jobs\SyncShopeeProductJob($storeId))->onQueue('products');
+                    } elseif ($store->platform === 'Tiktokshop') {
+                        dispatch(new \App\Jobs\SyncTiktokProductJob($storeId))->onQueue('products');
+                    }
+                    return response()->json(['message' => 'Product sync started for store ' . $store->store_name]);
+                }
+                return response()->json(['message' => 'Store not found'], 404);
+            }
+
             dispatch(new \App\Jobs\SyncShopeeProductJob())->onQueue('products');
+            dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
             return response()->json(['message' => 'Product sync started']);
         });
         Route::get('/orders', [OrderController::class, 'index']);
-        Route::post('/sync/orders', function () {
+        Route::post('/sync/orders', function (\Illuminate\Http\Request $request) {
+            $storeId = $request->input('store_id');
+            if ($storeId) {
+                $store = \App\Models\Store::find($storeId);
+                if ($store) {
+                    if ($store->platform === 'Shopee') {
+                        dispatch(new \App\Jobs\SyncShopeeOrderJob($storeId))->onQueue('orders');
+                    } elseif ($store->platform === 'Tiktokshop') {
+                        dispatch(new \App\Jobs\SyncTiktokOrderJob($storeId))->onQueue('orders');
+                    }
+                    return response()->json(['message' => 'Order sync started for store ' . $store->store_name]);
+                }
+                return response()->json(['message' => 'Store not found'], 404);
+            }
+
             dispatch(new \App\Jobs\SyncShopeeOrderJob())->onQueue('orders');
+            dispatch(new \App\Jobs\SyncTiktokOrderJob())->onQueue('orders');
             return response()->json(['message' => 'Order sync started']);
         });
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
@@ -56,8 +87,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // Tiktok SHOP AUTHORIZATION
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/tiktok/callback', [TikTokController::class, 'callback'])->name('tiktok.callback');
-    Route::get('/connect/tiktok', [TikTokController::class, 'redirectToTikTok'])->name('tiktok.connect');
+    Route::get('/tiktok/callback', [TiktokController::class, 'handleTiktokCallback'])->name('tiktok.callback');
+    Route::get('/connect/tiktok', [TiktokController::class, 'redirectToTiktok'])->name('tiktok.connect');
 });
 
 // WEBHOOK ROUTE

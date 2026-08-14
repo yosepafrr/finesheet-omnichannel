@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use Carbon\Carbon;
-use App\Models\Item;
+use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Support\Arr;
-use App\Models\VariantItems;
+use App\Models\VariantProduct;
 use Illuminate\Http\Request;
 use App\Services\ShopeeService;
 use Illuminate\Support\Facades\Log;
@@ -30,7 +30,7 @@ class ShopeeController extends Controller
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
 
-        $redirectUrl = 'https://478f-157-85-212-45.ngrok-free.app/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
+        $redirectUrl = 'https://36d6-103-3-222-184.ngrok-free.app/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
         $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
@@ -138,17 +138,18 @@ class ShopeeController extends Controller
             } else {
                 foreach ($itemDetails as $item) {
                     try {
-                        $savedItems = Item::updateOrCreate(
+                        $savedItems = Product::updateOrCreate(
                             [
-                                'item_id' => $item['item_id'],
+                                'product_id' => $item['item_id'],
                                 'store_id' => $store->id,
                             ],
                             [
-                                'item_name'  => $item['item_name'] ?? 'Unknown',
+                                'platform'   => 'Shopee',
+                                'product_name'  => $item['item_name'] ?? 'Unknown',
                                 'image'      => $item['promotion_image']['image_url_list'][0] ?? null,
                                 'price'      => $item['price_info'][0]['current_price'] ?? 0,
-                                'item_sku'   => $item['item_sku'] ?? null,
-                                'item_status' => $item['item_status'] ?? null,
+                                'product_sku'   => $item['item_sku'] ?? null,
+                                'product_status' => $item['item_status'] ?? null,
                                 'stock'      => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
                                 'category'   => $item['category_id'] ?? null,
                             ]
@@ -164,9 +165,9 @@ class ShopeeController extends Controller
                                         'model_id' => Arr::get($model, 'model_id'),
                                     ]);
 
-                                    $variantSaved = VariantItems::updateOrCreate(
+                                    $variantSaved = VariantProduct::updateOrCreate(
                                         [
-                                            'item_id'  => $savedItems->id, // id dari tabel products
+                                            'product_id'  => $savedItems->id, // id dari tabel products
                                             'model_id' => Arr::get($model, 'model_id'),
                                         ],
                                         [
@@ -175,6 +176,10 @@ class ShopeeController extends Controller
                                             'stock'      => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
                                             'price'      => Arr::get($model, 'price_info.0.current_price', 0),
                                             'status'     => Arr::get($model, 'model_status'),
+                                            'tier_index' => Arr::get($model, 'tier_index'),
+                                            'variant_name' => Arr::get($model, 'variant_name'),
+                                            'variant_options' => Arr::get($model, 'variant_options'),
+                                            'variant_image' => Arr::get($model, 'variant_image'),
                                         ]
                                     );
 
@@ -234,19 +239,20 @@ class ShopeeController extends Controller
 
         foreach ($itemDetails as $item) {
             try {
-                $savedItems = Item::updateOrCreate(
+                $savedItems = Product::updateOrCreate(
                     [
-                        'item_id'  => $item['item_id'],
+                        'product_id'  => $item['item_id'],
                         'store_id' => $store->id,
                     ],
                     [
-                        'item_name'  => $item['item_name'] ?? 'Unknown',
+                        'platform'   => 'Shopee',
+                        'product_name'  => $item['item_name'] ?? 'Unknown',
                         'image'      => $item['promotion_image']['image_url_list'][0]
                             ?? $item['images'][0]
                             ?? null,
                         'price'      => $item['price_info'][0]['current_price'] ?? $item['price'] ?? 69,
-                        'item_sku'   => $item['item_sku'] ?? null,
-                        'item_status' => $item['item_status'] ?? null,
+                        'product_sku'   => $item['item_sku'] ?? null,
+                        'product_status' => $item['item_status'] ?? null,
                         'stock'      => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
                         'category'   => $item['category_id'] ?? null,
                     ]
@@ -263,9 +269,9 @@ class ShopeeController extends Controller
                                 'model_id' => Arr::get($model, 'model_id'),
                             ]);
 
-                            $variantSaved = VariantItems::updateOrCreate(
+                            $variantSaved = VariantProduct::updateOrCreate(
                                 [
-                                    'item_id'  => $savedItems->id, // id dari tabel products
+                                    'product_id'  => $savedItems->id, // id dari tabel products
                                     'model_id' => Arr::get($model, 'model_id'),
                                 ],
                                 [
@@ -274,6 +280,10 @@ class ShopeeController extends Controller
                                     'stock'      => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
                                     'price'      => Arr::get($model, 'price_info.0.current_price', 0),
                                     'status'     => Arr::get($model, 'model_status'),
+                                    'tier_index' => Arr::get($model, 'tier_index'),
+                                    'variant_name' => Arr::get($model, 'variant_name'),
+                                    'variant_options' => Arr::get($model, 'variant_options'),
+                                    'variant_image' => Arr::get($model, 'variant_image'),
                                 ]
                             );
 
@@ -350,6 +360,7 @@ class ShopeeController extends Controller
                     \App\Models\Order::updateOrCreate(
                         ['order_sn' => $order['order_sn']],
                         [
+                            'platform'      => 'Shopee',
                             'booking_sn'    => $order['booking_sn'] ?? null,
                             'store_id'      => $store->id,
                             'item_id'       => 0,
@@ -370,7 +381,7 @@ class ShopeeController extends Controller
                             $escrowResponse = $shopee->getEscrowDetail($store, $detail['order_sn']);
                             $escrow = $escrowResponse['response'] ?? [];
 
-                            $itemQuery = Item::query();
+                            $itemQuery = Product::query();
 
                             $itemConditions = [];
 
@@ -378,6 +389,7 @@ class ShopeeController extends Controller
                             $orderModel = \App\Models\Order::updateOrCreate(
                                 ['order_sn' => $detail['order_sn']],
                                 [
+                                    'platform'          => 'Shopee',
                                     'order_status'      => $detail['order_status'] ?? null,
                                     'order_time'        => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time']) : now(),
                                     'cod'               => $detail['cod'] ?? null,
@@ -395,13 +407,13 @@ class ShopeeController extends Controller
 
                             if (!empty($escrow['order_income']['items'])) {
                                 foreach ($escrow['order_income']['items'] as $escrowItem) {
-                                    \App\Models\OrderItem::UpdateOrCreate(
+                                    \App\Models\OrderProduct::UpdateOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'item_id' => $escrowItem['item_id']
+                                            'product_id' => $escrowItem['item_id']
                                         ],
                                         [
-                                            'item_name' => $escrowItem['item_name'] ?? null,
+                                            'product_name' => $escrowItem['item_name'] ?? null,
                                             'quantity_purchased' => $escrowItem['quantity_purchased'] ?? 0,
                                             'price' => $escrowItem['item_price'] ?? 0,
                                             'image' => $detail['item_list']['image_info'][0]['image_url'] ?? null,

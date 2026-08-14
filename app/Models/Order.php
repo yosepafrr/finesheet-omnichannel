@@ -10,6 +10,7 @@ class Order extends Model
 
     protected $fillable = [
         'store_id',
+        'platform',
         'order_sn',
         'booking_sn',
         'order_status',
@@ -35,14 +36,14 @@ class Order extends Model
         'escrow_amount_after_adjustment' => 'float',
     ];
 
-    public function item()
+    public function product()
     {
-        return $this->belongsTo(Item::class, 'item_id', 'item_id');
+        return $this->belongsTo(Product::class, 'product_id', 'product_id');
     }
 
-    public function orderItems()
+    public function orderProducts()
     {
-        return $this->hasMany(OrderItem::class, 'order_id', 'id')->orderBy('id', 'asc');
+        return $this->hasMany(OrderProduct::class, 'order_id', 'id')->orderBy('id', 'asc');
     }
 
     public function store()

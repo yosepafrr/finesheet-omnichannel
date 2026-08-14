@@ -15,8 +15,20 @@ class OrderController extends Controller
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
 
-        $query = Order::whereIn('store_id', $storeIds)
-            ->with('orderItems.item')
+        $baseQuery = Order::whereIn('store_id', $storeIds);
+
+        // Filter by store
+        if ($request->has('store_id') && !empty($request->store_id)) {
+            $baseQuery->where('store_id', $request->store_id);
+        }
+
+        $statusCounts = (clone $baseQuery)
+            ->selectRaw('order_status, count(*) as count')
+            ->groupBy('order_status')
+            ->pluck('count', 'order_status');
+
+        $query = (clone $baseQuery)
+            ->with('orderProducts.product')
             ->latest();
 
         // Filter by status
@@ -25,14 +37,10 @@ class OrderController extends Controller
             $query->whereIn('order_status', $statuses);
         }
 
-        // Filter by store
-        if ($request->has('store_id') && !empty($request->store_id)) {
-            $query->where('store_id', $request->store_id);
-        }
-
         $orders = $query->get()->sortByDesc('order_time')->values();
 
         return response()->json([
+            'status_counts' => $statusCounts,
             'stores' => $stores->map(function ($store) {
                 return [
                     'id' => $store->id,
@@ -41,7 +49,7 @@ class OrderController extends Controller
                 ];
             }),
             'orders' => $orders->map(function ($order) {
-                $firstItem = $order->orderItems->first();
+                $firstProduct = $order->orderProducts->first();
                 return [
                     'id' => $order->id,
                     'store_id' => $order->store_id,
@@ -51,20 +59,32 @@ class OrderController extends Controller
                     'created_at' => $order->created_at?->format('d M Y, H:i'),
                     'order_selling_price' => $order->order_selling_price,
                     'escrow_amount' => $order->escrow_amount,
-                    'first_item' => $firstItem ? [
-                        'item_name' => $firstItem->item_name,
-                        'model_name' => $firstItem->model_name,
-                        'image' => $firstItem->item->image ?? null,
-                        'quantity' => $firstItem->quantity_purchased,
-                    ] : null,
-                    'item_count' => $order->orderItems->count(),
-                    'items' => $order->orderItems->map(function ($item) {
+                    'first_product' => $firstProduct ? (function() use ($firstProduct) {
+                        $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $firstProduct->model_name);
+                        $variant = \App\Models\VariantProduct::where('product_id', $firstProduct->product?->id)
+                            ->where('model_name', $normalizedModelName)
+                            ->first();
                         return [
-                            'item_name' => $item->item_name,
-                            'model_name' => $item->model_name,
-                            'quantity_purchased' => $item->quantity_purchased,
-                            'price' => $item->price,
-                            'image' => $item->item->image ?? null,
+                            'product_name' => $firstProduct->product_name,
+                            'model_name' => $firstProduct->model_name,
+                            'image' => $firstProduct->product->image ?? null,
+                            'variant_image' => $variant ? $variant->variant_image : null,
+                            'quantity' => $firstProduct->quantity_purchased,
+                        ];
+                    })() : null,
+                    'product_count' => $order->orderProducts->count(),
+                    'products' => $order->orderProducts->map(function ($product) {
+                        $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $product->model_name);
+                        $variant = \App\Models\VariantProduct::where('product_id', $product->product?->id)
+                            ->where('model_name', $normalizedModelName)
+                            ->first();
+                        return [
+                            'product_name' => $product->product_name,
+                            'model_name' => $product->model_name,
+                            'quantity_purchased' => $product->quantity_purchased,
+                            'price' => $product->price,
+                            'image' => $product->product->image ?? null,
+                            'variant_image' => $variant ? $variant->variant_image : null,
                         ];
                     }),
                 ];

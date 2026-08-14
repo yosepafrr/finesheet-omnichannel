@@ -27,14 +27,14 @@ class HandleTiktokProductWebhookJob implements ShouldQueue
 
     public function handle()
     {
-        Log::info("HandleTiktokProductWebhookJob started for Item: {$this->productId}");
+        Log::info("HandleTiktokProductWebhookJob started for Product: {$this->productId}");
 
         // TODO: Implement TiktokService logic here
         // 1. Fetch Store by shopId
         // 2. Fetch specific product details from TikTok API via TiktokService
-        // 3. updateOrCreate to Item / VariantItems database
+        // 3. updateOrCreate to Product / VariantProduct database
         // 4. Fire ProductCreated event
 
-        Log::info("HandleTiktokProductWebhookJob completed for Item: {$this->productId}");
+        Log::info("HandleTiktokProductWebhookJob completed for Product: {$this->productId}");
     }
 }

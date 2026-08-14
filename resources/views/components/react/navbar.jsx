@@ -117,7 +117,7 @@ export default function Navigation({ onMenuClick, user = { name: "Loading...", e
                                 className="group flex items-center gap-3 p-1 pr-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all focus:outline-none"
                             >
                                 <div className="h-9 w-9 rounded-full bg-[#304674] text-white flex items-center justify-center text-sm font-bold shadow-sm uppercase">
-                                    {user.name ? user.name.charAt(0) : "?"}
+                                    <User className="w-5 h-5" />
                                 </div>
                                 <div className="hidden md:flex items-center gap-3">
                                     <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 group-hover:text-[#304674] transition-colors max-w-[120px] truncate">

@@ -113,9 +113,9 @@ export default function LandingPage() {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-tr from-blue-500/20 to-purple-500/20 dark:from-blue-600/10 dark:to-purple-600/10 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
 
                 <div className="relative z-10 max-w-7xl mx-auto px-6 text-center">
-                    <span className="inline-block py-1 px-3 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-bold tracking-wider uppercase mb-6 animate-fade-in-up">
+                    {/* <span className="inline-block py-1 px-3 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-bold tracking-wider uppercase mb-6 animate-fade-in-up">
                         omnichannel with integrated api e-commerce
-                    </span>
+                    </span> */}
 
                     {authUser ? (
                         // === Hero untuk user yang sudah login ===
