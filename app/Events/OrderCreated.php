@@ -11,7 +11,9 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class OrderCreated
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+
+class OrderCreated implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -28,10 +30,36 @@ class OrderCreated
     /**
      * Get the channels the event should broadcast on.
      *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
+     * @return \Illuminate\Broadcasting\Channel
      */
     public function broadcastOn(): Channel
     {
         return new Channel('orders');
+    }
+
+    public function broadcastAs(): string
+    {
+        return 'OrderCreated';
+    }
+
+    public function broadcastWith(): array
+    {
+        $platform = $this->order->platform ?? ($this->order->store ? $this->order->store->platform : 'Unknown');
+        
+        $productName = 'Produk tidak diketahui';
+        if ($this->order->orderProducts && $this->order->orderProducts->count() > 0) {
+            $productName = $this->order->orderProducts->first()->product_name;
+            if ($this->order->orderProducts->count() > 1) {
+                $productName .= ' (+' . ($this->order->orderProducts->count() - 1) . ' produk)';
+            }
+        }
+
+        return [
+            'id' => $this->order->id,
+            'order_sn' => $this->order->order_sn,
+            'platform' => $platform,
+            'product_name' => $productName,
+            'store_id' => $this->order->store_id,
+        ];
     }
 }

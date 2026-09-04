@@ -201,7 +201,7 @@ function LimitDropdown({ value, onChange }) {
 export default function OrderList() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [selectedFilterId, setSelectedFilterId] = useState("semua");
+    const [selectedFilterId, setSelectedFilterId] = useState("perlu_dikirim");
     const [selectedStore, setSelectedStore] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [expandedOrders, setExpandedOrders] = useState({});
@@ -497,7 +497,7 @@ export default function OrderList() {
                                             }`}
                                         >
                                             {group.label}
-                                            {count > 0 && group.id !== "semua" && (
+                                            {count > 0 && (group.id === "perlu_dikirim" || group.id === "dikirim") && (
                                                 <span
                                                     className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
                                                         isActive
@@ -579,9 +579,9 @@ export default function OrderList() {
                                             <h2 className="font-bold text-gray-800 dark:text-white">
                                                 {store.store_name}
                                             </h2>
-                                            <span className="text-xs text-gray-400 dark:text-slate-500 font-mono hidden sm:inline">
+                                            {/* <span className="text-xs text-gray-400 dark:text-slate-500 font-mono hidden sm:inline">
                                                 ID: {store.id}
-                                            </span>
+                                            </span> */}
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md hidden sm:inline-block">

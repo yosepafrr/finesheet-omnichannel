@@ -75,11 +75,8 @@ class TiktokController extends Controller
         // Sync Products (synchronous as requested)
         $this->syncProducts($store, $tiktok);
         
-        // Sync Orders (synchronous as requested)
-        // Syncing orders for the last 15 days as initial sync to avoid timeouts
-        $timeTo = time();
-        $timeFrom = time() - (15 * 24 * 60 * 60); 
-        $this->syncOrders($store, $tiktok, $timeFrom, $timeTo);
+        // Sync Orders synchronously for 180 days (Initial Sync)
+        \App\Jobs\SyncTiktokOrderJob::dispatchSync($store->id, 180);
         
         return redirect('/#/stores')->with('success', 'Toko TikTok berhasil terhubung dan sinkronisasi awal selesai.');
     }
@@ -191,10 +188,13 @@ class TiktokController extends Controller
                         'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
                         'message_to_seller' => $order['buyer_message'] ?? null,
                         'order_selling_price' => $order['payment']['total_amount'] ?? 0,
-                        // TikTok escrow/income would typically require another endpoint, setting basic amounts for now
                         'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
                     ]
                 );
+
+                // Fetch actual/estimated escrow in the background
+                $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
+                \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $order['status'] ?? '', $grossAmount)->onQueue('orders');
 
                 if (!empty($order['line_items'])) {
                     // TikTok lists multiple same items as separate line_item entries. We should group them by product_id and sku_name to get quantity.

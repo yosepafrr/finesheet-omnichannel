@@ -21,7 +21,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/user', function (\Illuminate\Http\Request $request) {
             return $request->user();
         });
+        Route::put('/profile', [\App\Http\Controllers\Api\ProfileController::class, 'update']);
+        Route::put('/profile/password', [\App\Http\Controllers\Api\ProfileController::class, 'updatePassword']);
         Route::get('/stores', [\App\Http\Controllers\Api\StoreController::class, 'index']);
+        Route::delete('/stores/{id}', [\App\Http\Controllers\Api\StoreController::class, 'destroy']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);

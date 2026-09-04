@@ -25,6 +25,14 @@ class TiktokService
     }
 
     /**
+     * Get HTTP Client with conditional SSL Verification
+     */
+    protected function httpClient()
+    {
+        return app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+    }
+
+    /**
      * Generate TikTok Signature
      */
     protected function generateSign($path, $queries, $body = '')
@@ -67,7 +75,7 @@ class TiktokService
         // but we pass app_key and app_secret in queries
         $queries['app_secret'] = $this->appSecret;
 
-        $response = Http::get($url, $queries);
+        $response = $this->httpClient()->get($url, $queries);
         $result = $response->json();
 
         Log::info('TikTok - Get Access Token Response', $result);
@@ -89,7 +97,7 @@ class TiktokService
             'grant_type' => 'refresh_token',
         ];
 
-        $response = Http::get('https://auth.tiktok-shops.com' . $path, $queries);
+        $response = $this->httpClient()->get('https://auth.tiktok-shops.com' . $path, $queries);
         $result = $response->json();
 
         Log::info('TikTok - Refresh Token Response', $result);
@@ -134,7 +142,7 @@ class TiktokService
         $sign = $this->generateSign($path, $queries);
         $queries['sign'] = $sign;
 
-        $response = Http::withHeaders(['x-tts-access-token' => $accessToken])
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken])
             ->get($this->baseUrl . $path, $queries);
         return $response->json();
     }
@@ -165,13 +173,17 @@ class TiktokService
         
         $url = $this->baseUrl . $path . '?' . http_build_query($queries);
 
-        $response = Http::withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->withBody($bodyStr, 'application/json')
             ->post($url);
         
-        Log::info('TikTok - Fetching Product List', ['response' => $response->json()]);
+        $res = $response->json();
+        Log::info('TikTok - Fetching Product List', [
+            'status' => $response->status(), 
+            'count' => count($res['data']['products'] ?? [])
+        ]);
 
-        return $response->json();
+        return $res;
     }
 
     /**
@@ -196,12 +208,52 @@ class TiktokService
         
         $url = $this->baseUrl . $path . '?' . http_build_query($queries);
 
-        $response = Http::withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->get($url);
         
-        Log::info('TikTok - Fetching Product Detail', ['product_id' => $productId, 'response' => $response->json()]);
+        $res = $response->json();
+        Log::info('TikTok - Fetching Product Detail', [
+            'product_id' => $productId, 
+            'status' => $response->status()
+        ]);
 
-        return $response->json();
+        return $res;
+    }
+
+    /**
+     * Fetch Specific Order Detail
+     */
+    public function getOrderDetail($store, $orderId)
+    {
+        $accessToken = $this->ensureValidToken($store);
+        $shopId = $store->shopee_shop_id; 
+
+        // TikTok Shop OpenAPI v2.0 for fetching specific orders
+        $path = '/order/202309/orders';
+        $timestamp = time();
+
+        $queries = [
+            'app_key' => $this->appKey,
+            'timestamp' => $timestamp,
+            'shop_cipher' => $shopId,
+            'ids' => $orderId, // Can be comma separated if multiple
+        ];
+
+        $sign = $this->generateSign($path, $queries);
+        $queries['sign'] = $sign;
+
+        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+            ->get($url);
+
+        $res = $response->json();
+        Log::info('TikTok - Fetching Order Detail', [
+            'status' => $response->status(), 
+            'order_id' => $orderId
+        ]);
+
+        return $res;
     }
 
     /**
@@ -223,8 +275,8 @@ class TiktokService
         ];
 
         $bodyParams = [
-            'create_time_ge' => $timeFrom,
-            'create_time_lt' => $timeTo,
+            'update_time_ge' => $timeFrom,
+            'update_time_lt' => $timeTo,
         ];
         $bodyStr = json_encode($bodyParams);
 
@@ -233,12 +285,88 @@ class TiktokService
 
         $url = $this->baseUrl . $path . '?' . http_build_query($queries);
 
-        $response = Http::withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->withBody($bodyStr, 'application/json')
             ->post($url);
 
-        Log::info('TikTok - Fetching Order List', ['response' => $response->json()]);
+        $res = $response->json();
+        Log::info('TikTok - Fetching Order List', [
+            'status' => $response->status(), 
+            'count' => count($res['data']['orders'] ?? [])
+        ]);
 
-        return $response->json();
+        return $res;
+    }
+
+    /**
+     * Fetch Unsettled Transaction (Estimate Escrow)
+     */
+    public function getUnsettledTransaction($store, $orderId)
+    {
+        $accessToken = $this->ensureValidToken($store);
+        $shopId = $store->shopee_shop_id; 
+
+        $path = '/finance/202507/orders/unsettled';
+        $timestamp = time();
+
+        $queries = [
+            'app_key' => $this->appKey,
+            'timestamp' => $timestamp,
+            'shop_cipher' => $shopId,
+            'order_id' => $orderId,
+            'page_size' => 10,
+            'sort_field' => 'order_create_time',
+            'sort_order' => 'DESC'
+        ];
+
+        $sign = $this->generateSign($path, $queries);
+        $queries['sign'] = $sign;
+
+        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+            ->get($url);
+
+        $res = $response->json();
+        Log::info('TikTok - Fetching Unsettled Transaction', [
+            'status' => $response->status(), 
+            'order_id' => $orderId
+        ]);
+
+        return $res;
+    }
+
+    /**
+     * Fetch Statement Transaction (Final Escrow)
+     */
+    public function getStatementTransaction($store, $orderId)
+    {
+        $accessToken = $this->ensureValidToken($store);
+        $shopId = $store->shopee_shop_id; 
+
+        $path = "/finance/202309/orders/{$orderId}/statement_transactions";
+        $timestamp = time();
+
+        $queries = [
+            'app_key' => $this->appKey,
+            'timestamp' => $timestamp,
+            'shop_cipher' => $shopId,
+        ];
+
+        $sign = $this->generateSign($path, $queries);
+        $queries['sign'] = $sign;
+
+        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+
+        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+            ->get($url);
+
+        $res = $response->json();
+        Log::info('TikTok - Fetching Statement Transaction', [
+            'status' => $response->status(), 
+            'order_id' => $orderId
+        ]);
+
+        return $res;
     }
 }

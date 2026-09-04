@@ -257,26 +257,6 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                     </div>
                 </div>
 
-                {/* USER PROFILE */}
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-slate-50/50 dark:bg-slate-800/30">
-                    <div
-                        className="flex items-center gap-3 transition-all duration-300"
-                    >
-                        <div className="w-9 h-9 rounded-full bg-[#304674] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
-                            <span className="material-symbols-rounded text-[20px]">person</span>
-                        </div>
-                        {!sidebarCollapsed && (
-                            <div className="overflow-hidden whitespace-nowrap">
-                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[140px]">
-                                    {user.name}
-                                </p>
-                                <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mt-0.5">
-                                    Administrator
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
             </aside>
         </>
     );

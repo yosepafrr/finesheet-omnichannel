@@ -20,14 +20,8 @@ export default function LandingPage() {
 
     // Cek status autentikasi saat landing page dimuat
     useEffect(() => {
-        fetch("/api/user", {
-            headers: { Accept: "application/json" },
-        })
-            .then(async (res) => {
-                if (!res.ok) throw new Error("Not authenticated");
-                return res.json();
-            })
-            .then((data) => setAuthUser(data))
+        axios.get("/api/user")
+            .then((res) => setAuthUser(res.data))
             .catch(() => setAuthUser(false))
             .finally(() => setAuthLoading(false));
     }, []);

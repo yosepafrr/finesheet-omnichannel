@@ -22,6 +22,14 @@ class ShopeeService
         ]);
     }
 
+    /**
+     * Get HTTP Client with conditional SSL Verification
+     */
+    protected function httpClient()
+    {
+        return app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+    }
+
     public function ensureValidToken(Store $store)
     {
         if (Carbon::now('Asia/Jakarta')->gte($store->token_expired_at)) {
@@ -50,7 +58,7 @@ class ShopeeService
             'access_token' => $access_token,
         ];
 
-        $response = Http::get($url, $params);
+        $response = $this->httpClient()->get($url, $params);
         return $response->json();
     }
 
@@ -84,7 +92,7 @@ class ShopeeService
             'sign' => $refreshSign,
         ]);
 
-        $response = Http::withHeaders([
+        $response = $this->httpClient()->withHeaders([
             'Content-Type' => 'application/json',
         ])->post($url, $body);
 
@@ -132,7 +140,7 @@ class ShopeeService
             . "&sign={$sign}"
             . "&access_token={$accessToken}"
             . "&shop_id={$shopId}"
-            . "&time_range_field=create_time"
+            . "&time_range_field=update_time"
             . "&time_from={$timeFrom}"
             . "&time_to={$timeTo}"
             . "&page_size=100";
@@ -147,7 +155,7 @@ class ShopeeService
         ]);
 
 
-        $response = Http::get($url);
+        $response = $this->httpClient()->get($url);
 
         return $response->json();
     }
@@ -164,7 +172,7 @@ class ShopeeService
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = Http::get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/order/get_order_detail', [
+        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/order/get_order_detail', [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
@@ -188,7 +196,7 @@ class ShopeeService
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = Http::get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/payment/get_escrow_detail', [
+        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/payment/get_escrow_detail', [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
@@ -229,17 +237,17 @@ class ShopeeService
         // Logging detail untuk debugging
         Log::info('Shopee - Fetching Item List', ['url' => $url]);
         Log::info('Shopee - Params', [
-            'partner_id' => $this->partnerId,
             'shop_id' => $shopId,
-            'access_token' => $accessToken,
-            'sign' => $sign,
             'timestamp' => $timestamp,
         ]);
 
-        $response = Http::get($url);
+        $response = $this->httpClient()->get($url);
         $result = $response->json();
 
-        Log::info('Item List Response', $result);
+        Log::info('Item List Response Summary', [
+            'status' => $response->status(),
+            'count' => count($result['response']['item'] ?? [])
+        ]);
 
         return $result['response']['item'] ?? [];
     }
@@ -254,7 +262,7 @@ class ShopeeService
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = Http::get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/product/get_item_base_info', [
+        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/product/get_item_base_info', [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
@@ -264,7 +272,10 @@ class ShopeeService
         ]);
 
         $result = $response->json();
-        Log::info('Item Base Info', ['body' => $result]);
+        Log::info('Item Base Info Summary', [
+            'status' => $response->status(),
+            'count' => count($result['response']['item_list'] ?? [])
+        ]);
 
         return $result['response']['item_list'] ?? [];
     }
@@ -281,7 +292,7 @@ class ShopeeService
 
         $results = [];
         foreach ($itemIds as $itemId) {
-            $response = Http::get("https://openplatform.sandbox.test-stable.shopee.sg{$path}", [
+            $response = $this->httpClient()->get("https://openplatform.sandbox.test-stable.shopee.sg{$path}", [
                 'partner_id' => $this->partnerId,
                 'timestamp' => $timestamp,
                 'sign' => $sign,

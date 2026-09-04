@@ -20,18 +20,39 @@ class ShopeeWebhookController extends Controller
             'signature' => $signatureHeader,
         ]);
 
-        if (!$this->verifySignature($request->url(), $rawBody, $signatureHeader)) {
-            Log::warning('Shopee Webhook Signature Verification Failed!');
-            // return response()->json(['error' => 'Invalid signature'], 401); 
-            // Tetap kembalikan 200 di mode sandbox/lokal agar Shopee tidak terus-terusan me-retry webhook jika ngrok url berubah.
-            // Tapi untuk production idealnya kembalikan 401 atau abaikan.
-        } else {
-            Log::info('Shopee Webhook Signature Verified!');
-        }
-
         $code = $payload['code'] ?? null;
         $shopId = $payload['shop_id'] ?? null;
         $data = $payload['data'] ?? [];
+
+        if (!$this->verifySignature($request->url(), $rawBody, $signatureHeader)) {
+            Log::warning('Shopee Webhook Signature Verification Failed!', [
+                'url' => $request->url(),
+            ]);
+            
+            // Di production wajib menolak request invalid
+            if (app()->environment('production')) {
+                return response()->json(['error' => 'Invalid signature'], 401); 
+            }
+            
+            // BYPASS UNTUK TEST PUSH DARI CONSOLE
+            if ($code === 3 && isset($data['ordersn'])) {
+                Log::info('Bypassing signature check for Local Test Push - Firing Dummy Event');
+                
+                $dummyOrder = new \App\Models\Order();
+                $dummyOrder->id = rand(1000, 9999);
+                $dummyOrder->order_sn = '(TEST) ' . $data['ordersn'];
+                $dummyOrder->platform = 'Shopee';
+                $dummyOrder->store_id = $shopId;
+                
+                broadcast(new \App\Events\OrderCreated($dummyOrder));
+                return response()->json(['code' => 0, 'message' => 'success']);
+            }
+
+            // Di lokal/sandbox, kembalikan 200 agar Shopee berhenti me-retry, namun STOP proses sinkronisasi
+            return response()->json(['message' => 'Invalid signature ignored in local'], 200);
+        } else {
+            Log::info('Shopee Webhook Signature Verified!');
+        }
 
         // Handle Test Push Verification from Shopee Console
         if ($code === 0) {

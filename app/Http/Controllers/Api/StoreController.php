@@ -36,4 +36,17 @@ class StoreController extends Controller
 
         return response()->json($stores);
     }
+
+    public function destroy($id)
+    {
+        $store = \Illuminate\Support\Facades\Auth::user()->stores()->find($id);
+
+        if (!$store) {
+            return response()->json(['message' => 'Store not found or unauthorized'], 404);
+        }
+
+        $store->delete();
+
+        return response()->json(['message' => 'Store and all related data deleted successfully']);
+    }
 }

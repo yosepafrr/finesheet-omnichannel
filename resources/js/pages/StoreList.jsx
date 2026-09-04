@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
 
@@ -104,6 +105,10 @@ export default function StoreList() {
     const [search, setSearch] = useState("");
     const [lastSync, setLastSync] = useState(Date.now());
     const [syncing, setSyncing] = useState(false);
+    
+    // State Hapus Toko
+    const [storeToDelete, setStoreToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const fetchStores = useCallback(async (manual = false) => {
         if (manual) setSyncing(true);
         try {
@@ -123,6 +128,33 @@ export default function StoreList() {
         const interval = setInterval(() => fetchStores(), POLLING_INTERVAL);
         return () => clearInterval(interval);
     }, [fetchStores]);
+
+    const handleDelete = async () => {
+        if (!storeToDelete) return;
+        setIsDeleting(true);
+        try {
+            await axios.delete(`/api/stores/${storeToDelete.id}`);
+            import('react-hot-toast').then(({ toast }) => {
+                toast.success('Toko beserta seluruh datanya berhasil dihapus!', {
+                    icon: '🗑️',
+                    style: {
+                        borderRadius: '10px',
+                        background: '#333',
+                        color: '#fff',
+                    },
+                });
+            });
+            setStoreToDelete(null);
+            fetchStores();
+        } catch (error) {
+            import('react-hot-toast').then(({ toast }) => {
+                toast.error('Gagal menghapus toko.');
+            });
+            console.error('Error deleting store:', error);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     const platforms = ["all", ...new Set(stores.map((s) => s.platform))];
 
@@ -283,7 +315,7 @@ export default function StoreList() {
                             filtered.map((store) => (
                                 <div 
                                     key={store.id} 
-                                    className="group flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 gap-4"
+                                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 gap-4"
                                 >
                                     {/* Info Kiri */}
                                     <div className="flex items-start gap-4 w-full sm:w-auto">
@@ -302,20 +334,39 @@ export default function StoreList() {
                                     <div className="flex w-full sm:w-auto items-center justify-between sm:justify-end gap-6 pt-4 sm:pt-0 border-t sm:border-0 border-slate-100 dark:border-slate-700">
                                         <StatusPill isActive={store.is_active} />
                                         
-                                        <div className="relative group">
-                                            <a 
-                                                href={`/connect/${store.platform.toLowerCase()}`}
-                                                className="flex items-center justify-center p-2 text-slate-400 hover:text-[#304674] dark:hover:text-blue-400 bg-slate-50 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all"
-                                            >
-                                                <span className="material-symbols-rounded text-lg group-hover:rotate-180 transition-transform duration-500">
-                                                    sync
-                                                </span>
-                                            </a>
-                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none w-max z-10">
-                                                <div className="bg-slate-800 text-white text-[10px] font-medium px-2.5 py-1.5 rounded-lg shadow-lg">
-                                                    Otorisasi Ulang Toko
+                                        <div className="flex gap-2">
+                                            <div className="relative group">
+                                                <a 
+                                                    href={`/connect/${store.platform.toLowerCase() === 'tiktokshop' ? 'tiktok' : store.platform.toLowerCase()}`}
+                                                    className="flex items-center justify-center p-2 text-[#304674] dark:text-blue-400 bg-blue-50 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-slate-700 rounded-xl transition-all"
+                                                >
+                                                    <span className="material-symbols-rounded text-lg group-hover:rotate-180 transition-transform duration-500">
+                                                        sync
+                                                    </span>
+                                                </a>
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none w-max z-10">
+                                                    <div className="bg-slate-800 text-white text-[10px] font-medium px-2.5 py-1.5 rounded-lg shadow-lg">
+                                                        Otorisasi Ulang
+                                                    </div>
+                                                    <div className="w-2 h-2 bg-slate-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
                                                 </div>
-                                                <div className="w-2 h-2 bg-slate-800 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+                                            </div>
+
+                                            <div className="relative group">
+                                                <button 
+                                                    onClick={() => setStoreToDelete(store)}
+                                                    className="flex items-center justify-center min-h-[45px] p-2 text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 rounded-xl transition-all"
+                                                >
+                                                    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6" />
+                                                    </svg>
+                                                </button>
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none w-max z-10">
+                                                    <div className="bg-rose-600 text-white text-[10px] font-medium px-2.5 py-1.5 rounded-lg shadow-lg">
+                                                        Hapus Toko
+                                                    </div>
+                                                    <div className="w-2 h-2 bg-rose-600 transform rotate-45 absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -335,6 +386,81 @@ export default function StoreList() {
                     )}
                 </div>
             </div>
+
+            {/* --- MODAL HAPUS TOKO --- */}
+            {storeToDelete && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center px-4">
+                    {/* Backdrop */}
+                    <div 
+                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+                        onClick={() => !isDeleting && setStoreToDelete(null)}
+                    ></div>
+                    
+                    {/* Modal Content */}
+                    <div className="relative bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-6 sm:p-8 overflow-hidden animate-fade-in-up border border-slate-200 dark:border-slate-800">
+                        {/* Decorative background element */}
+                        <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-rose-500/10 blur-2xl"></div>
+                        
+                        <div className="flex flex-col items-center text-center relative z-10">
+                            {/* Platform Icon Dynamics */}
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg mb-5 ${
+                                storeToDelete.platform.toLowerCase() === 'shopee' 
+                                ? 'bg-gradient-to-br from-orange-400 to-orange-600 shadow-orange-500/30' 
+                                : 'bg-gradient-to-br from-slate-800 to-black shadow-cyan-500/20 border border-slate-700'
+                            }`}>
+                                {storeToDelete.platform.toLowerCase() === 'shopee' ? (
+                                    <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                    </svg>
+                                ) : (
+                                    <svg className="w-8 h-8 text-cyan-400" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 15.68a6.34 6.34 0 006.27 6.36 6.34 6.34 0 006.33-6.36v-6.32a8.28 8.28 0 004 1.05V6.84a4.93 4.93 0 01-2.01-.15z"/>
+                                    </svg>
+                                )}
+                            </div>
+
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                                Hapus Toko {storeToDelete.store_name}?
+                            </h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-8">
+                                Tindakan ini hanya akan memutuskan koneksi toko ini dari Finesheet Omnichannel. 
+                                <br/><br/>
+                                <strong className="text-rose-600 dark:text-rose-400 font-semibold bg-rose-50 dark:bg-rose-900/20 px-2 py-1 rounded">Semua data pesanan & produk di database lokal akan ikut terhapus!</strong> 
+                                <br/><br/>
+                                (Toko asli Anda di {storeToDelete.platform} tetap aman).
+                            </p>
+
+                            <div className="flex items-center gap-3 w-full">
+                                <button 
+                                    onClick={() => setStoreToDelete(null)}
+                                    disabled={isDeleting}
+                                    className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold rounded-xl transition-colors disabled:opacity-50"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    onClick={handleDelete}
+                                    disabled={isDeleting}
+                                    className="flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl shadow-lg shadow-rose-600/30 transition-all active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
+                                >
+                                    {isDeleting ? (
+                                        <>
+                                            <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                            </svg>
+                                            Menghapus...
+                                        </>
+                                    ) : (
+                                        "Ya, Hapus Toko"
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
             {/* Tambahan Animasi Global Sederhana */}
             <style jsx global>{`

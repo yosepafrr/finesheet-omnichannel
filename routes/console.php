@@ -12,8 +12,10 @@ Artisan::command('inspire', function () {
 
 Schedule::call(function () {
     dispatch(new SyncShopeeOrderJob())->onQueue('orders');
+    dispatch(new \App\Jobs\SyncTiktokOrderJob())->onQueue('orders');
 })->everyThirtyMinutes();
 
 Schedule::call(function () {
     dispatch(new SyncShopeeProductJob())->onQueue('products');
+    dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
 })->hourly();

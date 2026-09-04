@@ -102,8 +102,10 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
                 }
             }
 
-            // Fire event order created/updated
-            event(new OrderCreated($orderModel));
+            // Fire event HANYA jika pesanan baru
+            if ($orderModel->wasRecentlyCreated) {
+                event(new OrderCreated($orderModel));
+            }
 
             Log::info("HandleShopeeOrderWebhookJob successfully completed for {$this->orderSn}");
         } catch (\Throwable $e) {

@@ -22,6 +22,7 @@ class Order extends Model
         'order_selling_price',
         'escrow_amount',
         'escrow_amount_after_adjustment',
+        'fee_details',
         'created_at',
         'updated_at',
     ];
@@ -31,6 +32,7 @@ class Order extends Model
         'ship_by_date' => 'datetime',
         'order_time' => 'datetime',
         'raw_data' => 'array',
+        'fee_details' => 'array',
         'total_amount' => 'float',
         'order_selling_price' => 'float',
         'escrow_amount_after_adjustment' => 'float',

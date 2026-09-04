@@ -30,7 +30,7 @@ class ShopeeController extends Controller
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
 
-        $redirectUrl = 'https://36d6-103-3-222-184.ngrok-free.app/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
+        $redirectUrl = 'https://groggy-enjoyable-unfair.ngrok-free.dev/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
         $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
@@ -67,7 +67,9 @@ class ShopeeController extends Controller
 
         Log::info('Shopee - Sending Request:', ['url' => $url, 'body' => $body]);
 
-        $response = Http::withBody(json_encode($body), 'application/json')
+        $http = app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+        $response = $http
+            ->withBody(json_encode($body), 'application/json')
             ->post($url);
 
         $result = $response->json();
@@ -206,6 +208,10 @@ class ShopeeController extends Controller
                     }
                 }
             }
+            
+            // Sync Orders synchronously for 180 days (Initial Sync)
+            \App\Jobs\SyncShopeeOrderJob::dispatchSync($store->id, 180);
+
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
         }
     }
@@ -405,21 +411,22 @@ class ShopeeController extends Controller
                                 ]
                             );
 
-                            if (!empty($escrow['order_income']['items'])) {
-                                foreach ($escrow['order_income']['items'] as $escrowItem) {
-                                    \App\Models\OrderProduct::UpdateOrCreate(
+                            if (!empty($detail['item_list'])) {
+                                foreach ($detail['item_list'] as $shopeeItem) {
+                                    $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
+                                    $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
+                                    
+                                    \App\Models\OrderProduct::updateOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'product_id' => $escrowItem['item_id']
+                                            'product_id' => $shopeeItem['item_id']
                                         ],
                                         [
-                                            'product_name' => $escrowItem['item_name'] ?? null,
-                                            'quantity_purchased' => $escrowItem['quantity_purchased'] ?? 0,
-                                            'price' => $escrowItem['item_price'] ?? 0,
-                                            'image' => $detail['item_list']['image_info'][0]['image_url'] ?? null,
-
-                                            // model fields
-                                            'model_name' => $detail['item_list'][0]['model_name'] ?? 'without variant',
+                                            'product_name' => $shopeeItem['item_name'] ?? null,
+                                            'quantity_purchased' => $shopeeItem['model_quantity_purchased'] ?? 0,
+                                            'price' => $price,
+                                            'image' => $imageUrl,
+                                            'model_name' => $shopeeItem['model_name'] ?: 'without variant',
                                         ]
                                     );
                                 }

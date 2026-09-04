@@ -17,15 +17,17 @@ class SyncTiktokOrderJob implements ShouldQueue
     public $tries = 3;
     public $timeout = 120;
     public $storeId;
+    public $daysToSync;
 
-    public function __construct($storeId = null)
+    public function __construct($storeId = null, $daysToSync = 14)
     {
         $this->storeId = $storeId;
+        $this->daysToSync = $daysToSync;
     }
 
     public function handle(): void
     {
-        Log::info('SyncTiktokOrderJob started', ['time' => now()]);
+        Log::info('SyncTiktokOrderJob started', ['time' => now(), 'daysToSync' => $this->daysToSync]);
 
         $query = Store::where('platform', 'Tiktokshop');
         if ($this->storeId) {
@@ -41,11 +43,24 @@ class SyncTiktokOrderJob implements ShouldQueue
         $controller = new TiktokController();
         
         $now = Carbon::now('UTC');
-        $startTime = $now->copy()->subDays(15);
+        $intervalDays = 14; // Tiktok limit is usually 14-30 days per request
 
         foreach ($stores as $store) {
             try {
-                $controller->syncOrders($store, $tiktokService, $startTime->timestamp, $now->timestamp);
+                $cursorDate = $now->copy()->subDays($this->daysToSync)->startOfDay();
+
+                while ($cursorDate < $now) {
+                    $startTime = $cursorDate->copy();
+                    $endTime = $cursorDate->copy()->addDays($intervalDays);
+
+                    if ($endTime > $now) {
+                        $endTime = $now;
+                    }
+
+                    $controller->syncOrders($store, $tiktokService, $startTime->timestamp, $endTime->timestamp);
+
+                    $cursorDate->addDays($intervalDays);
+                }
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [
                     'store_id' => $store->id,
