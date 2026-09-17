@@ -29,6 +29,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
+        
+        // SKU Sync Routes
+        Route::get('/sku-sync/groups', [\App\Http\Controllers\Api\SkuSyncController::class, 'index']);
+        Route::get('/sku-sync/detect', [\App\Http\Controllers\Api\SkuSyncController::class, 'detect']);
+        Route::post('/sku-sync/groups', [\App\Http\Controllers\Api\SkuSyncController::class, 'store']);
+        Route::post('/sku-sync/groups/bulk', [\App\Http\Controllers\Api\SkuSyncController::class, 'storeBulk']);
+        Route::put('/sku-sync/groups/{id}', [\App\Http\Controllers\Api\SkuSyncController::class, 'update']);
+        Route::delete('/sku-sync/groups/{id}', [\App\Http\Controllers\Api\SkuSyncController::class, 'destroy']);
+        Route::post('/sku-sync/groups/{id}/push', [\App\Http\Controllers\Api\SkuSyncController::class, 'push']);
+        Route::put('/sku-sync/groups/{id}/toggle', [\App\Http\Controllers\Api\SkuSyncController::class, 'toggleActive']);
+
         Route::post('/sync/products', function (\Illuminate\Http\Request $request) {
             $storeId = $request->input('store_id');
             if ($storeId) {
@@ -49,6 +60,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             return response()->json(['message' => 'Product sync started']);
         });
         Route::get('/orders', [OrderController::class, 'index']);
+        Route::get('/orders/{id}', [OrderController::class, 'show']);
         Route::post('/sync/orders', function (\Illuminate\Http\Request $request) {
             $storeId = $request->input('store_id');
             if ($storeId) {
@@ -69,6 +81,33 @@ Route::middleware(['auth', 'verified'])->group(function () {
             return response()->json(['message' => 'Order sync started']);
         });
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
+
+        // Payable Routes
+        Route::get('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'getConfig']);
+        Route::post('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'updateConfig']);
+        Route::post('/payable/config/duration', [\App\Http\Controllers\Api\PayableController::class, 'updateDuration']);
+        Route::post('/payable/sync', [\App\Http\Controllers\Api\PayableController::class, 'sync']);
+        Route::get('/payable/periods', [\App\Http\Controllers\Api\PayableController::class, 'getPeriods']);
+        Route::post('/payable/periods/manual', [\App\Http\Controllers\Api\PayableController::class, 'createManualPeriod']);
+        Route::delete('/payable/periods/{id}', [\App\Http\Controllers\Api\PayableController::class, 'destroy']);
+        Route::get('/payable/periods/{id}/details', [\App\Http\Controllers\Api\PayableController::class, 'getPeriodDetails']);
+        Route::put('/payable/periods/{id}/status', [\App\Http\Controllers\Api\PayableController::class, 'updatePaymentStatus']);
+        Route::post('/payable/periods/{id}/payments', [\App\Http\Controllers\Api\PayableController::class, 'addPayment']);
+        Route::put('/payable/payments/{id}', [\App\Http\Controllers\Api\PayableController::class, 'updatePayment']);
+        Route::delete('/payable/payments/{id}', [\App\Http\Controllers\Api\PayableController::class, 'deletePayment']);
+        Route::get('/payable/events/search', [\App\Http\Controllers\Api\PayableController::class, 'searchEvents']);
+        Route::post('/payable/events/reassign', [\App\Http\Controllers\Api\PayableController::class, 'reassignEvents']);
+
+        // Supplier Routes
+        Route::get('/payable/suppliers', [\App\Http\Controllers\Api\PayableController::class, 'getSuppliers']);
+        Route::post('/payable/suppliers', [\App\Http\Controllers\Api\PayableController::class, 'createSupplier']);
+        Route::put('/payable/suppliers/{id}', [\App\Http\Controllers\Api\PayableController::class, 'updateSupplier']);
+        Route::delete('/payable/suppliers/{id}', [\App\Http\Controllers\Api\PayableController::class, 'deleteSupplier']);
+        Route::post('/payable/suppliers/onboarding-single', [\App\Http\Controllers\Api\PayableController::class, 'onboardingSingle']);
+        Route::post('/payable/suppliers/onboarding-multiple', [\App\Http\Controllers\Api\PayableController::class, 'onboardingMultiple']);
+        Route::get('/payable/suppliers/products', [\App\Http\Controllers\Api\PayableController::class, 'getProductsForMapping']);
+        Route::post('/payable/suppliers/assign-products', [\App\Http\Controllers\Api\PayableController::class, 'assignProducts']);
+
     });
 });
 

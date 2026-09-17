@@ -30,8 +30,9 @@ class ShopeeController extends Controller
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
 
-        $redirectUrl = 'https://groggy-enjoyable-unfair.ngrok-free.dev/shopee/callback'; // pastikan ini terdaftar di Shopee developer dashboard
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
+        $redirectUrl = config('shopee.redirect_uri'); // pastikan ini terdaftar di Shopee developer dashboard
+        $baseUrl = config('shopee.base_url');
+        $url = "{$baseUrl}{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
             . "&sign={$sign}"
@@ -55,7 +56,8 @@ class ShopeeController extends Controller
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
 
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
+        $baseUrl = config('shopee.base_url');
+        $url = "{$baseUrl}{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
             . "&sign={$sign}";
@@ -397,11 +399,11 @@ class ShopeeController extends Controller
                                 [
                                     'platform'          => 'Shopee',
                                     'order_status'      => $detail['order_status'] ?? null,
-                                    'order_time'        => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time']) : now(),
+                                    'order_time'        => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone')) : now(),
                                     'cod'               => $detail['cod'] ?? null,
-                                    'ship_by_date'      => isset($detail['ship_by_date']) ? Carbon::createFromTimestamp($detail['ship_by_date']) : now(),
+                                    'ship_by_date'      => isset($detail['ship_by_date']) ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone')) : now(),
                                     'message_to_seller' => $detail['message_to_seller'] ?? null,
-                                    'updated_at'        => isset($detail['updated_at']) ? Carbon::createFromTimestamp($detail['updated_at']) : Carbon::now()->timezone('Asia/Jakarta'),
+                                    'updated_at'        => isset($detail['updated_at']) ? Carbon::createFromTimestamp($detail['updated_at'])->setTimezone(config('app.timezone')) : Carbon::now()->timezone('Asia/Jakarta'),
 
                                     // escrow fields
                                     'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,

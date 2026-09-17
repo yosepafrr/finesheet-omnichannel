@@ -10,7 +10,11 @@ axios.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response && error.response.status === 401) {
-            window.location.hash = '#/login';
+            const currentRoute = (window.location.hash.slice(1) || '/').split('?')[0];
+            const publicRoutes = ['/', '', '/login', '/register', '/meet-the-creators'];
+            if (!publicRoutes.includes(currentRoute)) {
+                window.location.hash = '#/login';
+            }
         }
         return Promise.reject(error);
     }
@@ -23,9 +27,11 @@ const StoreList = lazy(() => import('./pages/StoreList'));
 const ProductList = lazy(() => import('./pages/ProductList'));
 const OrderList = lazy(() => import('./pages/OrderList'));
 const ProfitTracker = lazy(() => import('./pages/ProfitTracker'));
+const PayableRekap = lazy(() => import('./pages/PayableRekap'));
 const Cashflow = lazy(() => import('./pages/Cashflow'));
 const MeetCreators = lazy(() => import('./pages/MeetCreators'));
 const Profile = lazy(() => import('./pages/Profile'));
+const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
 
@@ -37,6 +43,7 @@ const routes = {
     '/products': ProductList,
     '/orders': OrderList,
     '/profit-tracker': ProfitTracker,
+    '/payable': PayableRekap,
     '/cashflow': Cashflow,
     '/meet-the-creators': MeetCreators,
     '/profile': Profile,
@@ -117,7 +124,15 @@ function PageLoader() {
 
 // Simple hash router hook
 function useHashRouter() {
-    const [hash, setHash] = useState(window.location.hash.slice(1) || '/');
+    const [hash, setHash] = useState(() => {
+        let currentHash = window.location.hash.slice(1);
+        if (!currentHash && window.location.pathname && window.location.pathname !== '/') {
+            currentHash = window.location.pathname + window.location.search;
+            // Normalize path to hash routing
+            window.history.replaceState(null, '', '/#' + currentHash);
+        }
+        return currentHash || '/';
+    });
 
     useEffect(() => {
         const handleHashChange = () => {
@@ -126,8 +141,8 @@ function useHashRouter() {
         window.addEventListener('hashchange', handleHashChange);
 
         // Set initial hash to root if none
-        if (!window.location.hash) {
-            window.location.hash = '#/';
+        if (!window.location.hash && window.location.pathname === '/') {
+            window.location.replace('#/');
         }
 
         return () => window.removeEventListener('hashchange', handleHashChange);
@@ -146,13 +161,41 @@ const authRoutes = ['/login', '/register'];
 
 import { Toaster, toast } from 'react-hot-toast';
 
-// Initialize Echo listeners outside React lifecycle to prevent unmount race conditions
-if (window.Echo) {
-    console.log("Echo is defined globally. Subscribing to channels...");
+let currentEchoUserId = null;
+
+// Initialize Echo listeners for the authenticated user to prevent data & notification leakage
+export function initEchoForUser(userId) {
+    if (!window.Echo || !userId) return;
     
-    window.Echo.channel('orders')
+    // Already subscribed to this user
+    if (currentEchoUserId === Number(userId)) {
+        return;
+    }
+
+    // Always leave public channels and any previous user's private channels
+    try {
+        window.Echo.leave('orders');
+        window.Echo.leave('payables');
+        if (currentEchoUserId) {
+            window.Echo.leave(`orders.${currentEchoUserId}`);
+            window.Echo.leave(`payables.${currentEchoUserId}`);
+        }
+    } catch (e) {
+        console.warn('Echo: cleanup error before subscribe', e);
+    }
+
+    currentEchoUserId = Number(userId);
+    console.log(`Echo: Subscribing to private channels for user ${userId}...`);
+    
+    window.Echo.private(`orders.${userId}`)
         .listen('.OrderCreated', (e) => {
-            console.log('OrderCreated event received globally:', e);
+            // Defense-in-depth: Verify that event payload user_id matches the subscribed user
+            if (e.user_id && Number(e.user_id) !== Number(userId)) {
+                console.warn(`[Echo] Security check: Dropping notification belonging to user ${e.user_id} (active user: ${userId})`);
+                return;
+            }
+
+            console.log('OrderCreated event received for user:', e);
             
             let soundUrl = '';
             const platformName = (e.platform || '').toLowerCase();
@@ -222,14 +265,106 @@ if (window.Echo) {
                     </div>
                 </div>
             ), { duration: 10000, position: 'top-right' });
+            
+            // Dispatch a global event so other components (like PayableRekap) can auto-refresh
+            window.dispatchEvent(new CustomEvent('order-created', { detail: e }));
+        })
+        .listen('.OrderUpdated', (e) => {
+            if (e.user_id && Number(e.user_id) !== Number(userId)) return;
+            console.log('OrderUpdated event received for user:', e);
+            window.dispatchEvent(new CustomEvent('order-updated', { detail: e }));
         });
+
+    window.Echo.private(`payables.${userId}`)
+        .listen('.PayableUpdated', (e) => {
+            if (e.user_id && Number(e.user_id) !== Number(userId)) return;
+            console.log('PayableUpdated event received for user:', e);
+            window.dispatchEvent(new CustomEvent('payable-updated', { detail: e }));
+        });
+}
+
+export function cleanupEcho() {
+    if (!window.Echo) return;
+    try {
+        window.Echo.leave('orders');
+        window.Echo.leave('payables');
+        if (currentEchoUserId) {
+            window.Echo.leave(`orders.${currentEchoUserId}`);
+            window.Echo.leave(`payables.${currentEchoUserId}`);
+            currentEchoUserId = null;
+        }
+    } catch (e) {
+        console.warn('cleanupEcho error', e);
+    }
+}
+
+window.initEchoForUser = initEchoForUser;
+window.cleanupEcho = cleanupEcho;
+
+// Auto-initialize if authUser exists on blade render
+if (window.Echo && window.authUser && window.authUser.id) {
+    initEchoForUser(window.authUser.id);
+}
+
+class ErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error("ErrorBoundary caught an error:", error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-4">
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Terjadi Kesalahan Halaman</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md">
+                        Halaman mengalami kendala saat dimuat. Silakan muat ulang halaman atau kembali ke beranda.
+                    </p>
+                    <button
+                        onClick={() => {
+                            this.setState({ hasError: false, error: null });
+                            window.location.reload();
+                        }}
+                        className="px-5 py-2.5 bg-[#304674] dark:bg-blue-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity shadow-sm"
+                    >
+                        Muat Ulang Halaman
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
 }
 
 function App() {
     const currentRoute = useHashRouter();
     const isAuth = authRoutes.includes(currentRoute);
 
-    const PageComponent = routes[currentRoute];
+    let PageComponent = routes[currentRoute];
+    let routeParams = {};
+
+    // Dynamic routing fallback if no exact match
+    if (!PageComponent) {
+        // e.g. /orders/123
+        const orderMatch = currentRoute.match(/^\/orders\/(\d+)$/);
+        if (orderMatch) {
+            PageComponent = OrderDetail;
+            routeParams = { id: orderMatch[1] };
+        }
+    }
 
     useEffect(() => {
         console.log('App Mounted');
@@ -242,13 +377,13 @@ function App() {
     }
 
     return (
-        <>
+        <ErrorBoundary>
             <GlobalBanner />
             <Toaster />
             <Suspense fallback={<PageLoader />}>
-                <PageComponent />
+                <PageComponent routeParams={routeParams} />
             </Suspense>
-        </>
+        </ErrorBoundary>
     );
 }
 
@@ -261,8 +396,14 @@ const queryClient = new QueryClient({
     },
 });
 
-ReactDOM.createRoot(document.getElementById("app")).render(
-    <QueryClientProvider client={queryClient}>
-        <App />
-    </QueryClientProvider>
-);
+const container = document.getElementById("app");
+if (container) {
+    if (!window.__finesheet_root) {
+        window.__finesheet_root = ReactDOM.createRoot(container);
+    }
+    window.__finesheet_root.render(
+        <QueryClientProvider client={queryClient}>
+            <App />
+        </QueryClientProvider>
+    );
+}

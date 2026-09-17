@@ -8,68 +8,57 @@ import React, {
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
-const POLLING_INTERVAL = 10000;
+import OnboardingTour from "@/components/OnboardingTour";
+import { useOnboarding } from "@/hooks/useOnboarding";
+
+const ORDER_TOUR_STEPS = [
+    {
+        selector: "#tour-filter-group",
+        title: "Filter Pesanan",
+        description: "Gunakan filter ini untuk melihat pesanan berdasarkan statusnya, seperti Perlu Dikirim, Dikirim, Selesai, atau Batal.",
+        position: "bottom",
+    },
+    {
+        selector: "#tour-order-table",
+        title: "Daftar Pesanan",
+        description: "Ini adalah daftar pesanan dari semua toko Anda. Anda bisa melihat status, produk, informasi logistik, dan nilai estimasi profit per pesanan.",
+        position: "top",
+    },
+    {
+        selector: null,
+        title: "Detail Pesanan",
+        description: "Klik pada salah satu baris pesanan untuk melihat halaman detail lengkap, termasuk informasi buyer dan riwayat pengiriman.",
+        position: "bottom",
+    },
+];
+
 
 function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
 }
 
-const STATUS_CONFIG = {
-    ON_HOLD: {
-        label: "Ditahan",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    READY_TO_SHIP: {
-        label: "Perlu Dikirim",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    TO_CONFIRM_RECEIVE: {
-        label: "Perlu Diproses",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    AWAITING_SHIPMENT: {
-        label: "Menunggu pengiriman",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    AWAITING_COLLECTION: {
-        label: "Menunggu pengambilan",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    PROCESSED: {
-        label: "Telah Diproses",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    SHIPPED: {
-        label: "Dikirim",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    IN_TRANSIT: {
-        label: "Sedang Transit",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    DELIVERED: {
-        label: "Terkirim",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    COMPLETED: {
-        label: "Selesai",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
-    CANCELLED: {
-        label: "Batal",
-        text: "text-gray-700 dark:text-gray-400 font-bold",
-        border: "border-none",
-    },
+const STATUS_CONFIG_SHOPEE = {
+    UNPAID: { label: "Belum Bayar" },
+    READY_TO_SHIP: { label: "Perlu Dikirim" },
+    PROCESSED: { label: "Telah Diproses" },
+    SHIPPED: { label: "Dikirim" },
+    TO_CONFIRM_RECEIVE: { label: "Perlu Diproses" },
+    COMPLETED: { label: "Selesai" },
+    CANCELLED: { label: "Batal" },
+    IN_CANCEL: { label: "Pengajuan Batal" },
+    TO_RETURN: { label: "Pengembalian", isReturn: true },
+};
+
+const STATUS_CONFIG_TIKTOK = {
+    UNPAID: { label: "Belum Bayar" },
+    ON_HOLD: { label: "Ditahan" },
+    AWAITING_SHIPMENT: { label: "Menunggu pengiriman" },
+    AWAITING_COLLECTION: { label: "Menunggu pengambilan" },
+    IN_TRANSIT: { label: "Sedang Transit" },
+    DELIVERED: { label: "Terkirim" },
+    COMPLETED: { label: "Selesai" },
+    CANCEL: { label: "Batal" },
+    CANCELLED: { label: "Batal" },
 };
 
 const FILTER_GROUPS = [
@@ -77,7 +66,9 @@ const FILTER_GROUPS = [
     { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "TO_CONFIRM_RECEIVE", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
     { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED"] },
     { id: "selesai", label: "Selesai", statuses: ["COMPLETED"] },
-    { id: "batal", label: "Pengembalian/Pembatalan", statuses: ["CANCELLED"] }
+    { id: "gagal_kirim", label: "Pengiriman Gagal", statuses: [] },
+    { id: "return", label: "Pengembalian/Refund", statuses: [] },
+    { id: "batal", label: "Pembatalan", statuses: ["CANCEL", "CANCELLED", "IN_CANCEL"] },
 ];
 
 const PLATFORM_CONFIG = {
@@ -110,18 +101,57 @@ const PLATFORM_CONFIG = {
     },
 };
 
-function StatusBadge({ status }) {
-    const cfg = STATUS_CONFIG[status] || {
-        label: status,
-        bg: "bg-gray-50",
-        text: "text-gray-600",
-        border: "border-gray-200",
-    };
+function StatusBadge({ status, platform }) {
+    let label = status || "Unknown";
+    let isReturn = false;
+
+    if (platform === "Tiktokshop" && STATUS_CONFIG_TIKTOK[status]) {
+        label = STATUS_CONFIG_TIKTOK[status].label;
+    } else if (platform === "Shopee" && STATUS_CONFIG_SHOPEE[status]) {
+        label = STATUS_CONFIG_SHOPEE[status].label;
+        isReturn = STATUS_CONFIG_SHOPEE[status].isReturn || false;
+    } else if (STATUS_CONFIG_TIKTOK[status]) {
+        label = STATUS_CONFIG_TIKTOK[status].label;
+    } else if (STATUS_CONFIG_SHOPEE[status]) {
+        label = STATUS_CONFIG_SHOPEE[status].label;
+        isReturn = STATUS_CONFIG_SHOPEE[status].isReturn || false;
+    }
+
+    if (isReturn || status === "TO_RETURN") {
+        return (
+            <span className="text-xs font-bold text-red-600 dark:text-red-400">
+                {label}
+            </span>
+        );
+    }
+
     return (
-        <span
-            className={`px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.bg} ${cfg.text} ${cfg.border}`}
-        >
-            {cfg.label}
+        <span className="text-xs font-bold text-gray-700 dark:text-gray-400">
+            {label}
+        </span>
+    );
+}
+
+const RETURN_LABELS = {
+    PENDING: "Pengajuan Return/Refund",
+    WAITING_FOR_BUYER: "Menunggu Pembeli Mengirim Barang",
+    SHIPPED_BACK: "Barang Sedang Dikembalikan",
+    PROCESSING_REFUND: "Proses Refund",
+    REFUND_COMPLETED: "Return/Refund Selesai",
+    REJECTED: "Return/Refund Ditolak",
+    CANCELLED: "Return/Refund Dibatalkan",
+    DISPUTED: "Return Disengketakan",
+    APPROVED: "Return/Refund Disetujui",
+    ITEM_RETURNED: "Barang Dikembalikan",
+    COMPLETED: "Return/Refund Selesai",
+    UNSUPPORTED: "Return/Refund Selesai",
+};
+
+function ReturnStatusBadge({ status, platformStatus }) {
+    const label = RETURN_LABELS[status] || platformStatus || status || "Pengembalian";
+    return (
+        <span className="text-xs font-bold text-red-700 dark:text-red-400">
+            {label}
         </span>
     );
 }
@@ -177,20 +207,18 @@ function LimitDropdown({ value, onChange }) {
                         transition={{ duration: 0.2, ease: "easeOut" }}
                         className="absolute left-0 bottom-full mb-2 w-32 bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 overflow-hidden origin-bottom-left z-50"
                     >
-                        <div className="p-2">
-                            {[30, 50, 100].map((option) => (
-                                <button
-                                    key={option}
-                                    onClick={() => {
-                                        onChange(option);
-                                        setIsOpen(false);
-                                    }}
-                                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-colors text-left ${value === option ? "text-[#304674] bg-slate-50 dark:bg-slate-800 dark:text-blue-400" : "text-slate-600 dark:text-slate-300 hover:text-[#304674] hover:bg-slate-50 dark:hover:bg-slate-800"}`}
-                                >
-                                    {option} Data
-                                </button>
-                            ))}
-                        </div>
+                        {[10, 30, 50, 100].map((num) => (
+                            <button
+                                key={num}
+                                onClick={() => {
+                                    onChange(num);
+                                    setIsOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors ${value === num ? "font-bold text-[#304674] dark:text-blue-400 bg-gray-50/50 dark:bg-slate-800/50" : "text-gray-600 dark:text-slate-300"}`}
+                            >
+                                {num} / halaman
+                            </button>
+                        ))}
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -198,35 +226,217 @@ function LimitDropdown({ value, onChange }) {
     );
 }
 
+const STORAGE_KEY = "finesheet_order_list_state";
+
+function getSavedOrderListState() {
+    try {
+        const raw = sessionStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            return JSON.parse(raw);
+        }
+    } catch (e) {
+        console.error("Failed to read order list state from sessionStorage", e);
+    }
+    return null;
+}
+
+const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    let dStr = dateString;
+    if (typeof dStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+        dStr = dStr + 'T00:00:00+07:00';
+    } else if (typeof dStr === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dStr)) {
+        dStr = dStr.replace(' ', 'T') + '+07:00';
+    }
+    const date = new Date(dStr);
+    if (isNaN(date.getTime())) return dateString;
+
+    return new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).format(date);
+};
+
+const isReturnOrCancel = (order) => {
+    if (!order) return false;
+    
+    if (order.order_status) {
+        const status = String(order.order_status).toUpperCase().trim();
+        if (['CANCEL', 'CANCELLED', 'IN_CANCEL', 'TO_RETURN', 'RETURNED'].includes(status)) {
+            return true;
+        }
+    }
+
+    if (order.returns && order.returns.length > 0) {
+        return true;
+    }
+
+    if (order.packages && order.packages.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED')) {
+        return true;
+    }
+
+    return false;
+};
+
 export default function OrderList() {
+    const savedStateRef = useRef(getSavedOrderListState());
+    const initialSaved = savedStateRef.current;
+    const tour = useOnboarding("orders", ORDER_TOUR_STEPS.length);
+
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [selectedFilterId, setSelectedFilterId] = useState("perlu_dikirim");
-    const [selectedStore, setSelectedStore] = useState("");
-    const [searchQuery, setSearchQuery] = useState("");
-    const [expandedOrders, setExpandedOrders] = useState({});
-    const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
+    const [selectedFilterId, setSelectedFilterId] = useState(
+        () => initialSaved?.selectedFilterId || "perlu_dikirim"
+    );
+    const [selectedCancelCategory, setSelectedCancelCategory] = useState(
+        () => initialSaved?.selectedCancelCategory || "all"
+    );
+    const [selectedStore, setSelectedStore] = useState(
+        () => initialSaved?.selectedStore || ""
+    );
+    const [searchQuery, setSearchQuery] = useState(
+        () => initialSaved?.searchQuery || ""
+    );
+    const [expandedOrders, setExpandedOrders] = useState(
+        () => initialSaved?.expandedOrders || {}
+    );
     const storeDropdownRef = useRef(null);
+    const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [syncingStoreId, setSyncingStoreId] = useState(null);
-    const [limitByStore, setLimitByStore] = useState({});
-    const [pageByStore, setPageByStore] = useState({});
+    const [limitByStore, setLimitByStore] = useState(
+        () => initialSaved?.limitByStore || {}
+    );
+    const [pageByStore, setPageByStore] = useState(
+        () => initialSaved?.pageByStore || {}
+    );
+    const [copiedSn, setCopiedSn] = useState(null);
+    const [excludeReturns, setExcludeReturns] = useState(false);
+
+    const isInitialMount = useRef(true);
+    const scrollRestoredRef = useRef(false);
+    const isRestoringScrollRef = useRef(Boolean(initialSaved?.scrollTop && initialSaved.scrollTop > 0));
+    const scrollPosRef = useRef(initialSaved?.scrollTop || 0);
+
+    const getScrollTop = () => {
+        const container = document.getElementById("main-scroll-container");
+        if (container && container.scrollTop !== undefined && container.scrollTop > 0) {
+            return container.scrollTop;
+        }
+        return window.scrollY || document.documentElement.scrollTop || 0;
+    };
+
+    const setScrollTop = (top) => {
+        const container = document.getElementById("main-scroll-container");
+        if (container) {
+            container.scrollTop = top;
+        }
+        window.scrollTo(0, top);
+    };
+
+    const saveStateToStorage = useCallback((overrideScrollTop) => {
+        const currentScroll = overrideScrollTop !== undefined
+            ? overrideScrollTop
+            : (isRestoringScrollRef.current ? scrollPosRef.current : getScrollTop());
+
+        scrollPosRef.current = currentScroll;
+
+        const stateToSave = {
+            selectedFilterId,
+            selectedCancelCategory,
+            selectedStore,
+            searchQuery,
+            limitByStore,
+            pageByStore,
+            expandedOrders,
+            scrollTop: currentScroll,
+        };
+        try {
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+        } catch (e) {
+            console.error("Failed to save state to sessionStorage", e);
+        }
+    }, [selectedFilterId, selectedCancelCategory, selectedStore, searchQuery, limitByStore, pageByStore, expandedOrders]);
+
+    const handleNavigateToDetail = (orderId) => {
+        const currentPos = getScrollTop();
+        saveStateToStorage(currentPos);
+        const url = `${window.location.origin}${window.location.pathname}#/orders/${orderId}`;
+        window.open(url, "_blank");
+    };
+
+    const handleCopySn = (e, sn) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(sn);
+        setCopiedSn(sn);
+        setTimeout(() => setCopiedSn(null), 2000);
+    };
 
     useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
         setPageByStore({});
-    }, [searchQuery, selectedFilterId, selectedStore]);
+        scrollPosRef.current = 0;
+        setScrollTop(0);
+    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore]);
+
+    // Persist state changes
+    useEffect(() => {
+        if (!isInitialMount.current) {
+            saveStateToStorage();
+        }
+    }, [selectedFilterId, selectedCancelCategory, selectedStore, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
+
+    // Track scroll events
+    useEffect(() => {
+        const container = document.getElementById("main-scroll-container") || window;
+        let timeoutId = null;
+
+        const handleScroll = () => {
+            if (isRestoringScrollRef.current) return;
+            const pos = getScrollTop();
+            scrollPosRef.current = pos;
+
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                saveStateToStorage(pos);
+            }, 150);
+        };
+
+        container.addEventListener("scroll", handleScroll, { passive: true });
+        return () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            container.removeEventListener("scroll", handleScroll);
+        };
+    }, [saveStateToStorage]);
+
+    // Save on beforeunload (refresh) and unmount
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            saveStateToStorage(getScrollTop());
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => {
+            window.removeEventListener("beforeunload", handleBeforeUnload);
+            saveStateToStorage(getScrollTop());
+        };
+    }, [saveStateToStorage]);
 
     const handleSync = async () => {
         setSyncing(true);
         try {
             await axios.post("/api/sync/orders");
-            // Re-fetch immediately in case some data was updated fast,
-            // the 10s polling will catch the rest.
             fetchData();
         } catch (err) {
             console.error("Failed to sync orders", err);
         } finally {
-            setTimeout(() => setSyncing(false), 2000); // Visual feedback
+            setTimeout(() => setSyncing(false), 2000);
         }
     };
 
@@ -256,33 +466,124 @@ export default function OrderList() {
             document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    const fetchData = useCallback(async () => {
+    const abortControllerRef = useRef(null);
+    const fetchRequestIdRef = useRef(0);
+
+    const fetchData = useCallback(async (silent = false) => {
+        const requestId = fetchRequestIdRef.current + 1;
+        fetchRequestIdRef.current = requestId;
+        if (!silent) setLoading(true);
+        
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+        
         try {
             const params = {};
-            const filterGroup = FILTER_GROUPS.find(g => g.id === selectedFilterId);
-            if (filterGroup && filterGroup.statuses.length > 0) {
-                params.statuses = filterGroup.statuses.join(",");
+            if (selectedFilterId === "gagal_kirim") {
+                params.is_failed_delivery = 'true';
+            } else if (selectedFilterId === "return") {
+                params.is_return = 'true';
+            } else {
+                const filterGroup = FILTER_GROUPS.find(g => g.id === selectedFilterId);
+                if (filterGroup && filterGroup.statuses.length > 0) {
+                    params.statuses = filterGroup.statuses.join(",");
+                }
+                if (selectedFilterId === "batal" && selectedCancelCategory && selectedCancelCategory !== "all") {
+                    params.cancel_category = selectedCancelCategory;
+                }
             }
             if (selectedStore) params.store_id = selectedStore;
-            const res = await axios.get("/api/orders", { params });
-            setData(res.data);
+            
+            const res = await axios.get("/api/orders", { 
+                params,
+                signal: abortControllerRef.current.signal
+            });
+            if (requestId === fetchRequestIdRef.current) {
+                setData(res.data);
+            }
         } catch (err) {
-            console.error(err);
+            if (axios.isCancel(err)) {
+                console.log('Request canceled', err.message);
+            } else {
+                console.error(err);
+            }
         } finally {
-            setLoading(false);
+            if (!silent && requestId === fetchRequestIdRef.current) {
+                setLoading(false);
+            }
         }
-    }, [selectedFilterId, selectedStore]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStore]);
 
     useEffect(() => {
-        setLoading(true);
         fetchData();
     }, [fetchData]);
 
-    // Polling
+    // Keep a ref to the latest fetchData so the event listener is always up-to-date
+    // without needing to re-register on every filter change
+    const fetchDataRef = useRef(fetchData);
     useEffect(() => {
-        const interval = setInterval(() => fetchData(), POLLING_INTERVAL);
+        fetchDataRef.current = fetchData;
+    });
+
+    // Listen to real-time events to auto-refresh order list seamlessly
+    useEffect(() => {
+        const handleOrderEvent = (e) => {
+            console.log("OrderList: Real-time update received, refetching silently...", e.type, e.detail);
+            fetchDataRef.current(true);
+        };
+
+        window.addEventListener('order-created', handleOrderEvent);
+        window.addEventListener('order-updated', handleOrderEvent);
+        return () => {
+            window.removeEventListener('order-created', handleOrderEvent);
+            window.removeEventListener('order-updated', handleOrderEvent);
+        };
+    }, []); // Empty deps: register once, always calls latest fetchData via ref
+
+    // Polling fallback every 30s (in case WebSocket misses events)
+    useEffect(() => {
+        const interval = setInterval(() => fetchDataRef.current(true), 30000);
         return () => clearInterval(interval);
-    }, [fetchData]);
+    }, []); // Empty deps: register once
+
+    // Restore scroll position after data has finished loading and rendering
+    useEffect(() => {
+        if (!loading && data && !scrollRestoredRef.current) {
+            const targetScroll = savedStateRef.current?.scrollTop;
+            if (typeof targetScroll === "number" && targetScroll > 0) {
+                isRestoringScrollRef.current = true;
+                const applyScroll = () => {
+                    setScrollTop(targetScroll);
+                };
+
+                applyScroll();
+                const raf = requestAnimationFrame(applyScroll);
+                const t1 = setTimeout(applyScroll, 50);
+                const t2 = setTimeout(applyScroll, 150);
+                const t3 = setTimeout(applyScroll, 300);
+                const tEnd = setTimeout(() => {
+                    isRestoringScrollRef.current = false;
+                }, 400);
+
+                scrollRestoredRef.current = true;
+                return () => {
+                    cancelAnimationFrame(raf);
+                    clearTimeout(t1);
+                    clearTimeout(t2);
+                    clearTimeout(t3);
+                    clearTimeout(tEnd);
+                    isRestoringScrollRef.current = false;
+                };
+            } else {
+                scrollRestoredRef.current = true;
+                isRestoringScrollRef.current = false;
+            }
+        }
+    }, [loading, data]);
+
+
 
 
 
@@ -314,6 +615,24 @@ export default function OrderList() {
             ordersByStore[order.store_id].push(order);
         });
     }
+
+    const totalOrdersCount = Object.values(ordersByStore).reduce(
+        (sum, list) => sum + (list?.length || 0),
+        0
+    );
+
+    const handleResetFilter = () => {
+        setSearchQuery("");
+        setSelectedFilterId("semua");
+        setSelectedCancelCategory("all");
+        setSelectedStore("");
+    };
+
+    const hasActiveFilter =
+        Boolean(searchQuery) ||
+        (selectedFilterId !== "semua" && selectedFilterId !== "all") ||
+        (selectedFilterId === "batal" && selectedCancelCategory !== "all") ||
+        Boolean(selectedStore);
 
     return (
         <AppLayout>
@@ -378,10 +697,10 @@ export default function OrderList() {
                                             {selectedStore === ""
                                                 ? "Semua Toko"
                                                 : data?.stores?.find(
-                                                      (s) =>
-                                                          s.id == selectedStore,
-                                                  )?.store_name ||
-                                                  "Toko Tidak Diketahui"}
+                                                    (s) =>
+                                                        s.id == selectedStore,
+                                                )?.store_name ||
+                                                "Toko Tidak Diketahui"}
                                         </span>
                                         <span
                                             className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}
@@ -424,11 +743,10 @@ export default function OrderList() {
                                                                 false,
                                                             );
                                                         }}
-                                                        className={`w-full text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${
-                                                            selectedStore === ""
-                                                                ? "bg-[#304674] text-white dark:bg-blue-600"
-                                                                : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                                        }`}
+                                                        className={`w-full text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${selectedStore === ""
+                                                            ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                            : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                            }`}
                                                     >
                                                         Semua Toko
                                                     </button>
@@ -444,12 +762,11 @@ export default function OrderList() {
                                                                         false,
                                                                     );
                                                                 }}
-                                                                className={`w-full flex items-center justify-between text-left px-3 py-2 mt-1 text-sm font-medium rounded-xl transition-colors ${
-                                                                    selectedStore ==
+                                                                className={`w-full flex items-center justify-between text-left px-3 py-2 mt-1 text-sm font-medium rounded-xl transition-colors ${selectedStore ==
                                                                     store.id
-                                                                        ? "bg-[#304674] text-white dark:bg-blue-600"
-                                                                        : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                                                }`}
+                                                                    ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                                    : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                                    }`}
                                                             >
                                                                 <span className="truncate">
                                                                     {
@@ -457,12 +774,11 @@ export default function OrderList() {
                                                                     }
                                                                 </span>
                                                                 <span
-                                                                    className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                                                                        selectedStore ==
+                                                                    className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${selectedStore ==
                                                                         store.id
-                                                                            ? "bg-white/20 text-white"
-                                                                            : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
-                                                                    }`}
+                                                                        ? "bg-white/20 text-white"
+                                                                        : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
+                                                                        }`}
                                                                 >
                                                                     {
                                                                         store.platform
@@ -480,30 +796,32 @@ export default function OrderList() {
                         </div>
 
                         {/* Status Tabs */}
-                        <div className="border-b border-gray-200 dark:border-slate-700">
+                        <div id="tour-filter-group" className="border-b border-gray-200 dark:border-slate-700">
                             <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar">
                                 {FILTER_GROUPS.map((group) => {
                                     const isActive = selectedFilterId === group.id;
-                                    const count = group.statuses.reduce((sum, statusKey) => sum + (data?.status_counts?.[statusKey] || 0), 0);
-                                    
+                                    const count = group.id === "gagal_kirim"
+                                        ? (data?.status_counts?.gagal_kirim || 0)
+                                        : group.id === "return"
+                                            ? (data?.status_counts?.return || 0)
+                                            : group.statuses.reduce((sum, statusKey) => sum + (data?.status_counts?.[statusKey] || 0), 0);
+
                                     return (
                                         <button
                                             key={group.id}
                                             onClick={() => setSelectedFilterId(group.id)}
-                                            className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
-                                                isActive
-                                                    ? "border-[#304674] dark:border-blue-500 text-[#304674] dark:text-blue-400"
-                                                    : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
-                                            }`}
+                                            className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${isActive
+                                                ? "border-[#304674] dark:border-blue-500 text-[#304674] dark:text-blue-400"
+                                                : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+                                                }`}
                                         >
                                             {group.label}
                                             {count > 0 && (group.id === "perlu_dikirim" || group.id === "dikirim") && (
                                                 <span
-                                                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
-                                                        isActive
-                                                            ? "bg-[#304674] text-white dark:bg-blue-500"
-                                                            : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400"
-                                                    }`}
+                                                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${isActive
+                                                        ? "bg-[#304674] text-white dark:bg-blue-500"
+                                                        : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400"
+                                                        }`}
                                                 >
                                                     {count}
                                                 </span>
@@ -513,6 +831,71 @@ export default function OrderList() {
                                 })}
                             </div>
                         </div>
+
+                        {/* Sub-Filters for Pembatalan */}
+                        <AnimatePresence>
+                            {selectedFilterId === "batal" && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="flex items-center gap-2 pt-3 pb-1 overflow-x-auto no-scrollbar"
+                                >
+                                    <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 mr-1 flex items-center gap-1">
+                                        <span className="material-symbols-rounded text-[14px]">filter_list</span> Kategori:
+                                    </span>
+
+                                    <button
+                                        onClick={() => setSelectedCancelCategory("all")}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "all"
+                                                ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
+                                                : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
+                                            }`}
+                                    >
+                                        Semua
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${selectedCancelCategory === "all"
+                                                ? "bg-white/20 text-white"
+                                                : "bg-gray-200 dark:bg-slate-600 text-gray-600 dark:text-slate-300"
+                                            }`}>
+                                            {data?.cancel_sub_counts?.all || 0}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setSelectedCancelCategory("SELLER_LATE_SHIPMENT")}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "SELLER_LATE_SHIPMENT"
+                                                ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
+                                                : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
+                                            }`}
+                                    >
+                                        Terlambat Dikirim Penjual
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${selectedCancelCategory === "SELLER_LATE_SHIPMENT"
+                                                ? "bg-white/20 text-white"
+                                                : "bg-gray-200 dark:bg-slate-600 text-gray-600 dark:text-slate-300"
+                                            }`}>
+                                            {data?.cancel_sub_counts?.SELLER_LATE_SHIPMENT || 0}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setSelectedCancelCategory("BUYER_SIDE")}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "BUYER_SIDE"
+                                                ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
+                                                : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
+                                            }`}
+                                    >
+                                        Dari Sisi Buyer / Pembayaran
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${selectedCancelCategory === "BUYER_SIDE"
+                                                ? "bg-white/20 text-white"
+                                                : "bg-gray-200 dark:bg-slate-600 text-gray-600 dark:text-slate-300"
+                                            }`}>
+                                            {data?.cancel_sub_counts?.BUYER_SIDE || 0}
+                                        </span>
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
 
                     {/* Order Content */}
@@ -523,20 +906,98 @@ export default function OrderList() {
                             <SkeletonRow />
                         </div>
                     ) : !data?.stores?.length ? (
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl p-12 text-center border border-dashed border-gray-300 dark:border-slate-600">
-                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-50 dark:bg-slate-700 mb-4">
-                                <span className="material-symbols-rounded text-3xl text-gray-300 dark:text-slate-500">
-                                    shopping_cart_off
-                                </span>
+                        <motion.div
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-white dark:bg-slate-800 rounded-3xl p-10 sm:p-14 text-center border border-gray-100 dark:border-slate-700/80 shadow-sm max-w-lg mx-auto my-8"
+                        >
+                            <div className="relative mx-auto w-40 h-40 sm:w-48 sm:h-48 mb-6 flex items-center justify-center">
+                                <div className="absolute inset-0 bg-blue-500/10 dark:bg-blue-400/10 rounded-full blur-2xl transform scale-90" />
+                                <img
+                                    src="/images/empty-orders.jpg"
+                                    alt="Belum ada toko terhubung"
+                                    className="relative w-full h-full object-contain rounded-2xl shadow-sm border border-gray-100/60 dark:border-slate-700/60"
+                                />
                             </div>
-                            <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-                                Belum ada pesanan
+                            <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-tight mb-2">
+                                Belum Ada Toko Terhubung
                             </h3>
-                            <p className="text-gray-500 dark:text-slate-400">
-                                Coba ubah filter atau sinkronisasi data toko
-                                Anda.
+                            <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 max-w-sm mx-auto leading-relaxed">
+                                Hubungkan toko marketplace Anda terlebih dahulu di menu Integrasi Toko untuk mulai mengelola dan memantau pesanan.
                             </p>
-                        </div>
+                            <a
+                                href="#/stores"
+                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#253659] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm"
+                            >
+                                <span className="material-symbols-rounded text-sm">storefront</span>
+                                Hubungkan Toko
+                            </a>
+                        </motion.div>
+                    ) : totalOrdersCount === 0 ? (
+                        <motion.div
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3 }}
+                            className="bg-white dark:bg-slate-800 rounded-3xl p-8 sm:p-12 text-center border border-gray-100 dark:border-slate-700/80 shadow-sm max-w-lg mx-auto my-8"
+                        >
+                            <div className="relative mx-auto w-44 h-44 sm:w-52 sm:h-52 mb-6 flex items-center justify-center">
+                                <div className="absolute inset-0 bg-blue-500/10 dark:bg-blue-400/10 rounded-full blur-2xl transform scale-90" />
+                                <img
+                                    src="/images/empty-orders.jpg"
+                                    alt="Oops, pesanan tidak ditemukan"
+                                    className="relative w-full h-full object-contain rounded-2xl shadow-md border border-gray-100/60 dark:border-slate-700/60 transition-transform duration-300 hover:scale-105"
+                                />
+                            </div>
+
+                            <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-tight mb-2">
+                                Oops, Pesanan Tidak Ditemukan!
+                            </h3>
+
+                            <p className="text-sm text-gray-500 dark:text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
+                                {searchQuery ? (
+                                    <>
+                                        Tidak ada pesanan yang cocok dengan kata kunci{" "}
+                                        <span className="font-semibold text-gray-700 dark:text-slate-200">
+                                            "{searchQuery}"
+                                        </span>
+                                        .
+                                    </>
+                                ) : selectedFilterId === "batal" && selectedCancelCategory === "SELLER_LATE_SHIPMENT" ? (
+                                    "Tidak ada pesanan pembatalan karena terlambat dikirim penjual."
+                                ) : selectedFilterId === "batal" && selectedCancelCategory === "BUYER_SIDE" ? (
+                                    "Tidak ada pesanan pembatalan dari sisi buyer / pembayaran."
+                                ) : selectedFilterId !== "semua" && selectedFilterId !== "all" ? (
+                                    `Tidak ada pesanan dalam status ${FILTER_GROUPS.find(g => g.id === selectedFilterId)?.label || "ini"}.`
+                                ) : selectedStore ? (
+                                    "Toko yang Anda pilih saat ini belum memiliki pesanan."
+                                ) : (
+                                    "Saat ini belum ada pesanan yang masuk atau data pesanan belum disinkronisasi."
+                                )}
+                            </p>
+
+                            <div className="flex flex-wrap items-center justify-center gap-3">
+                                {hasActiveFilter && (
+                                    <button
+                                        onClick={handleResetFilter}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 transition-colors"
+                                    >
+                                        <span className="material-symbols-rounded text-sm">filter_alt_off</span>
+                                        Reset Filter & Pencarian
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={handleSync}
+                                    disabled={syncing}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#253659] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm disabled:opacity-50"
+                                >
+                                    <span className={`material-symbols-rounded text-sm ${syncing ? "animate-spin" : ""}`}>
+                                        sync
+                                    </span>
+                                    {syncing ? "Menyinkronkan..." : "Sinkronkan Pesanan"}
+                                </button>
+                            </div>
+                        </motion.div>
                     ) : (
                         data.stores.map((store) => {
                             const storeOrders = ordersByStore[store.id] || [];
@@ -566,6 +1027,7 @@ export default function OrderList() {
                             return (
                                 <div
                                     key={store.id}
+                                    id={store.id === data.stores[0]?.id ? "tour-order-table" : undefined}
                                     className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden"
                                 >
                                     {/* Store Header */}
@@ -587,7 +1049,7 @@ export default function OrderList() {
                                             <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md hidden sm:inline-block">
                                                 {storeOrders.length} Orders
                                             </span>
-                                            <button 
+                                            <button
                                                 onClick={() => handleSyncStore(store.id)}
                                                 disabled={syncingStoreId === store.id || syncing}
                                                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
@@ -613,6 +1075,9 @@ export default function OrderList() {
                                                     <th className="px-6 py-4">
                                                         Status
                                                     </th>
+                                                    <th className="px-6 py-4">
+                                                        Informasi Logistik
+                                                    </th>
                                                     <th className="px-6 py-4 text-right">
                                                         Total Price
                                                     </th>
@@ -629,15 +1094,17 @@ export default function OrderList() {
                                                         >
                                                             <tr
                                                                 key={order.id}
-                                                                className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group"
+                                                                onClick={() => handleNavigateToDetail(order.id)}
+                                                                className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                                                             >
                                                                 <td className="px-6 py-4 align-top">
                                                                     <button
-                                                                        onClick={() =>
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
                                                                             toggleExpand(
                                                                                 order.id,
-                                                                            )
-                                                                        }
+                                                                            );
+                                                                        }}
                                                                         className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedOrders[order.id] ? "rotate-180" : ""}`}
                                                                     >
                                                                         <span className="material-symbols-rounded">
@@ -646,15 +1113,12 @@ export default function OrderList() {
                                                                     </button>
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
-                                                                    <div className="font-bold text-[#304674] dark:text-blue-400 font-mono">
-                                                                        {
-                                                                            order.order_sn
-                                                                        }
-                                                                    </div>
-                                                                    <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">
-                                                                        {
-                                                                            order.created_at
-                                                                        }
+                                                                    <button onClick={(e) => handleCopySn(e, order.order_sn)} className="font-bold text-[#304674] dark:text-blue-400 font-mono hover:text-[#233355] dark:hover:text-blue-300 transition-colors inline-flex items-center gap-1">
+                                                                        {order.order_sn}
+                                                                        <span className="material-symbols-rounded text-[14px]">{copiedSn === order.order_sn ? 'check' : 'content_copy'}</span>
+                                                                    </button>
+                                                                    <div className="text-xs text-gray-400 dark:text-slate-500 mt-1" title="Waktu Order">
+                                                                        {formatDate(order.order_time)}
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
@@ -683,7 +1147,7 @@ export default function OrderList() {
                                                                                 }
                                                                             </p>
                                                                             {order.product_count >
-                                                                            1 ? (
+                                                                                1 ? (
                                                                                 <button
                                                                                     onClick={() =>
                                                                                         toggleExpand(
@@ -713,11 +1177,73 @@ export default function OrderList() {
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
-                                                                    <StatusBadge
-                                                                        status={
-                                                                            order.order_status
-                                                                        }
-                                                                    />
+                                                                    <div className="flex flex-col items-start gap-1">
+                                                                        <StatusBadge
+                                                                            status={
+                                                                                order.order_status
+                                                                            }
+                                                                            platform={
+                                                                                order.platform
+                                                                            }
+                                                                        />
+                                                                        {order.returns && order.returns.length > 0 && (
+                                                                            <ReturnStatusBadge
+                                                                                status={order.returns[0].normalized_status}
+                                                                                platformStatus={order.returns[0].platform_status}
+                                                                            />
+                                                                        )}
+                                                                        {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && (
+                                                                            <span
+                                                                                className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200"
+                                                                                title={order.cancel_reason ? `Alasan: ${order.cancel_reason}` : ''}
+                                                                            >
+                                                                                {order.normalized_cancel_category === 'SELLER_LATE_SHIPMENT' && 'Terlambat Dikirim Penjual'}
+                                                                                {order.normalized_cancel_category === 'BUYER_SIDE' && 'Sisi Buyer / Pembayaran'}
+                                                                                {order.normalized_cancel_category === 'UNKNOWN' && (order.cancel_reason || 'Alasan Lain')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 align-top">
+                                                                    {order.packages && order.packages.length > 0 ? (
+                                                                        <div className="flex flex-col gap-3">
+                                                                            {order.packages.map((pkg, pIdx) => {
+                                                                                const isFailed = pkg.normalized_logistics_status === 'DELIVERY_FAILED';
+                                                                                const isDelivered = pkg.normalized_logistics_status === 'DELIVERED';
+                                                                                const trackingNo = pkg.tracking_number || order.tracking_number || '-';
+
+                                                                                return (
+                                                                                    <div key={pIdx} className="text-xs">
+                                                                                        <p className="font-bold text-gray-800 dark:text-slate-200">{order.shipping_provider || 'Kurir'}</p>
+                                                                                        <p className="font-mono text-gray-500 dark:text-slate-400 mb-1">{trackingNo}</p>
+                                                                                        {isFailed ? (
+                                                                                            <div className="mt-1">
+                                                                                                <p className="font-medium flex items-start gap-1 text-red-600 dark:text-red-400">
+                                                                                                    <span>🔴</span> <span>Pengiriman Gagal</span>
+                                                                                                </p>
+                                                                                                {pkg.logistics_status && (
+                                                                                                    <p className="text-red-500 dark:text-red-400 mt-0.5 break-words">
+                                                                                                        Alasan: {pkg.logistics_status}
+                                                                                                    </p>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ) : isDelivered ? (
+                                                                                            <p className="font-medium flex items-start gap-1 text-emerald-600 dark:text-emerald-400 mt-1">
+                                                                                                <span>🟢</span> <span>Terkirim</span>
+                                                                                            </p>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    ) : (order.shipping_provider || order.tracking_number) ? (
+                                                                        <div className="text-xs">
+                                                                            <p className="font-bold text-gray-800 dark:text-slate-200">{order.shipping_provider || 'Kurir'}</p>
+                                                                            <p className="font-mono text-gray-500 dark:text-slate-400 mb-1">{order.tracking_number || '-'}</p>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-xs text-gray-400 italic">Informasi logistik belum tersedia</span>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top text-right font-medium text-gray-600 dark:text-slate-300">
                                                                     {formatRp(
@@ -734,76 +1260,76 @@ export default function OrderList() {
                                                             {expandedOrders[
                                                                 order.id
                                                             ] && (
-                                                                <tr
-                                                                    key={`${order.id}-detail`}
-                                                                    className="bg-gray-50/50 dark:bg-slate-900/30"
-                                                                >
-                                                                    <td
-                                                                        colSpan={
-                                                                            6
-                                                                        }
-                                                                        className="px-6 py-4"
+                                                                    <tr
+                                                                        key={`${order.id}-detail`}
+                                                                        className="bg-gray-50/50 dark:bg-slate-900/30"
                                                                     >
-                                                                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
-                                                                            <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
-                                                                                Detail
-                                                                                Pesanan
-                                                                            </h4>
-                                                                            <div className="space-y-3">
-                                                                                {order.products?.map(
-                                                                                    (
-                                                                                        product,
-                                                                                        idx,
-                                                                                    ) => (
-                                                                                        <div
-                                                                                            key={
-                                                                                                idx
-                                                                                            }
-                                                                                            className="flex items-start justify-between"
-                                                                                        >
-                                                                                            <div className="flex items-start gap-3">
-                                                                                                {product.variant_image || product.image ? (
-                                                                                                    <img
-                                                                                                        src={
-                                                                                                            product.variant_image || product.image
-                                                                                                        }
-                                                                                                        className="w-12 h-12 rounded-lg border border-gray-100 dark:border-slate-600 object-cover"
-                                                                                                        alt=""
-                                                                                                    />
-                                                                                                ) : (
-                                                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
-                                                                                                        <span className="material-symbols-rounded text-sm text-gray-300 dark:text-slate-500">
-                                                                                                            image
-                                                                                                        </span>
+                                                                        <td
+                                                                            colSpan={
+                                                                                7
+                                                                            }
+                                                                            className="px-6 py-4"
+                                                                        >
+                                                                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm">
+                                                                                <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
+                                                                                    Detail
+                                                                                    Pesanan
+                                                                                </h4>
+                                                                                <div className="space-y-3">
+                                                                                    {order.products?.map(
+                                                                                        (
+                                                                                            product,
+                                                                                            idx,
+                                                                                        ) => (
+                                                                                            <div
+                                                                                                key={
+                                                                                                    idx
+                                                                                                }
+                                                                                                className="flex items-start justify-between"
+                                                                                            >
+                                                                                                <div className="flex items-start gap-3">
+                                                                                                    {product.variant_image || product.image ? (
+                                                                                                        <img
+                                                                                                            src={
+                                                                                                                product.variant_image || product.image
+                                                                                                            }
+                                                                                                            className="w-12 h-12 rounded-lg border border-gray-100 dark:border-slate-600 object-cover"
+                                                                                                            alt=""
+                                                                                                        />
+                                                                                                    ) : (
+                                                                                                        <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                                                                                                            <span className="material-symbols-rounded text-sm text-gray-300 dark:text-slate-500">
+                                                                                                                image
+                                                                                                            </span>
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                    <div>
+                                                                                                        <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">
+                                                                                                            {
+                                                                                                                product.product_name
+                                                                                                            }
+                                                                                                        </p>
+                                                                                                        <p className="text-xs text-gray-500 dark:text-slate-400">
+                                                                                                            Var:{" "}
+                                                                                                            {
+                                                                                                                product.model_name
+                                                                                                            }{" "}
+                                                                                                            •
+                                                                                                            Qty:{" "}
+                                                                                                            {
+                                                                                                                product.quantity_purchased
+                                                                                                            }
+                                                                                                        </p>
                                                                                                     </div>
-                                                                                                )}
-                                                                                                <div>
-                                                                                                    <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">
-                                                                                                        {
-                                                                                                            product.product_name
-                                                                                                        }
-                                                                                                    </p>
-                                                                                                    <p className="text-xs text-gray-500 dark:text-slate-400">
-                                                                                                        Var:{" "}
-                                                                                                        {
-                                                                                                            product.model_name
-                                                                                                        }{" "}
-                                                                                                        •
-                                                                                                        Qty:{" "}
-                                                                                                        {
-                                                                                                            product.quantity_purchased
-                                                                                                        }
-                                                                                                    </p>
                                                                                                 </div>
                                                                                             </div>
-                                                                                        </div>
-                                                                                    ),
-                                                                                )}
+                                                                                        ),
+                                                                                    )}
+                                                                                </div>
                                                                             </div>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            )}
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
                                                         </React.Fragment>
                                                     ),
                                                 )}
@@ -811,10 +1337,10 @@ export default function OrderList() {
                                             <tfoot className="bg-gray-50 dark:bg-slate-900/30 border-t border-gray-100 dark:border-slate-700">
                                                 <tr>
                                                     <td
-                                                        colSpan={4}
+                                                        colSpan={5}
                                                         className="px-6 py-3 font-bold text-gray-500 dark:text-slate-400 text-right"
                                                     >
-                                                        Total Summary:
+                                                        Total:
                                                     </td>
                                                     <td className="px-6 py-3 font-bold text-gray-800 dark:text-white text-right">
                                                         {formatRp(
@@ -830,15 +1356,34 @@ export default function OrderList() {
                                                     <td className="px-6 py-3 font-bold text-green-600 dark:text-green-400 text-right">
                                                         {formatRp(
                                                             storeOrders.reduce(
-                                                                (s, o) =>
-                                                                    s +
-                                                                    (o.escrow_amount ||
-                                                                        0),
+                                                                (s, o) => {
+                                                                    if (selectedFilterId === 'dikirim' && excludeReturns && isReturnOrCancel(o)) {
+                                                                        return s;
+                                                                    }
+                                                                    return s + (o.escrow_amount || 0);
+                                                                },
                                                                 0,
                                                             ),
                                                         )}
                                                     </td>
                                                 </tr>
+                                                {selectedFilterId === 'dikirim' && (
+                                                    <tr>
+                                                        <td colSpan={7} className="px-6 py-3 text-right">
+                                                            <label className="inline-flex items-center cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="form-checkbox h-4 w-4 text-[#304674] dark:text-blue-500 rounded border-gray-300 dark:border-slate-600 focus:ring-[#304674] dark:focus:ring-blue-500 bg-white dark:bg-slate-800 transition duration-150 ease-in-out cursor-pointer"
+                                                                    checked={excludeReturns}
+                                                                    onChange={(e) => setExcludeReturns(e.target.checked)}
+                                                                />
+                                                                <span className="ml-2 text-xs text-gray-500 dark:text-slate-400 font-medium">
+                                                                    Kecualikan Pengembalian / Batal
+                                                                </span>
+                                                            </label>
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </tfoot>
                                         </table>
                                     </div>
@@ -846,31 +1391,84 @@ export default function OrderList() {
                                     {/* Mobile Cards */}
                                     <div className="md:hidden p-4 space-y-4 bg-gray-50/50 dark:bg-slate-900/30">
                                         {paginatedOrders.map((order) => {
-                                            const statusCfg =
-                                                STATUS_CONFIG[
-                                                    order.order_status
-                                                ] || {};
                                             return (
                                                 <div
                                                     key={order.id}
-                                                    className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700"
+                                                    onClick={() => handleNavigateToDetail(order.id)}
+                                                    className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative cursor-pointer"
                                                 >
-                                                    <div className="flex justify-between items-start mb-3">
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className="font-mono text-xs text-gray-500 dark:text-slate-400">
-                                                                    #
-                                                                    {
-                                                                        order.order_sn
-                                                                    }
-                                                                </span>
-                                                                <StatusBadge
-                                                                    status={
-                                                                        order.order_status
-                                                                    }
-                                                                />
+                                                    <div className="flex justify-between items-start mb-3 gap-2">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex flex-wrap items-start gap-2 mb-1">
+                                                                <button onClick={(e) => handleCopySn(e, order.order_sn)} className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 inline-flex items-center gap-0.5 min-w-0 truncate">
+                                                                    <span className="truncate">#{order.order_sn}</span>
+                                                                    <span className="material-symbols-rounded text-[12px] shrink-0">{copiedSn === order.order_sn ? 'check' : 'content_copy'}</span>
+                                                                </button>
+                                                                <div className="flex flex-col items-start gap-1">
+                                                                    <StatusBadge
+                                                                        status={
+                                                                            order.order_status
+                                                                        }
+                                                                        platform={
+                                                                            order.platform
+                                                                        }
+                                                                    />
+                                                                    {order.returns && order.returns.length > 0 && (
+                                                                        <ReturnStatusBadge
+                                                                            status={order.returns[0].normalized_status}
+                                                                            platformStatus={order.returns[0].platform_status}
+                                                                        />
+                                                                    )}
+                                                                    {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && (
+                                                                        <span
+                                                                            className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300"
+                                                                            title={order.cancel_reason ? `Alasan: ${order.cancel_reason}` : ''}
+                                                                        >
+                                                                            {order.normalized_cancel_category === 'SELLER_LATE_SHIPMENT' && 'Terlambat Dikirim Penjual'}
+                                                                            {order.normalized_cancel_category === 'BUYER_SIDE' && 'Sisi Buyer / Pembayaran'}
+                                                                            {order.normalized_cancel_category === 'UNKNOWN' && (order.cancel_reason || 'Alasan Lain')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {order.packages && order.packages.length > 0 ? (
+                                                                    <div className="mt-2 space-y-2">
+                                                                        {order.packages.map((pkg, pIdx) => {
+                                                                            const isFailed = pkg.normalized_logistics_status === 'DELIVERY_FAILED';
+                                                                            const isDelivered = pkg.normalized_logistics_status === 'DELIVERED';
+                                                                            const trackingNo = pkg.tracking_number || order.tracking_number || '-';
+
+                                                                            return (
+                                                                                <div key={pIdx} className="text-[11px] p-2 bg-gray-50 dark:bg-slate-900 rounded-lg border border-gray-100 dark:border-slate-700">
+                                                                                    <div className="font-bold text-gray-700 dark:text-slate-300">{order.shipping_provider || 'Kurir'}</div>
+                                                                                    <div className="font-mono text-gray-500 dark:text-slate-500">{trackingNo}</div>
+                                                                                    {isFailed ? (
+                                                                                        <div className="mt-1">
+                                                                                            <div className="font-medium text-red-600 dark:text-red-400 flex items-start gap-1">
+                                                                                                <span>🔴</span> <span>Pengiriman Gagal</span>
+                                                                                            </div>
+                                                                                            {pkg.logistics_status && (
+                                                                                                <div className="text-red-500 mt-0.5 break-words">Alasan: {pkg.logistics_status}</div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    ) : isDelivered ? (
+                                                                                        <div className="font-medium mt-1 text-emerald-600 dark:text-emerald-400 flex items-start gap-1">
+                                                                                            <span>🟢</span> <span>Terkirim</span>
+                                                                                        </div>
+                                                                                    ) : null}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                ) : (order.shipping_provider || order.tracking_number) ? (
+                                                                    <div className="mt-2 text-[11px] p-2 bg-gray-50 dark:bg-slate-900 rounded-lg border border-gray-100 dark:border-slate-700">
+                                                                        <div className="font-bold text-gray-700 dark:text-slate-300">{order.shipping_provider || 'Kurir'}</div>
+                                                                        <div className="font-mono text-gray-500 dark:text-slate-500">{order.tracking_number || '-'}</div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="mt-2 text-[11px] text-gray-400 italic">Informasi logistik belum tersedia</div>
+                                                                )}
                                                             </div>
-                                                            <p className="text-xs text-gray-400 dark:text-slate-500">
+                                                            <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
                                                                 {
                                                                     order.created_at
                                                                 }
@@ -890,11 +1488,10 @@ export default function OrderList() {
 
                                                     <div
                                                         className="flex items-center gap-3 bg-gray-50 dark:bg-slate-900/50 p-2 rounded-lg cursor-pointer"
-                                                        onClick={() =>
-                                                            toggleExpand(
-                                                                order.id,
-                                                            )
-                                                        }
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleExpand(order.id);
+                                                        }}
                                                     >
                                                         {order.first_product?.variant_image || order.first_product?.image ? (
                                                             <img
@@ -920,7 +1517,7 @@ export default function OrderList() {
                                                                 }
                                                             </p>
                                                             {order.product_count >
-                                                            1 ? (
+                                                                1 ? (
                                                                 <p className="text-xs text-blue-600 dark:text-blue-400">
                                                                     +
                                                                     {order.product_count -
@@ -949,44 +1546,44 @@ export default function OrderList() {
                                                     {expandedOrders[
                                                         order.id
                                                     ] && (
-                                                        <div className="mt-3 space-y-3 border-t border-gray-100 dark:border-slate-700 pt-3">
-                                                            {order.products?.map(
-                                                                (product, idx) => (
-                                                                    <div
-                                                                        key={
-                                                                            idx
-                                                                        }
-                                                                        className="flex items-start justify-between text-xs"
-                                                                    >
-                                                                        <span className="text-gray-600 dark:text-slate-300 w-2/3">
-                                                                            {
-                                                                                product.product_name
-                                                                            }{" "}
-                                                                            <span className="text-gray-400 dark:text-slate-500">
-                                                                                (x
+                                                            <div className="mt-3 space-y-3 border-t border-gray-100 dark:border-slate-700 pt-3">
+                                                                {order.products?.map(
+                                                                    (product, idx) => (
+                                                                        <div
+                                                                            key={
+                                                                                idx
+                                                                            }
+                                                                            className="flex items-start justify-between text-xs"
+                                                                        >
+                                                                            <span className="text-gray-600 dark:text-slate-300 w-2/3">
                                                                                 {
-                                                                                    product.quantity_purchased
-                                                                                }
+                                                                                    product.product_name
+                                                                                }{" "}
+                                                                                <span className="text-gray-400 dark:text-slate-500">
+                                                                                    (x
+                                                                                    {
+                                                                                        product.quantity_purchased
+                                                                                    }
 
-                                                                                )
+                                                                                    )
+                                                                                </span>
                                                                             </span>
-                                                                        </span>
-                                                                    </div>
-                                                                ),
-                                                            )}
-                                                            <div className="border-t border-dashed border-gray-200 dark:border-slate-700 pt-2 flex justify-between items-center">
-                                                                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">
-                                                                    Total
-                                                                    Penjualan
-                                                                </span>
-                                                                <span className="text-sm font-bold text-gray-800 dark:text-white">
-                                                                    {formatRp(
-                                                                        order.order_selling_price,
-                                                                    )}
-                                                                </span>
+                                                                        </div>
+                                                                    ),
+                                                                )}
+                                                                <div className="border-t border-dashed border-gray-200 dark:border-slate-700 pt-2 flex justify-between items-center">
+                                                                    <span className="text-xs font-bold text-gray-600 dark:text-slate-300">
+                                                                        Total
+                                                                        Penjualan
+                                                                    </span>
+                                                                    <span className="text-sm font-bold text-gray-800 dark:text-white">
+                                                                        {formatRp(
+                                                                            order.order_selling_price,
+                                                                        )}
+                                                                    </span>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    )}
+                                                        )}
                                                 </div>
                                             );
                                         })}
@@ -1084,6 +1681,16 @@ export default function OrderList() {
                 }
                 .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
             `}</style>
+            <OnboardingTour
+                steps={ORDER_TOUR_STEPS}
+                isOpen={tour.isOpen}
+                currentStep={tour.currentStep}
+                onNext={tour.next}
+                onPrev={tour.prev}
+                onSkip={tour.skip}
+                onFinish={tour.finish}
+                onStart={tour.start}
+            />
         </AppLayout>
     );
 }

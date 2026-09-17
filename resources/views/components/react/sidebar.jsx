@@ -93,7 +93,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
     const renderTooltip = (text) => {
         if (!sidebarCollapsed) return null;
         return (
-            <div className="fixed ml-[60px] px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 text-white text-xs font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-[999] shadow-sm border border-slate-700">
+            <div className="fixed ml-[60px] px-2.5 py-1.5 bg-slate-800 dark:bg-slate-700 text-white text-xs font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-[500] shadow-md border border-slate-700 pointer-events-none">
                 {text}
             </div>
         );
@@ -111,16 +111,32 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
             {isMobileOpen && (
                 <div
                     onClick={closeMobile}
-                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
+                    className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] lg:hidden transition-opacity"
                 />
             )}
 
             {/* SIDEBAR */}
             <aside
-                className={`flex-shrink-0 fixed inset-y-0 left-0 z-50 flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xl lg:shadow-none transition-all duration-300 ease-in-out lg:static lg:translate-x-0
+                className={`flex-shrink-0 fixed inset-y-0 left-0 z-[70] flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-2xl lg:shadow-none transition-all duration-300 ease-in-out lg:relative lg:z-[90] lg:translate-x-0
                 ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
                 ${sidebarCollapsed ? "w-[70px]" : "w-64"}`}
             >
+                {/* MOBILE DRAWER HEADER */}
+                <div className="flex items-center justify-between px-4 h-16 border-b border-slate-200 dark:border-slate-800 lg:hidden flex-shrink-0 bg-white dark:bg-slate-900">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                            <span className="font-normal">fine</span>sheet
+                        </span>
+                    </div>
+                    <button
+                        onClick={closeMobile}
+                        className="p-2 -mr-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none active:scale-95"
+                        aria-label="Tutup menu"
+                    >
+                        <span className="material-symbols-rounded text-2xl leading-none">close</span>
+                    </button>
+                </div>
+
                 {/* COLLAPSE BUTTON */}
                 <button
                     onClick={toggleSidebar}
@@ -134,7 +150,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                 </button>
 
                 {/* NAVIGATION */}
-                <div className="flex-1 px-3 py-6 space-y-1.5 overflow-y-auto overflow-x-hidden hide-scrollbar">
+                <div className="flex-1 px-3 py-4 lg:py-6 space-y-1.5 overflow-y-auto overflow-x-hidden hide-scrollbar">
                     <a href="#/dashboard" onClick={(e) => handleNav(e, '/dashboard')} className={navItemClass('/dashboard')}>
                         <span className="material-symbols-rounded text-xl">
                             space_dashboard
@@ -171,13 +187,25 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                         {renderTooltip("Your Products")}
                     </a>
 
+                    <a href="#/orders" onClick={(e) => handleNav(e, '/orders')} className={navItemClass('/orders')}>
+                        <span className="material-symbols-rounded text-xl shrink-0">
+                            shopping_cart
+                        </span>
+                        {!sidebarCollapsed && (
+                            <span className="font-medium whitespace-nowrap text-sm">
+                                Order List
+                            </span>
+                        )}
+                        {renderTooltip("Order List")}
+                    </a>
+
                     <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2"></div>
 
                     {/* FINANCE */}
                     <div>
                         <button
                             onClick={() => toggleMenu("finance")}
-                            className={expandListClass("finance", ['/profit-tracker', '/cashflow'])}
+                            className={expandListClass("finance", ['/profit-tracker', '/cashflow', '/payable'])}
                         >
                             <div className="flex items-center gap-3">
                                 <span className="material-symbols-rounded text-xl shrink-0">
@@ -208,18 +236,33 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                     Profit Tracker
                                 </a>
                                 <a
+                                    href="#/payable"
+                                    onClick={(e) => handleNav(e, '/payable')}
+                                    className={submenuItemClass('/payable')}
+                                >
+                                    Suppliers Transactions
+                                </a>
+                                <a
                                     href="#/cashflow"
                                     onClick={(e) => handleNav(e, '/cashflow')}
                                     className={submenuItemClass('/cashflow')}
                                 >
                                     Cashflow
                                 </a>
+{/* 
+                                <a
+                                    href="#/ads"
+                                    onClick={(e) => handleNav(e, '/ads')}
+                                    className={submenuItemClass('/ads')}
+                                >
+                                    Ads
+                                </a> */}
                             </div>
                         )}
                     </div>
 
                     {/* ORDERS */}
-                    <div>
+                    {/* <div>
                         <button
                             onClick={() => toggleMenu("orders")}
                             className={expandListClass("orders", ['/orders'])}
@@ -254,7 +297,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                 </a>
                             </div>
                         )}
-                    </div>
+                    </div> */}
                 </div>
 
             </aside>

@@ -59,17 +59,30 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue
 
             $order = $orders[0];
 
+            $cancelSource = $order['cancellation_initiator'] ?? null;
+            $cancelReason = $order['cancel_reason'] ?? null;
+            $normalizedCancelCategory = null;
+            if (in_array($order['status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
+                if (!empty($cancelSource) || !empty($cancelReason)) {
+                    $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
+                }
+            }
+
             $orderModel = \App\Models\Order::updateOrCreate(
                 ['order_sn' => $order['id']],
                 [
                     'platform' => 'Tiktokshop',
                     'store_id' => $store->id,
                     'order_status' => $order['status'] ?? null,
-                    'order_time' => isset($order['create_time']) ? \Carbon\Carbon::createFromTimestamp($order['create_time']) : now(),
+                    'cancel_source' => $cancelSource,
+                    'cancel_reason' => $cancelReason,
+                    'normalized_cancel_category' => $normalizedCancelCategory,
+                    'order_time' => isset($order['create_time']) ? \Carbon\Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
                     'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
                     'message_to_seller' => $order['buyer_message'] ?? null,
                     'order_selling_price' => $order['payment']['total_amount'] ?? 0,
                     'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
+                    'raw_data' => $order,
                 ]
             );
 
@@ -106,10 +119,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue
                 }
             }
 
-            // Fire event HANYA jika ini adalah pesanan baru (bukan update dari worker)
-            if ($orderModel->wasRecentlyCreated) {
-                event(new \App\Events\OrderCreated($orderModel));
-            }
+            // OrderCreated notification moved to Order::saved model event
 
             Log::info("HandleTiktokOrderWebhookJob completed for Order: {$this->orderId}");
         } catch (\Throwable $e) {

@@ -61,6 +61,9 @@ class SyncTiktokOrderJob implements ShouldQueue
 
                     $cursorDate->addDays($intervalDays);
                 }
+
+                // Dispatch return sync for TikTok store
+                \App\Jobs\SyncTiktokReturnJob::dispatch($store, $now->copy()->subDays($this->daysToSync)->timestamp, $now->timestamp)->onQueue('orders');
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [
                     'store_id' => $store->id,

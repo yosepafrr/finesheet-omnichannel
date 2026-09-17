@@ -22,3 +22,15 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+scratch/
+scratch_*.php
+orders.json
+test.b64
+test*.php
+check.php
+ngrok.yml
+dashboard-reference.png
+playwright/
+playwright-report/
+test-results/

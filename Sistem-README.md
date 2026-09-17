@@ -28,7 +28,15 @@ NEXT GAWE:
 4. sinkronisasi produk maupun order lebih baik di pisahkan setiap toko nya [done]
 5. edit harga hpp tambahkan edit batch (massal) seperti mekanisme edit massal pada tiktokshop [done]
 6. page list toko, tambahkan fitur hapus toko, tapi harus ada modal konfirmasi dlu, lalu tombol otorisasi ulang, jika toko saat ini terhubung, munculkan modal peringatan "Status toko terhubung, apakah anda ingin tetap melanjutkan?" [done]
-7. 
+7. Return belum clear [done]
+8. filter di page order list dipisahkan antara pembatalan, return/refund, pengantaran gagal [done]
+9. return label perlu di perbaiki lagi [done]
+10. order id ganti ke fungsi salin order id, navigasi ke order detail lewat keseluruhan list pesanan tersebut [done]
+11. ketika kembali dari page detail, maka harus kembali ke titik akhir (page/filter/scroll position) si user tersebut sebelum klik detail pesanan, begitupun ketika refresh [done]
+12. di page order list, jika tidak ada pesanan munculkan gambar / icon seperti oops, pesanan tidak ditemukan. [done]
+13. rekapitulasi [done]
+14. bug notifikasi, masuk ke semua user [done]
+
 
 
 ### New device / clone / git remote

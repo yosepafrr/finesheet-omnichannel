@@ -8,6 +8,55 @@ class Order extends Model
 {
     protected $table = 'orders';
 
+    protected static function booted()
+    {
+        static::saved(function ($order) {
+            if ($order->isDirty('order_status') || $order->isDirty('normalized_cancel_category')) {
+                $statusUpper = strtoupper(trim($order->order_status ?? ''));
+                if (in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
+                    app(\App\Services\PayableService::class)->recordCancellationEvent($order, 'FAILED_DELIVERY');
+                } elseif (empty($statusUpper) || in_array($statusUpper, ['UNPAID', 'UNKNOWN', 'ON_HOLD'])) {
+                    \App\Models\PayableEvent::where('source_id', $order->order_sn)
+                        ->where('source_type', 'CREATE_ORDER')
+                        ->delete();
+                } else {
+                    app(\App\Services\PayableService::class)->recordOrderEvent($order);
+                }
+            }
+
+            // Smart Notification Logic (OrderCreated is treated as "Pesanan Baru" in frontend)
+            $statusUpper = strtoupper(trim($order->order_status ?? ''));
+            $isPerluDikirim = in_array($statusUpper, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']);
+            
+            $shouldNotify = false;
+            if ($order->wasRecentlyCreated && $isPerluDikirim) {
+                $shouldNotify = true;
+            } elseif (!$order->wasRecentlyCreated && $order->isDirty('order_status')) {
+                $oldStatus = strtoupper(trim($order->getOriginal('order_status')));
+                if (!in_array($oldStatus, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']) && $isPerluDikirim) {
+                    $shouldNotify = true;
+                }
+            }
+
+            if ($shouldNotify) {
+                try {
+                    event(new \App\Events\OrderCreated($order));
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderCreated: " . $e->getMessage());
+                }
+            }
+
+            // Broadcast OrderUpdated if it was an update to an existing order
+            if (!$order->wasRecentlyCreated) {
+                try {
+                    broadcast(new \App\Events\OrderUpdated($order));
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderUpdated: " . $e->getMessage());
+                }
+            }
+        });
+    }
+
     protected $fillable = [
         'store_id',
         'platform',
@@ -23,6 +72,10 @@ class Order extends Model
         'escrow_amount',
         'escrow_amount_after_adjustment',
         'fee_details',
+        'cancel_source',
+        'cancel_reason',
+        'buyer_cancel_reason',
+        'normalized_cancel_category',
         'created_at',
         'updated_at',
     ];
@@ -51,5 +104,15 @@ class Order extends Model
     public function store()
     {
         return $this->belongsTo(Store::class, 'store_id', 'id');
+    }
+
+    public function returns()
+    {
+        return $this->hasMany(OrderReturn::class);
+    }
+
+    public function packages()
+    {
+        return $this->hasMany(OrderPackage::class);
     }
 }

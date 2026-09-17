@@ -22,4 +22,21 @@ window.Echo = new Echo({
     wssPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
     forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
     enabledTransports: ['ws', 'wss'],
+    authorizer: (channel, options) => {
+        return {
+            authorize: (socketId, callback) => {
+                window.axios.post('/broadcasting/auth', {
+                    socket_id: socketId,
+                    channel_name: channel.name
+                })
+                .then(response => {
+                    callback(null, response.data);
+                })
+                .catch(error => {
+                    console.error('Echo authorization error for channel ' + channel.name, error);
+                    callback(error);
+                });
+            }
+        };
+    },
 });

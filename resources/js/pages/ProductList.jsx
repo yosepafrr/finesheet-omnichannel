@@ -10,6 +10,24 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
+import SkuSyncPanel from "../components/SkuSyncPanel";
+import OnboardingTour from "@/components/OnboardingTour";
+import { useOnboarding } from "@/hooks/useOnboarding";
+
+const PRODUCT_TOUR_STEPS = [
+    {
+        selector: "#tour-sync-btn",
+        title: "Sinkronisasi Produk",
+        description: "Klik tombol ini untuk menarik data produk, stok, dan harga terbaru dari semua toko Anda di berbagai marketplace.",
+        position: "bottom",
+    },
+    {
+        selector: "#tour-product-table",
+        title: "Daftar Produk",
+        description: "Lihat daftar lengkap produk Anda. Anda bisa memantau stok, mengatur HPP (Harga Pokok Penjualan), dan menyamakan SKU antar toko.",
+        position: "top",
+    },
+];
 
 const POLLING_INTERVAL = 10000;
 
@@ -127,6 +145,7 @@ function LimitDropdown({ value, onChange }) {
 }
 
 export default function ProductList() {
+    const tour = useOnboarding("products", PRODUCT_TOUR_STEPS.length);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
@@ -139,10 +158,29 @@ export default function ProductList() {
     // Bulk edit modal states
     const [bulkModalProduct, setBulkModalProduct] = useState(null);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState("products"); // 'products' or 'sync'
+
+    const [selectedStore, setSelectedStore] = useState("");
+    const storeDropdownRef = useRef(null);
+    const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (
+                storeDropdownRef.current &&
+                !storeDropdownRef.current.contains(e.target)
+            ) {
+                setIsStoreDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () =>
+            document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     useEffect(() => {
         setPageByStore({});
-    }, [search]);
+    }, [search, selectedStore]);
 
     const handleSync = async () => {
         setSyncing(true);
@@ -238,9 +276,10 @@ export default function ProductList() {
                         </div>
                         <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
                             <button
+                                id="tour-sync-btn"
                                 onClick={handleSync}
                                 disabled={syncing || syncingStoreId !== null}
-                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap w-full md:w-auto"
                             >
                                 <span
                                     className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
@@ -265,12 +304,124 @@ export default function ProductList() {
                                     className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-800 dark:text-white focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 transition"
                                 />
                             </div>
+                            <div
+                                className="relative w-full md:w-64"
+                                ref={storeDropdownRef}
+                            >
+                                <button
+                                    onClick={() =>
+                                        setIsStoreDropdownOpen(
+                                            !isStoreDropdownOpen,
+                                        )
+                                    }
+                                    className="flex items-center justify-between w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 pl-4 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#304674] dark:focus:ring-blue-500 shadow-sm text-sm transition-all hover:border-gray-300 dark:hover:border-slate-600"
+                                >
+                                    <span className="truncate pr-2">
+                                        {selectedStore === ""
+                                            ? "Semua Toko"
+                                            : data?.stores?.find(
+                                                (s) =>
+                                                    s.id == selectedStore,
+                                            )?.store_name ||
+                                            "Toko Tidak Diketahui"}
+                                    </span>
+                                    <span
+                                        className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}
+                                    >
+                                        expand_more
+                                    </span>
+                                </button>
+
+                                <AnimatePresence>
+                                    {isStoreDropdownOpen && (
+                                        <motion.div
+                                            initial={{
+                                                opacity: 0,
+                                                y: 10,
+                                                scale: 0.95,
+                                            }}
+                                            animate={{
+                                                opacity: 1,
+                                                y: 0,
+                                                scale: 1,
+                                            }}
+                                            exit={{
+                                                opacity: 0,
+                                                y: 10,
+                                                scale: 0.95,
+                                            }}
+                                            transition={{
+                                                duration: 0.2,
+                                                ease: "easeOut",
+                                            }}
+                                            className="absolute right-0 md:left-0 mt-2 w-full min-w-[240px] bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 overflow-hidden z-50 origin-top"
+                                        >
+                                            <div className="max-h-64 overflow-y-auto p-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedStore("");
+                                                        setIsStoreDropdownOpen(false);
+                                                    }}
+                                                    className={`w-full text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${selectedStore === ""
+                                                        ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                        : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                        }`}
+                                                >
+                                                    Semua Toko
+                                                </button>
+                                                {data?.stores?.map((store) => (
+                                                    <button
+                                                        key={store.id}
+                                                        onClick={() => {
+                                                            setSelectedStore(store.id);
+                                                            setIsStoreDropdownOpen(false);
+                                                        }}
+                                                        className={`w-full flex items-center justify-between text-left px-3 py-2 mt-1 text-sm font-medium rounded-xl transition-colors ${selectedStore == store.id
+                                                            ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                            : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                            }`}
+                                                    >
+                                                        <span className="truncate">
+                                                            {store.store_name}
+                                                        </span>
+                                                        <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-md bg-white/20 dark:bg-black/20 opacity-80 shrink-0">
+                                                            {store.platform}
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Store Groups */}
-                    {loading ? (
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+                    {/* Tabs */}
+                    <div className="flex space-x-1 bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
+                        <button
+                            onClick={() => setActiveTab("products")}
+                            className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${activeTab === "products" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                        >
+                            Daftar Produk
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("sync")}
+                            className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "sync" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                        >
+                            <span className="material-symbols-rounded text-[18px]">sync_alt</span>
+                            Sinkronisasi Stok
+                        </button>
+                    </div>
+
+                    {/* Main Content Area */}
+                    {activeTab === "sync" ? (
+                        <SkuSyncPanel search={search} />
+                    ) : (
+                        <>
+                            {/* Store Groups */}
+                            {loading ? (
+                                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
                             <SkeletonTable />
                         </div>
                     ) : !data?.stores?.length ? (
@@ -280,7 +431,9 @@ export default function ProductList() {
                             </p>
                         </div>
                     ) : (
-                        data.stores.map((store) => (
+                        data.stores
+                            .filter(store => selectedStore === "" || store.id == selectedStore)
+                            .map((store) => (
                             <div
                                 key={store.id}
                                 className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden"
@@ -370,7 +523,7 @@ export default function ProductList() {
                                         return (
                                             <>
                                                 {/* Desktop Table */}
-                                                <div className="hidden md:block overflow-x-auto">
+                                                <div id={store.id === data.stores[0]?.id ? "tour-product-table" : undefined} className="hidden md:block overflow-x-auto">
                                                     <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
                                                         <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
                                                             <tr>
@@ -943,25 +1096,25 @@ export default function ProductList() {
                                                                                     "No SKU"}
                                                                             </p>
 
-                                                                            <div className="mt-3 flex items-center justify-between border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
-                                                                                <div className="flex-1">
-                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                                                                            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
+                                                                                <div className="min-w-0">
+                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
                                                                                         Harga
                                                                                         Jual
                                                                                     </p>
-                                                                                    <p className="text-sm font-bold text-[#304674] dark:text-blue-400">
+                                                                                    <p className="text-xs sm:text-sm font-bold text-[#304674] dark:text-blue-400 truncate" title={priceDisplay}>
                                                                                         {
                                                                                             priceDisplay
                                                                                         }
                                                                                     </p>
                                                                                 </div>
-                                                                                {hasVariants && (
-                                                                                    <div className="flex-1 px-2 text-center">
-                                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                                                                                {hasVariants ? (
+                                                                                    <div className="px-1 text-center min-w-0">
+                                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
                                                                                             HPP
                                                                                             (Modal)
                                                                                         </p>
-                                                                                        <p className="text-sm font-bold text-gray-700 dark:text-slate-300">
+                                                                                        <p className="text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 truncate" title={hppDisplay}>
                                                                                             {hppDisplay ===
                                                                                             "Belum diisi" ? (
                                                                                                 <span className="text-[10px] text-rose-500 italic font-normal">
@@ -978,24 +1131,22 @@ export default function ProductList() {
                                                                                                     product,
                                                                                                 )
                                                                                             }
-                                                                                            className="mt-1 text-[10px] text-[#304674] dark:text-blue-400 hover:flex items-center justify-center gap-1 mx-auto"
+                                                                                            className="mt-1 text-[10px] text-[#304674] dark:text-blue-400 hover:flex items-center justify-center gap-1 mx-auto block w-full truncate"
                                                                                         >
-                                                                                            <span className="material-symbols-rounded text-[12px]">
-                                                                                                edit_square
-                                                                                            </span>
                                                                                             Edit
                                                                                             HPP
-                                                                                            Massal
                                                                                         </button>
                                                                                     </div>
+                                                                                ) : (
+                                                                                    <div></div>
                                                                                 )}
-                                                                                <div className="flex-1 text-right">
-                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                                                                                <div className="text-right min-w-0">
+                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
                                                                                         Stok
                                                                                         Total
                                                                                     </p>
                                                                                     <span
-                                                                                        className={`text-[10px] px-2 py-0.5 rounded font-medium mt-1 inline-block ${totalStock > 0 ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"}`}
+                                                                                        className={`text-[10px] px-1.5 py-0.5 rounded font-medium mt-1 inline-block truncate max-w-full ${totalStock > 0 ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"}`}
                                                                                     >
                                                                                         {
                                                                                             totalStock
@@ -1226,6 +1377,8 @@ export default function ProductList() {
                             </div>
                         ))
                     )}
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -1243,6 +1396,16 @@ export default function ProductList() {
                 onClose={() => setIsBulkModalOpen(false)}
                 product={bulkModalProduct}
                 onSave={fetchData}
+            />
+            <OnboardingTour
+                steps={PRODUCT_TOUR_STEPS}
+                isOpen={tour.isOpen}
+                currentStep={tour.currentStep}
+                onNext={tour.next}
+                onPrev={tour.prev}
+                onSkip={tour.skip}
+                onFinish={tour.finish}
+                onStart={tour.start}
             />
         </AppLayout>
     );

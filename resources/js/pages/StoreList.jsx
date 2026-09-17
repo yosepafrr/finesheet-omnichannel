@@ -2,6 +2,29 @@ import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import OnboardingTour from "@/components/OnboardingTour";
+import { useOnboarding } from "@/hooks/useOnboarding";
+
+const STORE_TOUR_STEPS = [
+    {
+        selector: "#tour-connect-btn",
+        title: "Hubungkan Toko",
+        description: "Klik tombol ini untuk menghubungkan toko Shopee atau TikTok Shop Anda. Setelah terhubung, pesanan akan otomatis tersinkronisasi.",
+        position: "bottom",
+    },
+    {
+        selector: "#tour-store-list",
+        title: "Daftar Toko",
+        description: "Semua toko yang terhubung tampil di sini. Indikator hijau berarti koneksi aktif. Anda bisa disconnect atau hapus toko dari menu di setiap kartu.",
+        position: "top",
+    },
+    {
+        selector: null,
+        title: "Token Otomatis Diperbarui",
+        description: "Finesheet secara otomatis memperbarui token OAuth setiap toko agar koneksi tidak pernah terputus. Anda tidak perlu login ulang secara rutin.",
+        position: "bottom",
+    },
+];
 
 const POLLING_INTERVAL = 10000;
 
@@ -105,6 +128,7 @@ export default function StoreList() {
     const [search, setSearch] = useState("");
     const [lastSync, setLastSync] = useState(Date.now());
     const [syncing, setSyncing] = useState(false);
+    const tour = useOnboarding("stores", STORE_TOUR_STEPS.length);
     
     // State Hapus Toko
     const [storeToDelete, setStoreToDelete] = useState(null);
@@ -183,7 +207,7 @@ export default function StoreList() {
                                 {stores.length} toko terdaftar · <span className="text-emerald-600 dark:text-emerald-400 font-medium">{activeCount} terhubung</span>
                             </p>
                         </div>
-                        <div className="flex items-center gap-3 w-full sm:w-auto relative group">
+                        <div id="tour-connect-btn" className="flex items-center gap-3 w-full sm:w-auto relative group">
                             <button
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#203155] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-lg shadow-[#304674]/20 dark:shadow-blue-900/30 transition-all active:scale-95"
                             >
@@ -318,13 +342,13 @@ export default function StoreList() {
                                     className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 gap-4"
                                 >
                                     {/* Info Kiri */}
-                                    <div className="flex items-start gap-4 w-full sm:w-auto">
+                                    <div className="flex items-start gap-4 w-full sm:w-auto min-w-0 flex-1">
                                         <PlatformBadge platform={store.platform} logo={store.logo} />
-                                        <div>
-                                            <h3 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="font-bold text-slate-900 dark:text-white text-base leading-tight truncate">
                                                 {store.store_name}
                                             </h3>
-                                            <code className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1 inline-block">
+                                            <code className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1 inline-block truncate max-w-full">
                                                 #{store.shop_id}
                                             </code>
                                         </div>
@@ -474,6 +498,16 @@ export default function StoreList() {
                     animation: fadeInUp 0.4s ease-out forwards;
                 }
             `}</style>
+            <OnboardingTour
+                steps={STORE_TOUR_STEPS}
+                isOpen={tour.isOpen}
+                currentStep={tour.currentStep}
+                onNext={tour.next}
+                onPrev={tour.prev}
+                onSkip={tour.skip}
+                onFinish={tour.finish}
+                onStart={tour.start}
+            />
         </AppLayout>
     );
 }

@@ -23,7 +23,9 @@ export default function Profile() {
             })
             .catch(err => {
                 console.error("Failed to fetch user data", err);
-                toast.error("Gagal memuat profil pengguna");
+                if (err?.response?.status !== 401) {
+                    toast.error("Gagal memuat profil pengguna");
+                }
             })
             .finally(() => setLoading(false));
     }, []);
@@ -73,8 +75,57 @@ export default function Profile() {
     if (loading) {
         return (
             <AppLayout>
-                <div className="min-h-screen flex items-center justify-center">
-                    <div className="w-10 h-10 border-4 border-slate-200 border-t-[#304674] rounded-full animate-spin"></div>
+                <div className="w-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 pb-20 animate-pulse">
+                    <div className="mx-auto space-y-8">
+                        {/* Header Skeleton */}
+                        <div>
+                            <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded w-48 mb-2"></div>
+                            <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-64"></div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            <div className="md:col-span-2 space-y-8">
+                                {/* Profile Info Skeleton */}
+                                <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm border border-gray-100 dark:border-slate-700 space-y-6">
+                                    <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-40"></div>
+                                    <div className="space-y-2">
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-24"></div>
+                                        <div className="h-10 bg-slate-200 dark:bg-slate-700 rounded-xl w-full"></div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-28"></div>
+                                        <div className="h-10 bg-slate-200 dark:bg-slate-700 rounded-xl w-full"></div>
+                                    </div>
+                                    <div className="flex justify-end pt-2">
+                                        <div className="h-10 bg-slate-200 dark:bg-slate-700 rounded-xl w-36"></div>
+                                    </div>
+                                </div>
+                                {/* Password Form Skeleton */}
+                                <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm border border-gray-100 dark:border-slate-700 space-y-6">
+                                    <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-36"></div>
+                                    {[1, 2, 3].map(i => (
+                                        <div key={i} className="space-y-2">
+                                            <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-32"></div>
+                                            <div className="h-10 bg-slate-200 dark:bg-slate-700 rounded-xl w-full"></div>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-end pt-2">
+                                        <div className="h-10 bg-slate-200 dark:bg-slate-700 rounded-xl w-36"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Side Info Skeleton */}
+                            <div className="md:col-span-1">
+                                <div className="bg-gradient-to-br from-[#304674] to-[#1e2d4a] dark:from-blue-900 dark:to-slate-900 rounded-3xl p-6 sm:p-8 shadow-md border border-[#3b558c] dark:border-slate-700 text-center">
+                                    <div className="w-24 h-24 mx-auto bg-white/20 dark:bg-white/10 rounded-full mb-4"></div>
+                                    <div className="h-6 bg-white/20 dark:bg-white/10 rounded w-3/4 mx-auto mb-2"></div>
+                                    <div className="h-4 bg-white/20 dark:bg-white/10 rounded w-1/2 mx-auto mb-6"></div>
+                                    <div className="h-10 bg-white/20 dark:bg-white/10 rounded-xl w-full"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </AppLayout>
         );
@@ -82,8 +133,8 @@ export default function Profile() {
 
     return (
         <AppLayout>
-            <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 py-6 px-4 sm:px-6">
-                <div className="max-w-4xl mx-auto space-y-8 animate-fade-in-up">
+            <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+                <div className="mx-auto space-y-8 animate-fade-in-up">
                     
                     {/* Header */}
                     <div>

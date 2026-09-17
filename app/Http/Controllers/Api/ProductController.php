@@ -20,7 +20,10 @@ class ProductController extends Controller
             ->when($request->search, function ($query) use ($request) {
                 $query->where(function ($q) use ($request) {
                     $q->where('product_name', 'ilike', '%' . $request->search . '%')
-                      ->orWhere('product_sku', 'ilike', '%' . $request->search . '%');
+                      ->orWhere('product_sku', 'ilike', '%' . $request->search . '%')
+                      ->orWhereHas('variantProducts', function ($vq) use ($request) {
+                          $vq->where('model_sku', 'ilike', '%' . $request->search . '%');
+                      });
                 });
             })
             ->with('variantProducts')

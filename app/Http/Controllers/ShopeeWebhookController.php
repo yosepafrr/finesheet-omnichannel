@@ -38,11 +38,15 @@ class ShopeeWebhookController extends Controller
             if ($code === 3 && isset($data['ordersn'])) {
                 Log::info('Bypassing signature check for Local Test Push - Firing Dummy Event');
                 
+                $dummyStore = \App\Models\Store::where('shopee_shop_id', $shopId)->first() ?? \App\Models\Store::find($shopId);
                 $dummyOrder = new \App\Models\Order();
                 $dummyOrder->id = rand(1000, 9999);
                 $dummyOrder->order_sn = '(TEST) ' . $data['ordersn'];
                 $dummyOrder->platform = 'Shopee';
-                $dummyOrder->store_id = $shopId;
+                $dummyOrder->store_id = $dummyStore?->id ?? $shopId;
+                if ($dummyStore) {
+                    $dummyOrder->setRelation('store', $dummyStore);
+                }
                 
                 broadcast(new \App\Events\OrderCreated($dummyOrder));
                 return response()->json(['code' => 0, 'message' => 'success']);
@@ -72,6 +76,17 @@ class ShopeeWebhookController extends Controller
                 Log::info("Dispatching HandleShopeeOrderWebhookJob for Order: {$orderSn} (Code: {$code})");
                 \App\Jobs\HandleShopeeOrderWebhookJob::dispatch($shopId, $orderSn)->onQueue('orders');
             }
+
+            // If this is a return push (code 24), also dispatch SyncShopeeReturnJob
+            if ($code === 24) {
+                $store = \App\Models\Store::where('platform', 'Shopee')
+                    ->where('shopee_shop_id', (string)$shopId)
+                    ->first();
+                if ($store) {
+                    Log::info("Dispatching SyncShopeeReturnJob for Store {$store->id} (Code: 24)");
+                    \App\Jobs\SyncShopeeReturnJob::dispatch($store, \Carbon\Carbon::now()->subDays(7)->timestamp, time())->onQueue('orders');
+                }
+            }
         } elseif (in_array($code, $productPushCodes)) {
             $itemId = $data['item_id'] ?? null;
             if ($itemId) {
@@ -93,7 +108,7 @@ class ShopeeWebhookController extends Controller
             $url = str_replace('http://', 'https://', $url);
         }
 
-        $partnerKey = config('services.shopee.partner_key');
+        $partnerKey = config('shopee.partner_key');
         
         // Shopee Docs: HMAC-SHA256(webhook_url + "|" + request_body, partner_key)
         $baseString = $url . '|' . $rawBody;

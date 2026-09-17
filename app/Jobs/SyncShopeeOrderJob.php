@@ -76,6 +76,11 @@ class SyncShopeeOrderJob implements ShouldQueue
                         continue;
                     }
 
+                    $orderSnMap = [];
+                    foreach ($orders['response']['order_list'] as $listItem) {
+                        $orderSnMap[$listItem['order_sn']] = $listItem['order_status'] ?? null;
+                    }
+
                     $orderSnList = array_column($orders['response']['order_list'], 'order_sn');
                     $chunks = array_chunk($orderSnList, 50);
 
@@ -100,11 +105,22 @@ class SyncShopeeOrderJob implements ShouldQueue
                                             'store_id' => $store->id,
                                             'platform' => 'Shopee',
                                             'order_time' => now(),
+                                            'order_status' => $orderSnMap[$orderSn] ?? null,
                                         ]
                                     );
-                                    if ($orderModel->wasRecentlyCreated) {
-                                        event(new OrderCreated($orderModel));
-                                    }
+                                    
+                                    // Buat package dummy agar job logistik tetap bisa mengecek status resi
+                                    \App\Models\OrderPackage::firstOrCreate(
+                                        [
+                                            'order_id' => $orderModel->id,
+                                            'package_id' => $orderModel->order_sn
+                                        ],
+                                        [
+                                            'platform' => 'Shopee'
+                                        ]
+                                    );
+
+                                    // OrderCreated notification moved to Order::saved model event
                                 } catch (\Throwable $e) {
                                     Log::error("Error saving minimal order {$orderSn}", ['message' => $e->getMessage()]);
                                 }
@@ -125,6 +141,14 @@ class SyncShopeeOrderJob implements ShouldQueue
                                     ]);
                                 }
 
+                                $cancelSource = $detail['cancel_by'] ?? null;
+                                $cancelReason = $detail['cancel_reason'] ?? null;
+                                $buyerCancelReason = $detail['buyer_cancel_reason'] ?? null;
+                                $normalizedCancelCategory = null;
+                                if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || !empty($cancelSource) || !empty($cancelReason)) {
+                                    $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Shopee', $cancelSource, $cancelReason, $buyerCancelReason);
+                                }
+
                                 $orderModel = Order::updateOrCreate(
                                     ['order_sn' => $detail['order_sn']],
                                     [
@@ -132,12 +156,16 @@ class SyncShopeeOrderJob implements ShouldQueue
                                         'platform' => 'Shopee',
                                         'booking_sn' => $detail['booking_sn'] ?? null,
                                         'order_status' => $detail['order_status'] ?? null,
+                                        'cancel_source' => $cancelSource,
+                                        'cancel_reason' => $cancelReason,
+                                        'buyer_cancel_reason' => $buyerCancelReason,
+                                        'normalized_cancel_category' => $normalizedCancelCategory,
                                         'order_time' => isset($detail['create_time'])
-                                            ? Carbon::createFromTimestamp($detail['create_time'])
+                                            ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone'))
                                             : now(),
                                         'cod' => $detail['cod'] ?? null,
                                         'ship_by_date' => isset($detail['ship_by_date'])
-                                            ? Carbon::createFromTimestamp($detail['ship_by_date'])
+                                            ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone'))
                                             : null,
                                         'message_to_seller' => $detail['message_to_seller'] ?? null,
                                         'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
@@ -146,8 +174,39 @@ class SyncShopeeOrderJob implements ShouldQueue
                                         'fee_details' => $escrow['income_details'] ?? null,
                                         'quantity_purchased' => $detail['item_list'][0]['model_quantity_purchased'] ?? null,
                                         'product_id' => $detail['item_list'][0]['item_id'] ?? null,
+                                        'raw_data' => $detail,
                                     ]
                                 );
+
+                                // Extract packages
+                                if (!empty($detail['package_list'])) {
+                                    foreach ($detail['package_list'] as $pkg) {
+                                        \App\Models\OrderPackage::updateOrCreate(
+                                            [
+                                                'order_id' => $orderModel->id,
+                                                'package_id' => $pkg['package_number'] ?? $orderModel->order_sn
+                                            ],
+                                            [
+                                                'platform' => 'Shopee',
+                                                'tracking_number' => $pkg['tracking_number'] ?? null,
+                                                'logistics_status' => $pkg['logistics_status'] ?? null,
+                                                'normalized_logistics_status' => ($pkg['logistics_status'] ?? '') === 'LOGISTICS_DELIVERY_FAILED' ? 'DELIVERY_FAILED' : null,
+                                                'raw_data' => $pkg,
+                                            ]
+                                        );
+                                    }
+                                } else {
+                                    // Default single package if no package_list
+                                    \App\Models\OrderPackage::firstOrCreate(
+                                        [
+                                            'order_id' => $orderModel->id,
+                                            'package_id' => $orderModel->order_sn
+                                        ],
+                                        [
+                                            'platform' => 'Shopee'
+                                        ]
+                                    );
+                                }
 
                                 if (!empty($detail['item_list'])) {
                                     foreach ($detail['item_list'] as $shopeeItem) {
@@ -170,9 +229,7 @@ class SyncShopeeOrderJob implements ShouldQueue
                                     }
                                 }
 
-                                if ($orderModel->wasRecentlyCreated) {
-                                    event(new OrderCreated($orderModel));
-                                }
+                                // OrderCreated notification moved to Order::saved model event
                             } catch (\Throwable $inner) {
                                 Log::error("Error saving order_sn {$detail['order_sn']}", [
                                     'message' => $inner->getMessage(),

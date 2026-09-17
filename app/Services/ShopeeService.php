@@ -11,11 +11,13 @@ class ShopeeService
 {
     protected $partnerId;
     protected $partnerKey;
+    protected $baseUrl;
 
     public function __construct()
     {
         $this->partnerId = config('services.shopee.partner_id');
         $this->partnerKey = config('services.shopee.partner_key');
+        $this->baseUrl = config('shopee.base_url');
         Log::info('ShopeeService constructed', [
             'partner_id' => $this->partnerId,
             'partner_key' => $this->partnerKey,
@@ -32,7 +34,7 @@ class ShopeeService
 
     public function ensureValidToken(Store $store)
     {
-        if (Carbon::now('Asia/Jakarta')->gte($store->token_expired_at)) {
+        if (empty($store->token_expired_at) || Carbon::now('Asia/Jakarta')->addMinutes(60)->gte($store->token_expired_at)) {
             $this->refreshAccessToken($store);
         }
         return $store->access_token;
@@ -42,14 +44,14 @@ class ShopeeService
     public function getShopProfile(Store $store)
     {
         $shop_id = $store->shopee_shop_id;
-        $access_token = $store->access_token;
+        $access_token = $this->ensureValidToken($store);
 
         $path = '/api/v2/shop/get_shop_info';
         $timestamp = time();
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}";
+        $url = "{$this->baseUrl}{$path}";
         $params = [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
@@ -74,7 +76,7 @@ class ShopeeService
         $baseString = $this->partnerId . $path . $timestamp;
         $refreshSign = hash_hmac('sha256', $baseString, $this->partnerKey);
 
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
+        $url = "{$this->baseUrl}{$path}"
             . "?partner_id={$this->partnerId}"
             . "&timestamp={$timestamp}"
             . "&sign={$refreshSign}";
@@ -134,7 +136,7 @@ class ShopeeService
         $path = '/api/v2/order/get_order_list';
         $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
 
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
+        $url = "{$this->baseUrl}{$path}"
             . "?partner_id={$this->partnerId}"
             . "&timestamp={$timestamp}"
             . "&sign={$sign}"
@@ -160,11 +162,50 @@ class ShopeeService
         return $response->json();
     }
 
+    // AMBIL DATA LIST RETURN
+    public function getReturnList(string $accessToken, string $shopId, int $pageNo, int $pageSize = 100)
+    {
+        $timestamp = time();
+        $path = '/api/v2/returns/get_return_list';
+        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+
+        $url = "{$this->baseUrl}{$path}"
+            . "?partner_id={$this->partnerId}"
+            . "&timestamp={$timestamp}"
+            . "&sign={$sign}"
+            . "&access_token={$accessToken}"
+            . "&shop_id={$shopId}"
+            . "&page_no={$pageNo}"
+            . "&page_size={$pageSize}";
+
+        $response = $this->httpClient()->get($url);
+        return $response->json();
+    }
+
+    // AMBIL DATA DETAIL RETURN
+    public function getReturnDetail(string $accessToken, string $shopId, string $returnSn)
+    {
+        $timestamp = time();
+        $path = '/api/v2/returns/get_return_detail';
+        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+
+        $url = "{$this->baseUrl}{$path}"
+            . "?partner_id={$this->partnerId}"
+            . "&timestamp={$timestamp}"
+            . "&sign={$sign}"
+            . "&access_token={$accessToken}"
+            . "&shop_id={$shopId}"
+            . "&return_sn={$returnSn}";
+
+        $response = $this->httpClient()->get($url);
+        return $response->json();
+    }
+
     // AMBIL DATA DETAIL ORDER
     public function getOrderDetails($store, $orderSnList)
     {
         $shop_id = $store->shopee_shop_id;
-        $access_token = $store->access_token;
+        $access_token = $this->ensureValidToken($store);
 
         $path = "/api/v2/order/get_order_detail";
         $timestamp = time();
@@ -172,14 +213,14 @@ class ShopeeService
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/order/get_order_detail', [
+        $response = $this->httpClient()->get("{$this->baseUrl}/api/v2/order/get_order_detail", [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
             'shop_id' => $shop_id,
             'access_token' => $access_token,
             'order_sn_list' => implode(',', $orderSnList),
-            "response_optional_fields" => "item_list",
+            "response_optional_fields" => "item_list,cancel_reason,cancel_by,buyer_cancel_reason",
         ]);
 
         return json_decode($response->getBody(), true);
@@ -189,14 +230,14 @@ class ShopeeService
     public function getEscrowDetail($store, $orderSnList)
     {
         $shop_id = $store->shopee_shop_id;
-        $access_token = $store->access_token;
+        $access_token = $this->ensureValidToken($store);
 
         $path = '/api/v2/payment/get_escrow_detail';
         $timestamp = time();
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/payment/get_escrow_detail', [
+        $response = $this->httpClient()->get("{$this->baseUrl}/api/v2/payment/get_escrow_detail", [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
@@ -212,14 +253,14 @@ class ShopeeService
     public function getItemList($store)
     {
         $shopId = $store->shopee_shop_id;
-        $accessToken = $store->access_token;
+        $accessToken = $this->ensureValidToken($store);
 
         $timestamp = time();
         $path = '/api/v2/product/get_item_list';
         $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
 
         // Build URL lengkap dengan query string
-        $url = "https://openplatform.sandbox.test-stable.shopee.sg{$path}"
+        $url = "{$this->baseUrl}{$path}"
             . "?partner_id={$this->partnerId}"
             . "&timestamp={$timestamp}"
             . "&sign={$sign}"
@@ -255,14 +296,14 @@ class ShopeeService
     public function getItemBaseInfo($store, array $itemIds)
     {
         $shop_id = $store->shopee_shop_id;
-        $access_token = $store->access_token;
+        $access_token = $this->ensureValidToken($store);
 
         $path = '/api/v2/product/get_item_base_info';
         $timestamp = time();
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = $this->httpClient()->get('https://openplatform.sandbox.test-stable.shopee.sg/api/v2/product/get_item_base_info', [
+        $response = $this->httpClient()->get("{$this->baseUrl}/api/v2/product/get_item_base_info", [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
@@ -283,7 +324,7 @@ class ShopeeService
     public function getItemsVariant($store, array $itemIds)
     {
         $shop_id = $store->shopee_shop_id;
-        $access_token = $store->access_token;
+        $access_token = $this->ensureValidToken($store);
 
         $path = '/api/v2/product/get_model_list';
         $timestamp = time();
@@ -292,7 +333,7 @@ class ShopeeService
 
         $results = [];
         foreach ($itemIds as $itemId) {
-            $response = $this->httpClient()->get("https://openplatform.sandbox.test-stable.shopee.sg{$path}", [
+            $response = $this->httpClient()->get("{$this->baseUrl}{$path}", [
                 'partner_id' => $this->partnerId,
                 'timestamp' => $timestamp,
                 'sign' => $sign,
@@ -402,5 +443,79 @@ class ShopeeService
         }
 
         return null;
+    }
+
+    // AMBIL DATA TRACKING INFO
+    public function getTrackingInfo(Store $store, string $orderSn, string $packageNumber = '')
+    {
+        $shopId = $store->shopee_shop_id;
+        $accessToken = $this->ensureValidToken($store);
+        $timestamp = time();
+        $path = '/api/v2/logistics/get_tracking_info';
+        
+        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+
+        $url = "{$this->baseUrl}{$path}"
+            . "?partner_id={$this->partnerId}"
+            . "&timestamp={$timestamp}"
+            . "&sign={$sign}"
+            . "&access_token={$accessToken}"
+            . "&shop_id={$shopId}"
+            . "&order_sn={$orderSn}";
+
+        if (!empty($packageNumber)) {
+            $url .= "&package_number={$packageNumber}";
+        }
+
+        $response = $this->httpClient()->get($url);
+        return $response->json();
+    }
+
+    // UPDATE STOCK
+    public function updateStock(Store $store, string $itemId, string $modelId = '', int $stock)
+    {
+        $shopId = $store->shopee_shop_id;
+        $accessToken = $this->ensureValidToken($store);
+
+        $path = '/api/v2/product/update_stock';
+        $timestamp = time();
+        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+
+        $url = "{$this->baseUrl}{$path}"
+            . "?partner_id={$this->partnerId}"
+            . "&timestamp={$timestamp}"
+            . "&sign={$sign}"
+            . "&access_token={$accessToken}"
+            . "&shop_id={$shopId}";
+
+        $stockList = [
+            [
+                'normal_stock' => $stock
+            ]
+        ];
+
+        if (!empty($modelId) && $modelId !== '0') {
+            $stockList[0]['model_id'] = (int)$modelId;
+        }
+
+        $body = [
+            'item_id' => (int)$itemId,
+            'stock_list' => $stockList
+        ];
+
+        $response = $this->httpClient()->withHeaders([
+            'Content-Type' => 'application/json'
+        ])->post($url, $body);
+        
+        $result = $response->json();
+
+        Log::info('Shopee - Update Stock', [
+            'item_id' => $itemId,
+            'model_id' => $modelId,
+            'stock' => $stock,
+            'response' => $result
+        ]);
+
+        return $result;
     }
 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Bell, User, Settings, LogOut, ChevronDown } from "lucide-react";
 import axios from "axios";
@@ -48,19 +49,22 @@ export default function Navigation({ onMenuClick, user = { name: "Loading...", e
 
     const handleLogout = async () => {
         try {
+            if (typeof window.cleanupEcho === 'function') {
+                window.cleanupEcho();
+            }
             await axios.post("/logout");
-            window.location.href = "/";
         } catch (error) {
             console.error("Logout failed:", error);
-            // Fallback redirect anyway
+        } finally {
             window.location.href = "/";
+            window.location.reload();
         }
     };
 
     return (
         <>
         {/* Position sekarang mengikuti flex-none container di AppLayout */}
-        <nav className="relative z-40 w-full h-16 sm:h-[72px] bg-white/90 backdrop-blur-md dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300">
+        <nav className="relative z-20 lg:z-30 w-full h-16 sm:h-[55px] bg-white/90 backdrop-blur-md dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300">
             <div className="h-full mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center h-full">
                     {/* --- KIRI: Menu Mobile & Logo --- */}
@@ -77,7 +81,7 @@ export default function Navigation({ onMenuClick, user = { name: "Loading...", e
                             className="group focus:outline-none transition-transform active:scale-95"
                         >
                             <span className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none group-hover:text-[#304674] dark:group-hover:text-blue-400 transition-colors duration-300">
-                                <span className="font-normal">fine</span>sheet
+                                <span className="font-normal">fine</span>sheet <span className="text-xs bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">beta test</span>
                             </span>
                         </a>
                     </div>
@@ -137,50 +141,53 @@ export default function Navigation({ onMenuClick, user = { name: "Loading...", e
             </div>
         </nav>
 
-        {/* Logout Confirmation Modal */}
-        <AnimatePresence>
-            {isLogoutModalOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
-                        onClick={() => setIsLogoutModalOpen(false)}
-                    />
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 relative z-10 border border-slate-100 dark:border-slate-800"
-                    >
-                        <div className="w-12 h-12 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mb-4 mx-auto">
-                            <LogOut className="w-6 h-6" />
-                        </div>
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-2">
-                            Konfirmasi Logout
-                        </h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-6">
-                            Apakah Anda yakin ingin keluar dari akun Anda?
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setIsLogoutModalOpen(false)}
-                                className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold rounded-xl transition-colors"
-                            >
-                                Kembali
-                            </button>
-                            <button
-                                onClick={handleLogout}
-                                className="flex-1 px-4 py-2 bg-red-700 text-white hover:bg-red-600 text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-rose-600/20"
-                            >
-                                Lanjut Logout
-                            </button>
-                        </div>
-                    </motion.div>
-                </div>
-            )}
-        </AnimatePresence>
+        {/* Logout Confirmation Modal Portaled to Document Body */}
+        {typeof document !== 'undefined' && createPortal(
+            <AnimatePresence>
+                {isLogoutModalOpen && (
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center px-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm"
+                            onClick={() => setIsLogoutModalOpen(false)}
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 relative z-10 border border-slate-100 dark:border-slate-800"
+                        >
+                            <div className="w-12 h-12 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mb-4 mx-auto">
+                                <LogOut className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-2">
+                                Konfirmasi Logout
+                            </h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-6">
+                                Apakah Anda yakin ingin keluar dari akun Anda?
+                            </p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setIsLogoutModalOpen(false)}
+                                    className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold rounded-xl transition-colors cursor-pointer"
+                                >
+                                    Kembali
+                                </button>
+                                <button
+                                    onClick={handleLogout}
+                                    className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-rose-600/30 cursor-pointer"
+                                >
+                                    Lanjut Logout
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>,
+            document.body
+        )}
         </>
     );
 }

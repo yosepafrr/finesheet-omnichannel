@@ -12,6 +12,7 @@ export default {
         './resources/views/**/*.js',
         "./resources/js/**/*.jsx",
         "./resources/js/**/*.js",
+        "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}",
     ],
 
     theme: {

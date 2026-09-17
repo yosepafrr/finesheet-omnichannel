@@ -56,4 +56,28 @@ class User extends Authenticatable
         return $this->hasMany(Store::class, 'user_id');
     }
 
+    public function payablePeriods(): HasMany
+    {
+        return $this->hasMany(PayablePeriod::class, 'user_id');
+    }
+
+    public function payableEvents(): HasMany
+    {
+        return $this->hasMany(PayableEvent::class, 'user_id');
+    }
+
+    public function payablePayments(): HasMany
+    {
+        return $this->hasMany(PayablePayment::class, 'user_id');
+    }
+
+    public function suppliers(): HasMany
+    {
+        return $this->hasMany(Supplier::class, 'user_id');
+    }
+
+    public function supplierProductMappings(): HasMany
+    {
+        return $this->hasMany(SupplierProductMapping::class, 'user_id');
+    }
 }

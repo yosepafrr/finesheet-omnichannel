@@ -43,6 +43,15 @@ return [
         'app_key' => env('TIKTOK_APP_KEY'),
         'app_secret' => env('TIKTOK_APP_SECRET'),
         'redirect_uri' => env('TIKTOK_REDIRECT_URI'),
+        'open_url' => env('APP_ENV') === 'production' 
+            ? env('TIKTOK_OPEN_URL_PRODUCTION', 'https://services.tiktokshop.com/open/authorize')
+            : env('TIKTOK_OPEN_URL_SANDBOX', 'https://services.tiktokshop.com/open/authorize'),
+        'api_url' => env('APP_ENV') === 'production'
+            ? env('TIKTOK_API_URL_PRODUCTION', 'https://open-api.tiktokglobalshop.com')
+            : env('TIKTOK_API_URL_SANDBOX', 'https://open-api.tiktokglobalshop.com'),
+        'auth_url' => env('APP_ENV') === 'production'
+            ? env('TIKTOK_AUTH_URL_PRODUCTION', 'https://auth.tiktok-shops.com')
+            : env('TIKTOK_AUTH_URL_SANDBOX', 'https://auth.tiktok-shops.com'),
     ],
 
 ];

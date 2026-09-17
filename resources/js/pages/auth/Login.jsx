@@ -18,8 +18,9 @@ export default function Login() {
             // Get CSRF cookie first
             await axios.get("/sanctum/csrf-cookie");
             await axios.post("/login", { email, password, remember });
-            // Redirect to React dashboard on success
+            // Redirect to React dashboard on success with full reload to re-seed auth state & CSRF
             window.location.href = "/#/dashboard";
+            window.location.reload();
         } catch (err) {
             if (err.response?.status === 422) {
                 setErrors(err.response.data.errors || {});

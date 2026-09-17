@@ -70,11 +70,11 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
                     'booking_sn' => $detail['booking_sn'] ?? null,
                     'order_status' => $detail['order_status'] ?? null,
                     'order_time' => isset($detail['create_time'])
-                        ? Carbon::createFromTimestamp($detail['create_time'])
+                        ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone'))
                         : now(),
                     'cod' => $detail['cod'] ?? null,
                     'ship_by_date' => isset($detail['ship_by_date'])
-                        ? Carbon::createFromTimestamp($detail['ship_by_date'])
+                        ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone'))
                         : null,
                     'message_to_seller' => $detail['message_to_seller'] ?? null,
                     'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
@@ -85,27 +85,28 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
                 ]
             );
 
-            if (!empty($escrow['order_income']['items'])) {
-                foreach ($escrow['order_income']['items'] as $escrowItem) {
+            if (!empty($detail['item_list'])) {
+                foreach ($detail['item_list'] as $shopeeItem) {
+                    $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
+                    $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
+                    
                     OrderProduct::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
-                            'product_id' => $escrowItem['item_id']
+                            'product_id' => $shopeeItem['item_id']
                         ],
                         [
-                            'product_name' => $escrowItem['item_name'] ?? null,
-                            'quantity_purchased' => $escrowItem['quantity_purchased'] ?? 0,
-                            'price' => $escrowItem['selling_price'] ?? 0,
-                            'model_name' => $detail['item_list'][0]['model_name'] ?? null,
+                            'product_name' => $shopeeItem['item_name'] ?? null,
+                            'quantity_purchased' => $shopeeItem['model_quantity_purchased'] ?? 0,
+                            'price' => $price,
+                            'model_name' => $shopeeItem['model_name'] ?? null,
+                            'image_url' => $imageUrl,
                         ]
                     );
                 }
             }
 
-            // Fire event HANYA jika pesanan baru
-            if ($orderModel->wasRecentlyCreated) {
-                event(new OrderCreated($orderModel));
-            }
+            // OrderCreated notification moved to Order::saved model event
 
             Log::info("HandleShopeeOrderWebhookJob successfully completed for {$this->orderSn}");
         } catch (\Throwable $e) {

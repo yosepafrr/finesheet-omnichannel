@@ -19,3 +19,7 @@ Schedule::call(function () {
     dispatch(new SyncShopeeProductJob())->onQueue('products');
     dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
 })->hourly();
+
+Schedule::command('sync:logistics')->everyThirtyMinutes();
+Schedule::command('tokens:refresh')->everyFifteenMinutes();
+

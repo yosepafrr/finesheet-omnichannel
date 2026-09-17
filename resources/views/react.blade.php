@@ -17,6 +17,17 @@
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded"
         rel="stylesheet"
     />
+    {{-- Injeksi User yang sedang Login untuk Echo & Multi-Tenant --}}
+    <script>
+        window.authUser = @json(auth()->user());
+    </script>
+
+    @php
+        $isLocalDevMachine = in_array(request()->getHost(), ['localhost', '127.0.0.1']);
+        if (!$isLocalDevMachine) {
+            \Illuminate\Support\Facades\Vite::useHotFile(storage_path('vite.hot'));
+        }
+    @endphp
     @viteReactRefresh
     @vite([
         'resources/css/app.css',

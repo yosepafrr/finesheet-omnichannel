@@ -1,6 +1,29 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import OnboardingTour from "@/components/OnboardingTour";
+import { useOnboarding } from "@/hooks/useOnboarding";
+
+const PROFIT_TOUR_STEPS = [
+    {
+        selector: "#tour-escrow-filter",
+        title: "Filter Status Pesanan",
+        description: "Pilih status pesanan mana yang ingin Anda hitung ke dalam estimasi profit. Pesanan yang sudah 'Selesai' otomatis diabaikan karena dananya sudah masuk ke saldo toko Anda.",
+        position: "bottom",
+    },
+    {
+        selector: "#tour-profit-summary",
+        title: "Ringkasan Profit",
+        description: "Lihat total dana escrow (pemasukan yang masih tertahan di marketplace), dikurangi dengan estimasi HPP/tagihan supplier untuk mendapatkan perkiraan profit bersih.",
+        position: "bottom",
+    },
+    {
+        selector: "#tour-store-profit",
+        title: "Rincian Per Toko",
+        description: "Pantau kontribusi pemasukan dan margin profit dari masing-masing toko secara terpisah.",
+        position: "top",
+    },
+];
 
 const POLLING_INTERVAL = 5000;
 
@@ -32,25 +55,38 @@ function SkeletonCards() {
 }
 
 export default function ProfitTracker() {
+    const tour = useOnboarding("profit", PROFIT_TOUR_STEPS.length);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [escrowFilters, setEscrowFilters] = useState({
+        include_perlu_dikirim: 1,
+        include_dikirim: 1,
+        include_return: 0,
+    });
 
     const fetchData = useCallback(async () => {
         try {
-            const res = await axios.get("/api/profit-tracker");
+            const res = await axios.get("/api/profit-tracker", { params: escrowFilters });
             setData(res.data);
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [escrowFilters]);
 
     useEffect(() => {
         fetchData();
         const interval = setInterval(fetchData, POLLING_INTERVAL);
         return () => clearInterval(interval);
     }, [fetchData]);
+
+    const toggleFilter = (key) => {
+        setEscrowFilters(prev => ({
+            ...prev,
+            [key]: prev[key] === 1 ? 0 : 1
+        }));
+    };
 
     return (
         <AppLayout>
@@ -73,10 +109,54 @@ export default function ProfitTracker() {
                         </div>
                     </div>
 
+                    {/* Filters Section */}
+                    <div id="tour-escrow-filter" className="flex flex-wrap items-center gap-2 mt-4 mb-2">
+                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">Filter Status Escrow:</span>
+                        
+                        <button 
+                            onClick={() => toggleFilter('include_perlu_dikirim')}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm border ${
+                                escrowFilters.include_perlu_dikirim === 1
+                                ? 'bg-[#304674] text-white border-[#304674] dark:bg-blue-600 dark:border-blue-600' 
+                                : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            Perlu Dikirim
+                        </button>
+
+                        <button 
+                            onClick={() => toggleFilter('include_dikirim')}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm border ${
+                                escrowFilters.include_dikirim === 1
+                                ? 'bg-[#304674] text-white border-[#304674] dark:bg-blue-600 dark:border-blue-600' 
+                                : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            Dikirim
+                        </button>
+
+                        <button 
+                            onClick={() => toggleFilter('include_return')}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm border ${
+                                escrowFilters.include_return === 1
+                                ? 'bg-[#304674] text-white border-[#304674] dark:bg-blue-600 dark:border-blue-600' 
+                                : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            Return / Batal
+                        </button>
+
+                        <div className="ml-auto flex items-center">
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                                *Pesanan Selesai (Completed) otomatis diabaikan.
+                            </span>
+                        </div>
+                    </div>
+
                     {loading ? <SkeletonCards /> : data && (
                         <>
                             {/* Summary Cards */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div id="tour-profit-summary" className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {/* Total Escrow */}
                                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden group">
                                     <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity transform group-hover:scale-110 duration-500">
@@ -94,19 +174,19 @@ export default function ProfitTracker() {
                                     </div>
                                 </div>
 
-                                {/* Total Ads */}
+                                {/* Total Supplier Debt */}
                                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden group">
                                     <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity transform group-hover:scale-110 duration-500">
-                                        <span className="material-symbols-rounded text-8xl text-red-500 dark:text-red-400">campaign</span>
+                                        <span className="material-symbols-rounded text-8xl text-red-500 dark:text-red-400">receipt_long</span>
                                     </div>
                                     <div className="relative z-10">
-                                        <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Total Ads Spent</p>
+                                        <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Total Tagihan Supplier</p>
                                         <h3 className="text-3xl font-bold text-gray-800 dark:text-white">
-                                            Coming soon ...
+                                            {formatRp(data.total_supplier_debt)}
                                         </h3>
                                         <div className="mt-4 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-xs font-medium">
                                             <span className="material-symbols-rounded text-sm">arrow_downward</span>
-                                            Beban Iklan
+                                            Kewajiban Pembayaran
                                         </div>
                                     </div>
                                 </div>
@@ -120,15 +200,14 @@ export default function ProfitTracker() {
                                     <div className="relative z-10">
                                         <p className="text-xs font-bold text-blue-200 uppercase tracking-wider mb-1">Estimasi Profit Bersih</p>
                                         <h3 className="text-3xl font-bold">
-                                            Coming soon ...
+                                            {formatRp(data.net_estimation)}
                                         </h3>
                                         <div className="mt-4 flex items-center gap-3">
                                             <div className="bg-white/10 backdrop-blur-sm border border-white/20 px-3 py-1 rounded-lg flex items-center gap-2">
                                                 {data.total_escrow_amount > 0 ? (
                                                     <>
                                                         <span className="text-xs text-blue-100">Margin:</span>
-                                                        {/* <span className="text-sm font-bold">{data.margin}%</span> */}
-                                                        <span className="text-sm font-bold">Coming soon ...</span>
+                                                        <span className="text-sm font-bold">{data.margin}%</span>
                                                     </>
                                                 ) : (
                                                     <span className="text-xs text-blue-100">Menunggu Data</span>
@@ -140,7 +219,7 @@ export default function ProfitTracker() {
                             </div>
 
                             {/* Per-Store Breakdown */}
-                            <div className="space-y-4">
+                            <div id="tour-store-profit" className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                         <span className="material-symbols-rounded text-[#304674] dark:text-blue-400">storefront</span>
@@ -203,6 +282,16 @@ export default function ProfitTracker() {
                 }
                 .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
             `}</style>
+            <OnboardingTour
+                steps={PROFIT_TOUR_STEPS}
+                isOpen={tour.isOpen}
+                currentStep={tour.currentStep}
+                onNext={tour.next}
+                onPrev={tour.prev}
+                onSkip={tour.skip}
+                onFinish={tour.finish}
+                onStart={tour.start}
+            />
         </AppLayout>
     );
 }

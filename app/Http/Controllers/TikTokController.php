@@ -19,7 +19,8 @@ class TiktokController extends Controller
         $appKey = config('services.tiktok.app_key') ?? env('TIKTOK_APP_KEY');
         // TikTok Shop Authorization URL
         // In actual implementation, state can be a random string or user id.
-        $url = "https://services.tiktokshop.com/open/authorize?app_key={$appKey}&state=connect";
+        $baseUrl = config('services.tiktok.open_url');
+        $url = "{$baseUrl}?app_key={$appKey}&state=connect";
         
         return redirect($url);
     }
@@ -174,59 +175,94 @@ class TiktokController extends Controller
     public function syncOrders($store, TiktokService $tiktok, $timeFrom, $timeTo)
     {
         try {
-            $response = $tiktok->getOrderList($store, $timeFrom, $timeTo);
-            $orders = $response['data']['orders'] ?? [];
+            $hasMore = true;
+            $pageToken = '';
+            $totalSynced = 0;
 
-            foreach ($orders as $order) {
-                $orderModel = Order::updateOrCreate(
-                    ['order_sn' => $order['id']],
-                    [
-                        'platform' => 'Tiktokshop',
-                        'store_id' => $store->id,
-                        'order_status' => $order['status'] ?? null,
-                        'order_time' => isset($order['create_time']) ? Carbon::createFromTimestamp($order['create_time']) : now(),
-                        'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
-                        'message_to_seller' => $order['buyer_message'] ?? null,
-                        'order_selling_price' => $order['payment']['total_amount'] ?? 0,
-                        'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
-                    ]
-                );
+            while ($hasMore) {
+                $response = $tiktok->getOrderList($store, $timeFrom, $timeTo, $pageToken);
+                $orders = $response['data']['orders'] ?? [];
+                
+                $pageToken = $response['data']['next_page_token'] ?? '';
+                $hasMore = !empty($pageToken);
 
-                // Fetch actual/estimated escrow in the background
-                $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
-                \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $order['status'] ?? '', $grossAmount)->onQueue('orders');
-
-                if (!empty($order['line_items'])) {
-                    // TikTok lists multiple same items as separate line_item entries. We should group them by product_id and sku_name to get quantity.
-                    $groupedItems = [];
-                    foreach ($order['line_items'] as $item) {
-                        $key = $item['product_id'] . '_' . ($item['sku_name'] ?? 'without variant');
-                        if (!isset($groupedItems[$key])) {
-                            $groupedItems[$key] = $item;
-                            $groupedItems[$key]['computed_quantity'] = 1;
-                        } else {
-                            $groupedItems[$key]['computed_quantity'] += 1;
+                foreach ($orders as $order) {
+                    $cancelSource = $order['cancellation_initiator'] ?? null;
+                    $cancelReason = $order['cancel_reason'] ?? null;
+                    $normalizedCancelCategory = null;
+                    if (in_array($order['status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
+                        if (!empty($cancelSource) || !empty($cancelReason)) {
+                            $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
                         }
                     }
 
-                    foreach ($groupedItems as $item) {
-                        OrderProduct::updateOrCreate(
-                            [
-                                'order_id' => $orderModel->id,
-                                'product_id' => $item['product_id'],
-                                'model_name' => $item['sku_name'] ?? 'without variant',
-                            ],
-                            [
-                                'product_name' => $item['product_name'] ?? null,
-                                'quantity_purchased' => $item['computed_quantity'],
-                                'price' => $item['sale_price'] ?? 0,
-                                'image' => $item['sku_image'] ?? null,
-                            ]
-                        );
+                    $orderModel = Order::updateOrCreate(
+                        ['order_sn' => $order['id']],
+                        [
+                            'platform' => 'Tiktokshop',
+                            'store_id' => $store->id,
+                            'order_status' => $order['status'] ?? null,
+                            'cancel_source' => $cancelSource,
+                            'cancel_reason' => $cancelReason,
+                            'normalized_cancel_category' => $normalizedCancelCategory,
+                            'order_time' => isset($order['create_time']) ? Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
+                            'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
+                            'message_to_seller' => $order['buyer_message'] ?? null,
+                            'order_selling_price' => $order['payment']['total_amount'] ?? 0,
+                            'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
+                            'raw_data' => $order,
+                        ]
+                    );
+
+                    // Insert default package to be picked up by logistics sync
+                    // We don't have tracking info here, SyncLogisticsCommand will fetch it
+                    \App\Models\OrderPackage::firstOrCreate(
+                        [
+                            'order_id' => $orderModel->id,
+                            'package_id' => $orderModel->order_sn
+                        ],
+                        [
+                            'platform' => 'Tiktokshop'
+                        ]
+                    );
+
+                    // Fetch actual/estimated escrow in the background
+                    $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
+                    \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $order['status'] ?? '', $grossAmount)->onQueue('orders');
+
+                    if (!empty($order['line_items'])) {
+                        // TikTok lists multiple same items as separate line_item entries. We should group them by product_id and sku_name to get quantity.
+                        $groupedItems = [];
+                        foreach ($order['line_items'] as $item) {
+                            $key = $item['product_id'] . '_' . ($item['sku_name'] ?? 'without variant');
+                            if (!isset($groupedItems[$key])) {
+                                $groupedItems[$key] = $item;
+                                $groupedItems[$key]['computed_quantity'] = 1;
+                            } else {
+                                $groupedItems[$key]['computed_quantity'] += 1;
+                            }
+                        }
+
+                        foreach ($groupedItems as $item) {
+                            OrderProduct::updateOrCreate(
+                                [
+                                    'order_id' => $orderModel->id,
+                                    'product_id' => $item['product_id'],
+                                    'model_name' => $item['sku_name'] ?? 'without variant',
+                                ],
+                                [
+                                    'product_name' => $item['product_name'] ?? null,
+                                    'quantity_purchased' => $item['computed_quantity'],
+                                    'price' => $item['sale_price'] ?? 0,
+                                    'image' => $item['sku_image'] ?? null,
+                                ]
+                            );
+                        }
                     }
+                    $totalSynced++;
                 }
             }
-            Log::info("TikTok - Successfully synced " . count($orders) . " orders.");
+            Log::info("TikTok - Successfully synced {$totalSynced} orders.");
         } catch (\Exception $e) {
             Log::error('TikTok - Sync Orders Failed', ['error' => $e->getMessage()]);
         }

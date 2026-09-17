@@ -9,6 +9,13 @@ class OrderProduct extends Model
 {
     use HasFactory;
 
+    protected static function booted()
+    {
+        static::saved(function ($orderProduct) {
+            app(\App\Services\PayableService::class)->recordOrderEvent($orderProduct->order);
+        });
+    }
+
     protected $fillable = [
         'order_id',
         'product_id',

@@ -24,6 +24,9 @@ class OrderCreated implements ShouldBroadcastNow
      */
     public function __construct(Order $order)
     {
+        // Force refresh relations to prevent "Produk tidak diketahui" due to cached empty collections
+        // during model saving events that occurred before products were inserted.
+        $order->unsetRelation('orderProducts');
         $this->order = $order;
     }
 
@@ -34,7 +37,27 @@ class OrderCreated implements ShouldBroadcastNow
      */
     public function broadcastOn(): Channel
     {
-        return new Channel('orders');
+        $userId = $this->resolveUserId();
+        return new PrivateChannel('orders.' . ($userId ?? 0));
+    }
+
+    /**
+     * Resolve the owner user ID for this order's store.
+     */
+    public function resolveUserId(): ?int
+    {
+        if ($this->order->store && $this->order->store->user_id) {
+            return (int) $this->order->store->user_id;
+        }
+
+        if ($this->order->store_id) {
+            $store = \App\Models\Store::find($this->order->store_id);
+            if ($store && $store->user_id) {
+                return (int) $store->user_id;
+            }
+        }
+
+        return null;
     }
 
     public function broadcastAs(): string
@@ -60,6 +83,7 @@ class OrderCreated implements ShouldBroadcastNow
             'platform' => $platform,
             'product_name' => $productName,
             'store_id' => $this->order->store_id,
+            'user_id' => $this->resolveUserId(),
         ];
     }
 }

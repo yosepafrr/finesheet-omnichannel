@@ -18,7 +18,13 @@ class Product extends Model
         'price',
         'category',
         'image',
+        'supplier_id',
     ];
+
+    public function supplier()
+    {
+        return $this->belongsTo(Supplier::class);
+    }
 
     public function store()
     {
@@ -35,5 +41,40 @@ class Product extends Model
         return $this->hasMany(VariantProduct::class, 'product_id', 'id')
                     ->orderBy('tier_index->0')
                     ->orderBy('tier_index->1');
+    }
+
+    protected static function booted()
+    {
+        static::saving(function ($product) {
+            if (empty($product->supplier_id)) {
+                $userId = null;
+                if ($product->store) {
+                    $userId = $product->store->user_id;
+                } elseif ($product->store_id) {
+                    $userId = \App\Models\Store::where('id', $product->store_id)->value('user_id');
+                }
+                if ($userId) {
+                    $suppliers = \App\Models\Supplier::where('user_id', $userId)->get();
+                    if ($suppliers->count() === 1) {
+                        $product->supplier_id = $suppliers->first()->id;
+                    } elseif ($suppliers->count() > 1) {
+                        $mapping = null;
+                        if (!empty($product->product_sku)) {
+                            $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
+                                ->where('sku', $product->product_sku)
+                                ->first();
+                        }
+                        if (!$mapping && !empty($product->product_id)) {
+                            $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
+                                ->where('platform_product_id', (string)$product->product_id)
+                                ->first();
+                        }
+                        if ($mapping) {
+                            $product->supplier_id = $mapping->supplier_id;
+                        }
+                    }
+                }
+            }
+        });
     }
 }
