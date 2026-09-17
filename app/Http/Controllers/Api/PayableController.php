@@ -474,9 +474,12 @@ class PayableController extends Controller
             ]]
         );
 
-        // Auto-create the first period for this user
-        $payableService = app(\App\Services\PayableService::class);
-        $period = $payableService->getPeriodForDate($startDate, $userId);
+        // Update all existing suppliers of this user with the same period config
+        // so that SyncPayableHistoryJob can create periods properly per supplier
+        \App\Models\Supplier::where('user_id', $userId)->update([
+            'period_length_days' => $validated['length_days'],
+            'first_period_start' => $startDate,
+        ]);
 
         // Sync historical orders for this user in background
         \App\Jobs\SyncPayableHistoryJob::dispatch($startDate->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
