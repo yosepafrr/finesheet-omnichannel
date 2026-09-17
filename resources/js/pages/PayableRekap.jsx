@@ -1868,13 +1868,7 @@ export default function PayableRekap() {
                     <div className="flex flex-col items-center justify-center h-64 text-center">
                         <Wallet className="w-16 h-16 text-slate-300 dark:text-slate-600 mb-4" />
                         <p className="text-slate-500 dark:text-slate-400">Belum ada data periode yang dapat ditampilkan.</p>
-                        <button
-                            type="button"
-                            onClick={() => setIsConfigModalOpen(true)}
-                            className="mt-4 text-indigo-500 hover:text-indigo-600 font-medium text-sm"
-                        >
-                            Atur Konfigurasi Sekarang &rarr;
-                        </button>
+
                     </div>
                 ) : (
                     <div className="space-y-4" ref={reportContainerRef}>

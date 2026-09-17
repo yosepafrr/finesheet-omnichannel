@@ -21,10 +21,21 @@ class PayableService
      */
     public function getPeriodForDate(Carbon $date, int $userId, Supplier $supplier): ?PayablePeriod
     {
+        // 1. Check if there is ANY period (manual or auto) that covers this date for this supplier
+        $existingPeriod = PayablePeriod::where('user_id', $userId)
+            ->where('supplier_id', $supplier->id)
+            ->where('start_date', '<=', $date)
+            ->where('end_date', '>=', $date)
+            ->first();
+
+        if ($existingPeriod) {
+            return $existingPeriod;
+        }
+
         $firstPeriodStart = $supplier->first_period_start;
         if (!$firstPeriodStart) return null;
 
-        // If the date is before the first period start, ignore it (historical data)
+        // If the date is before the first period start AND no manual period covers it, ignore it (historical data)
         if ($date->lt($firstPeriodStart)) {
             return null;
         }
@@ -51,7 +62,7 @@ class PayableService
                 'end_date' => $periodEnd,
                 'payment_status' => 'UNPAID',
                 'is_closed' => false,
-                'is_manual' => false,
+                'is_manual' => false
             ]
         );
     }
