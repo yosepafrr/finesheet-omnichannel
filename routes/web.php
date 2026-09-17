@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ShopeeController;
 use App\Http\Controllers\ShopeeWebhookController;
-use App\Http\Controllers\TiktokController;
+use App\Http\Controllers\TikTokController;
 use App\Http\Controllers\DashboardController;
 
 use App\Http\Controllers\Api\ProductController;
@@ -129,8 +129,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // Tiktok SHOP AUTHORIZATION
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/tiktok/callback', [TiktokController::class, 'handleTiktokCallback'])->name('tiktok.callback');
-    Route::get('/connect/tiktok', [TiktokController::class, 'redirectToTiktok'])->name('tiktok.connect');
+    Route::get('/tiktok/callback', [TikTokController::class, 'handleTiktokCallback'])->name('tiktok.callback');
+    Route::get('/connect/tiktok', [TikTokController::class, 'redirectToTiktok'])->name('tiktok.connect');
 });
 
 // WEBHOOK ROUTE
