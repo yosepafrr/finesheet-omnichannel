@@ -259,6 +259,17 @@ class PayableService
         Log::info("PayableService::recordOrderEvent called for Order " . $order->order_sn);
         
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
+
+        // If order is cancelled, remove the CREATE_ORDER event entirely (as if it never happened).
+        // Only orders that have actually been shipped/completed are valid payable debts.
+        if (in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
+            PayableEvent::where('source_id', $order->order_sn)
+                ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->delete();
+            Log::info("PayableService: Deleted CREATE_ORDER events for cancelled order " . $order->order_sn);
+            return;
+        }
+
         // Skip orders that are UNPAID, UNKNOWN, or ON_HOLD
         if (empty($statusUpper) || in_array($statusUpper, ['UNPAID', 'UNKNOWN', 'ON_HOLD'])) {
             PayableEvent::where('source_id', $order->order_sn)
@@ -511,19 +522,35 @@ class PayableService
     }
     
     /**
-     * Record a cancellation event (FAILED_DELIVERY, BUYER_CANCEL)
+     * Record a cancellation event.
+     *
+     * LOGIC:
+     * - True cancellation (CANCEL/CANCELLED/IN_CANCEL): The order never reached the supplier,
+     *   so we DELETE the CREATE_ORDER event entirely. No reduction event is created.
+     * - Failed delivery (DELIVERY_FAILED on a SHIPPED/COMPLETED order): The order WAS shipped,
+     *   so the CREATE_ORDER event stays and we add a FAILED_DELIVERY reduction.
      */
     public function recordCancellationEvent(Order $order, string $type = 'FAILED_DELIVERY')
     {
-        // Don't record cancellation if order is not actually cancelled or failed
-        if (!in_array($order->order_status, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
-            $hasFailedPackage = $order->packages()->where('normalized_logistics_status', 'DELIVERY_FAILED')->exists();
-            if (!$hasFailedPackage) {
-                return;
-            }
+        $statusUpper = strtoupper(trim($order->order_status ?? ''));
+        $isTrueCancellation = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL']);
+
+        if ($isTrueCancellation) {
+            // True cancellation: remove CREATE_ORDER completely (order never materialized into a debt)
+            PayableEvent::where('source_id', $order->order_sn)
+                ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->delete();
+            Log::info("PayableService: Deleted payable events for truly cancelled order " . $order->order_sn);
+            return;
         }
 
-        // Do not record cancellation if order was never recorded in payable
+        // Below: handle FAILED_DELIVERY on a shipped/completed order only
+        $hasFailedPackage = $order->packages()->where('normalized_logistics_status', 'DELIVERY_FAILED')->exists();
+        if (!$hasFailedPackage) {
+            return;
+        }
+
+        // Do not record if order was never in payable (no CREATE_ORDER event)
         $createEvents = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'CREATE_ORDER')
             ->get();
@@ -532,7 +559,7 @@ class PayableService
             return;
         }
 
-        // If order already has a return in payable_events or order_returns, return takes precedence
+        // If order already has a return, return takes precedence over failed delivery
         $hasReturn = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'RETURN_ORDER')
             ->exists() || OrderReturn::where('order_id', $order->id)->exists();
@@ -545,7 +572,6 @@ class PayableService
         if (!$userId) return;
 
         $date = $order->updated_at;
-
         $recordedSupplierIds = [];
 
         foreach ($createEvents as $createEvent) {
@@ -584,7 +610,7 @@ class PayableService
                     'store_id' => $order->store_id,
                     'platform' => $order->platform,
                     'event_date' => $date,
-                    'amount' => -abs((float)$createEvent->amount), // exact negative
+                    'amount' => -abs((float)$createEvent->amount),
                 ]
             );
         }
