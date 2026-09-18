@@ -124,18 +124,24 @@ class ShopeeController extends Controller
             $shopInfo = $shopee->getShopProfile($store);
             Log::info('Shopee - Shop Info received', [
                 'shop_id' => $shopId,
-                'shop_name' => $shopInfo['shop_name'] ?? null,
+                'shop_name' => data_get($shopInfo, 'response.shop_name') ?? data_get($shopInfo, 'shop_name'),
                 'error' => $shopInfo['error'] ?? null,
                 'message' => $shopInfo['message'] ?? null,
             ]);
+
+            $shopName = data_get($shopInfo, 'response.shop_name')
+                ?? data_get($shopInfo, 'shop_name')
+                ?? "Toko Shopee {$shopId}";
+            $shopExpireTime = data_get($shopInfo, 'response.expire_time')
+                ?? data_get($shopInfo, 'expire_time');
 
             $store =  Auth::user()->stores()->updateOrCreate(
                 ['shopee_shop_id' => $shopId],
                 [
                     'platform'              => 'Shopee',
-                    'store_name'            => $shopInfo['shop_name'] ?? 'Toko Shopee',
-                    'shop_expired_at'       => isset($shopInfo['expire_time'])
-                        ? Carbon::createFromTimestamp($shopInfo['expire_time'])
+                    'store_name'            => $shopName,
+                    'shop_expired_at'       => $shopExpireTime
+                        ? Carbon::createFromTimestamp($shopExpireTime)
                         : now()->addYear(),
                     'access_token'          => $accessToken,
                     'refresh_token'         => $refreshToken,

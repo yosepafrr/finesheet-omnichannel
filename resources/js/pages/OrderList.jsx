@@ -975,6 +975,24 @@ export default function OrderList() {
                                 )}
                             </p>
 
+                            {!searchQuery && (
+                                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-900/60 dark:bg-amber-900/20">
+                                    <div className="flex items-start gap-3">
+                                        <span className="material-symbols-rounded mt-0.5 text-[18px] text-amber-600 dark:text-amber-300">
+                                            info
+                                        </span>
+                                        <div>
+                                            <p className="text-xs font-bold text-amber-900 dark:text-amber-100">
+                                                Tidak menemukan pesanan?
+                                            </p>
+                                            <p className="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+                                                Sistem sedang mencoba menarik data dari toko kamu. Sync awal bisa membutuhkan beberapa menit. Jika data belum masuk, klik Sinkronisasi Data.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex flex-wrap items-center justify-center gap-3">
                                 {hasActiveFilter && (
                                     <button
@@ -994,7 +1012,7 @@ export default function OrderList() {
                                     <span className={`material-symbols-rounded text-sm ${syncing ? "animate-spin" : ""}`}>
                                         sync
                                     </span>
-                                    {syncing ? "Menyinkronkan..." : "Sinkronkan Pesanan"}
+                                    {syncing ? "Menyinkronkan..." : "Sinkronisasi Data"}
                                 </button>
                             </div>
                         </motion.div>
