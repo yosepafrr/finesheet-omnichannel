@@ -19,13 +19,13 @@ class SyncTiktokReturnJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $store;
+    protected $storeId;
     protected $timeFrom;
     protected $timeTo;
 
-    public function __construct(Store $store, $timeFrom = null, $timeTo = null)
+    public function __construct(Store|int $store, $timeFrom = null, $timeTo = null)
     {
-        $this->store = $store;
+        $this->storeId = $store instanceof Store ? $store->id : $store;
         $this->timeTo = $timeTo ?? time();
         $this->timeFrom = $timeFrom ?? Carbon::now()->subDays(30)->timestamp;
     }
@@ -33,18 +33,24 @@ class SyncTiktokReturnJob implements ShouldQueue
     public function handle(TiktokService $tiktokService)
     {
         try {
-            Log::info("Starting SyncTiktokReturnJob for Store ID: {$this->store->id}");
+            $store = Store::find($this->storeId);
+            if (!$store) {
+                Log::warning("SyncTiktokReturnJob skipped: Store {$this->storeId} not found");
+                return;
+            }
+
+            Log::info("Starting SyncTiktokReturnJob for Store ID: {$store->id}");
 
             $hasMore = true;
             $pageToken = '';
 
             while ($hasMore) {
-                $response = $tiktokService->searchReturns($this->store, $this->timeFrom, $this->timeTo, $pageToken);
+                $response = $tiktokService->searchReturns($store, $this->timeFrom, $this->timeTo, $pageToken);
 
                 if (isset($response['code']) && $response['code'] !== 0) {
                     if ((int) $response['code'] === 36009002) {
                         Log::warning('TikTok return sync rate limited, retrying later', [
-                            'store_id' => $this->store->id,
+                            'store_id' => $store->id,
                             'code' => $response['code'],
                             'message' => $response['message'] ?? null,
                         ]);
@@ -133,7 +139,7 @@ class SyncTiktokReturnJob implements ShouldQueue
                 }
             }
         } catch (\Exception $e) {
-            Log::error("SyncTiktokReturnJob failed for Store ID: {$this->store->id} - " . $e->getMessage());
+            Log::error("SyncTiktokReturnJob failed for Store ID: {$this->storeId} - " . $e->getMessage());
         }
     }
 

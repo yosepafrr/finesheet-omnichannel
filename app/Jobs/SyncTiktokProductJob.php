@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Store;
 use App\Services\TiktokService;
-use App\Http\Controllers\TiktokController;
+use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +35,7 @@ class SyncTiktokProductJob implements ShouldQueue
         }
 
         $tiktokService = new TiktokService();
-        $controller = new TiktokController();
+        $controller = new TikTokController();
         
         foreach ($stores as $store) {
             try {

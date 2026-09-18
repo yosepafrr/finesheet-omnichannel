@@ -19,13 +19,13 @@ class SyncShopeeReturnJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $store;
+    protected $storeId;
     protected $timeFrom;
     protected $timeTo;
 
-    public function __construct(Store $store, $timeFrom = null, $timeTo = null)
+    public function __construct(Store|int $store, $timeFrom = null, $timeTo = null)
     {
-        $this->store = $store;
+        $this->storeId = $store instanceof Store ? $store->id : $store;
         // Default to last 30 days if not provided
         $this->timeTo = $timeTo ?? time();
         $this->timeFrom = $timeFrom ?? Carbon::now()->subDays(30)->timestamp;
@@ -34,9 +34,15 @@ class SyncShopeeReturnJob implements ShouldQueue
     public function handle(ShopeeService $shopeeService)
     {
         try {
-            Log::info("Starting SyncShopeeReturnJob for Store ID: {$this->store->id}");
-            $accessToken = $shopeeService->ensureValidToken($this->store);
-            $shopId = $this->store->shopee_shop_id;
+            $store = Store::find($this->storeId);
+            if (!$store) {
+                Log::warning("SyncShopeeReturnJob skipped: Store {$this->storeId} not found");
+                return;
+            }
+
+            Log::info("Starting SyncShopeeReturnJob for Store ID: {$store->id}");
+            $accessToken = $shopeeService->ensureValidToken($store);
+            $shopId = $store->shopee_shop_id;
 
             $hasMore = true;
             $pageNo = 0;
@@ -73,7 +79,7 @@ class SyncShopeeReturnJob implements ShouldQueue
                             continue;
                         }
 
-                        $order = Order::where('platform', 'shopee')->where('order_sn', $orderSn)->first();
+                        $order = Order::where('platform', 'Shopee')->where('order_sn', $orderSn)->first();
                         
                         if (!$order) {
                             Log::warning("Order {$orderSn} not found for return {$returnSn}");
@@ -86,7 +92,7 @@ class SyncShopeeReturnJob implements ShouldQueue
 
                         $orderReturn = OrderReturn::updateOrCreate(
                             [
-                                'platform' => 'shopee',
+                                'platform' => 'Shopee',
                                 'external_return_id' => $returnSn,
                             ],
                             [
@@ -129,7 +135,7 @@ class SyncShopeeReturnJob implements ShouldQueue
                 $pageNo++;
             }
         } catch (\Exception $e) {
-            Log::error("SyncShopeeReturnJob failed for Store ID: {$this->store->id} - " . $e->getMessage());
+            Log::error("SyncShopeeReturnJob failed for Store ID: {$this->storeId} - " . $e->getMessage());
         }
     }
 
