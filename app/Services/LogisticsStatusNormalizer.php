@@ -4,6 +4,14 @@ namespace App\Services;
 
 class LogisticsStatusNormalizer
 {
+    private const FAILED_DELIVERY_ACTION_CODES = [
+        40601,
+        70201,
+        70202,
+        70203,
+        70204,
+    ];
+
     private const FAILED_DELIVERY_PHRASES = [
         'delivery failed',
         'delivery fail',
@@ -30,6 +38,7 @@ class LogisticsStatusNormalizer
         'being returned to the seller',
         'being returned to the sender',
         'package return',
+        'return package',
         'return in progress',
         'return started',
         'recipient rejected',
@@ -60,9 +69,29 @@ class LogisticsStatusNormalizer
 
     public function isFailedDelivery(array|string|null $value): bool
     {
+        if (is_array($value) && $this->containsFailedActionCode($value)) {
+            return true;
+        }
+
         $text = is_array($value) ? $this->flattenText($value) : $this->normalizeText((string) $value);
 
         return $this->containsPhrase($text, self::FAILED_DELIVERY_PHRASES);
+    }
+
+    private function containsFailedActionCode(array $value): bool
+    {
+        if (isset($value['action_code'])
+            && in_array((int) $value['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true)) {
+            return true;
+        }
+
+        foreach ($value as $child) {
+            if (is_array($child) && $this->containsFailedActionCode($child)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function latestDescription(array $payload): string

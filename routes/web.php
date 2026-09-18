@@ -8,6 +8,7 @@ use App\Http\Controllers\DashboardController;
 
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OrderSyncController;
 use App\Http\Controllers\Api\ProfitController;
 
 // Auth Routes (Login, Register, Logout)
@@ -61,25 +62,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         });
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{id}', [OrderController::class, 'show']);
-        Route::post('/sync/orders', function (\Illuminate\Http\Request $request) {
-            $storeId = $request->input('store_id');
-            if ($storeId) {
-                $store = \App\Models\Store::find($storeId);
-                if ($store) {
-                    if ($store->platform === 'Shopee') {
-                        dispatch(new \App\Jobs\SyncShopeeOrderJob($storeId))->onQueue('orders');
-                    } elseif ($store->platform === 'Tiktokshop') {
-                        dispatch(new \App\Jobs\SyncTiktokOrderJob($storeId))->onQueue('orders');
-                    }
-                    return response()->json(['message' => 'Order sync started for store ' . $store->store_name]);
-                }
-                return response()->json(['message' => 'Store not found'], 404);
-            }
-
-            dispatch(new \App\Jobs\SyncShopeeOrderJob())->onQueue('orders');
-            dispatch(new \App\Jobs\SyncTiktokOrderJob())->onQueue('orders');
-            return response()->json(['message' => 'Order sync started']);
-        });
+        Route::get('/sync/orders/status', [OrderSyncController::class, 'status']);
+        Route::post('/sync/orders', [OrderSyncController::class, 'store']);
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
 
         // Payable Routes

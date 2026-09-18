@@ -33,6 +33,18 @@ class LogisticsStatusNormalizerTest extends TestCase
             'machine status' => [['logistics_status' => 'DELIVERY_FAILED']],
             'Indonesian cancellation reason' => [['cancel_reason' => 'Pengiriman paket gagal']],
             'Indonesian tracking warning' => [['description' => 'Dikembalikan kepada penjual']],
+            'TikTok failed delivery action code' => [[
+                'tracking' => [[
+                    'action_code' => 40601,
+                    'description' => 'Localized description not recognized by text rules',
+                ]],
+            ]],
+            'TikTok return journey action code' => [[
+                'tracking' => [[
+                    'action_code' => 70204,
+                    'description' => 'Localized return update',
+                ]],
+            ]],
         ];
     }
 

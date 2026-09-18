@@ -74,13 +74,10 @@ class TikTokController extends Controller
         
         Log::info('TikTok - Store saved', ['store' => $store]);
 
-        // Sync Products (synchronous as requested)
-        $this->syncProducts($store, $tiktok);
-        
-        // Sync Orders synchronously for 180 days (Initial Sync)
-        \App\Jobs\SyncTiktokOrderJob::dispatchSync($store->id, 180);
-        
-        return redirect('/#/stores')->with('success', 'Toko TikTok berhasil terhubung dan sinkronisasi awal selesai.');
+        \App\Jobs\SyncTiktokProductJob::dispatch($store->id)->onQueue('products');
+        \App\Jobs\SyncTiktokOrderJob::dispatch($store->id, 180, null, null, true, 'initial')->onQueue('orders');
+
+        return redirect('/#/stores')->with('success', 'Toko TikTok berhasil terhubung. Sinkronisasi awal sedang berjalan di latar belakang.');
     }
 
     public function syncProducts($store, TiktokService $tiktok)

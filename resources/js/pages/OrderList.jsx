@@ -10,6 +10,8 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { OrderSyncStatus } from "@/components/OrderSyncStatus";
+import { useOrderSyncStatus } from "@/hooks/useOrderSyncStatus";
 
 const ORDER_TOUR_STEPS = [
     {
@@ -316,6 +318,13 @@ export default function OrderList() {
     );
     const [copiedSn, setCopiedSn] = useState(null);
     const [excludeReturns, setExcludeReturns] = useState(false);
+    const {
+        syncs,
+        syncsByStore,
+        isAnySyncing,
+        recentlyCompleted,
+        refresh: refreshSyncStatus,
+    } = useOrderSyncStatus();
 
     const isInitialMount = useRef(true);
     const scrollRestoredRef = useRef(false);
@@ -432,11 +441,11 @@ export default function OrderList() {
         setSyncing(true);
         try {
             await axios.post("/api/sync/orders");
-            fetchData();
+            await refreshSyncStatus();
         } catch (err) {
             console.error("Failed to sync orders", err);
         } finally {
-            setTimeout(() => setSyncing(false), 2000);
+            setSyncing(false);
         }
     };
 
@@ -444,11 +453,11 @@ export default function OrderList() {
         setSyncingStoreId(storeId);
         try {
             await axios.post("/api/sync/orders", { store_id: storeId });
-            fetchData();
+            await refreshSyncStatus();
         } catch (err) {
             console.error(`Failed to sync orders for store ${storeId}`, err);
         } finally {
-            setTimeout(() => setSyncingStoreId(null), 2000);
+            setSyncingStoreId(null);
         }
     };
 
@@ -517,6 +526,12 @@ export default function OrderList() {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    useEffect(() => {
+        if (recentlyCompleted) {
+            fetchData(true);
+        }
+    }, [recentlyCompleted, fetchData]);
 
     // Keep a ref to the latest fetchData so the event listener is always up-to-date
     // without needing to re-register on every filter change
@@ -678,15 +693,15 @@ export default function OrderList() {
                             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
                                 <button
                                     onClick={handleSync}
-                                    disabled={syncing || syncingStoreId !== null}
+                                    disabled={syncing || syncingStoreId !== null || isAnySyncing}
                                     className="flex w-full md:w-auto items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
                                 >
                                     <span
-                                        className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
+                                        className={`material-symbols-rounded text-[20px] ${syncing || isAnySyncing ? "animate-spin" : ""}`}
                                     >
                                         sync
                                     </span>
-                                    {syncing
+                                    {syncing || isAnySyncing
                                         ? "Menyelaraskan..."
                                         : "Sinkronisasi Data"}
                                 </button>
@@ -817,6 +832,11 @@ export default function OrderList() {
                                 </div>
                             </div>
                         </div>
+
+                        <OrderSyncStatus
+                            syncs={syncs}
+                            recentlyCompleted={recentlyCompleted}
+                        />
 
                         {/* Status Tabs */}
                         <div id="tour-filter-group" className="border-b border-gray-200 dark:border-slate-700">
@@ -1092,11 +1112,11 @@ export default function OrderList() {
                                             </span>
                                             <button
                                                 onClick={() => handleSyncStore(store.id)}
-                                                disabled={syncingStoreId === store.id || syncing}
+                                                disabled={syncingStoreId === store.id || syncing || Boolean(syncsByStore[String(store.id)])}
                                                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
                                             >
-                                                <span className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id ? 'animate-spin' : ''}`}>sync</span>
-                                                {syncingStoreId === store.id ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
+                                                <span className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id || syncsByStore[String(store.id)] ? 'animate-spin' : ''}`}>sync</span>
+                                                {syncingStoreId === store.id || syncsByStore[String(store.id)] ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
                                             </button>
                                         </div>
                                     </div>

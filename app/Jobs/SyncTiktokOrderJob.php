@@ -20,15 +20,34 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
     public $uniqueFor = 1800;
     public $storeId;
     public $daysToSync;
+    public $timeFrom;
+    public $timeTo;
+    public $showProgress;
+    public $syncContext;
 
-    public function __construct($storeId = null, $daysToSync = 14)
+    public function __construct(
+        $storeId = null,
+        $daysToSync = 14,
+        $timeFrom = null,
+        $timeTo = null,
+        $showProgress = false,
+        $syncContext = 'manual'
+    )
     {
         $this->storeId = $storeId;
         $this->daysToSync = $daysToSync;
+        $this->timeFrom = $timeFrom;
+        $this->timeTo = $timeTo;
+        $this->showProgress = $showProgress;
+        $this->syncContext = $syncContext;
     }
 
     public function uniqueId(): string
     {
+        if ($this->timeFrom !== null && $this->timeTo !== null) {
+            return ($this->storeId ?? 'all') . ":range:{$this->timeFrom}:{$this->timeTo}";
+        }
+
         return ($this->storeId ?? 'all') . ':' . $this->daysToSync;
     }
 
@@ -54,7 +73,50 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
 
         foreach ($stores as $store) {
             try {
+                if ($this->timeFrom !== null && $this->timeTo !== null) {
+                    $controller->syncOrders($store, $tiktokService, $this->timeFrom, $this->timeTo);
+                    continue;
+                }
+
                 $cursorDate = $now->copy()->subDays($this->daysToSync)->startOfDay();
+
+                if ($this->daysToSync > $intervalDays) {
+                    while ($cursorDate < $now) {
+                        $startTime = $cursorDate->copy();
+                        $endTime = $cursorDate->copy()->addDays($intervalDays);
+
+                        if ($endTime > $now) {
+                            $endTime = $now;
+                        }
+
+                        self::dispatch(
+                            $store->id,
+                            $intervalDays,
+                            $startTime->timestamp,
+                            $endTime->timestamp,
+                            $this->showProgress,
+                            $this->syncContext
+                        )->onQueue('orders');
+
+                        $cursorDate = $endTime;
+                    }
+
+                    \App\Jobs\SyncTiktokReturnJob::dispatch(
+                        $store,
+                        $now->copy()->subDays($this->daysToSync)->timestamp,
+                        $now->timestamp
+                    )->onQueue('orders');
+
+                    if ($this->showProgress) {
+                        SyncStoreLogisticsJob::dispatch(
+                            $store->id,
+                            true,
+                            $this->syncContext
+                        )->onQueue('orders');
+                    }
+
+                    continue;
+                }
 
                 while ($cursorDate < $now) {
                     $startTime = $cursorDate->copy();
@@ -71,6 +133,14 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
 
                 // Dispatch return sync for TikTok store
                 \App\Jobs\SyncTiktokReturnJob::dispatch($store, $now->copy()->subDays($this->daysToSync)->timestamp, $now->timestamp)->onQueue('orders');
+
+                if ($this->showProgress) {
+                    SyncStoreLogisticsJob::dispatch(
+                        $store->id,
+                        true,
+                        $this->syncContext
+                    )->onQueue('orders');
+                }
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [
                     'store_id' => $store->id,

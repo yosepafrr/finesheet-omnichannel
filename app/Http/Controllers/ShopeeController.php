@@ -156,7 +156,7 @@ class ShopeeController extends Controller
             ]);
 
             \App\Jobs\SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
-            \App\Jobs\SyncShopeeOrderJob::dispatch($store->id, 180)->onQueue('orders');
+            \App\Jobs\SyncShopeeOrderJob::dispatch($store->id, 180, true, 'initial')->onQueue('orders');
             \App\Jobs\SyncShopeeReturnJob::dispatch($store)->onQueue('orders');
 
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');

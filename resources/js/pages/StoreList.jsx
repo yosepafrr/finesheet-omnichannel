@@ -4,6 +4,8 @@ import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { OrderSyncStatus, StoreOrderSyncStatus } from "@/components/OrderSyncStatus";
+import { useOrderSyncStatus } from "@/hooks/useOrderSyncStatus";
 
 const STORE_TOUR_STEPS = [
     {
@@ -129,6 +131,7 @@ export default function StoreList() {
     const [lastSync, setLastSync] = useState(Date.now());
     const [syncing, setSyncing] = useState(false);
     const tour = useOnboarding("stores", STORE_TOUR_STEPS.length);
+    const { syncs, syncsByStore, recentlyCompleted } = useOrderSyncStatus();
     
     // State Hapus Toko
     const [storeToDelete, setStoreToDelete] = useState(null);
@@ -246,6 +249,11 @@ export default function StoreList() {
                         </div>
                     </div>
 
+                    <OrderSyncStatus
+                        syncs={syncs}
+                        recentlyCompleted={recentlyCompleted}
+                    />
+
                     {/* --- STATISTIC CARDS --- */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         {[
@@ -351,6 +359,7 @@ export default function StoreList() {
                                             <code className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1 inline-block truncate max-w-full">
                                                 #{store.shop_id}
                                             </code>
+                                            <StoreOrderSyncStatus sync={syncsByStore[String(store.id)]} />
                                         </div>
                                     </div>
 

@@ -24,11 +24,15 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
     public $uniqueFor = 1800;
     public $storeId;
     public $daysToSync;
+    public $showProgress;
+    public $syncContext;
 
-    public function __construct($storeId = null, $daysToSync = 14)
+    public function __construct($storeId = null, $daysToSync = 14, $showProgress = false, $syncContext = 'manual')
     {
         $this->storeId = $storeId;
         $this->daysToSync = $daysToSync;
+        $this->showProgress = $showProgress;
+        $this->syncContext = $syncContext;
     }
 
     public function uniqueId(): string
@@ -249,6 +253,14 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 Log::info("Sync finished for store {$store->id}");
+
+                if ($this->showProgress) {
+                    SyncStoreLogisticsJob::dispatch(
+                        $store->id,
+                        true,
+                        $this->syncContext
+                    )->onQueue('orders');
+                }
             } catch (\Throwable $e) {
                 Log::error("Error syncing store {$store->id}", [
                     'message' => $e->getMessage()

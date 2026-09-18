@@ -6,18 +6,27 @@ use App\Models\Store;
 use App\Services\TiktokService;
 use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 
-class SyncTiktokProductJob implements ShouldQueue
+class SyncTiktokProductJob implements ShouldQueue, ShouldBeUnique
 {
     use Queueable;
 
+    public $tries = 3;
+    public $timeout = 300;
+    public $uniqueFor = 1800;
     public $storeId;
 
     public function __construct($storeId = null)
     {
         $this->storeId = $storeId;
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) ($this->storeId ?? 'all');
     }
 
     public function handle(): void
