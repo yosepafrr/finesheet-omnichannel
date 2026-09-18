@@ -45,6 +45,13 @@ class OrderController extends Controller
             ->whereDoesntHave('packages', function ($q) {
                 $q->where('normalized_logistics_status', 'DELIVERY_FAILED');
             });
+
+        foreach (['CANCEL', 'CANCELLED', 'IN_CANCEL'] as $cancelStatus) {
+            $statusCounts[$cancelStatus] = (clone $cancelBase)
+                ->where('order_status', $cancelStatus)
+                ->count();
+        }
+
         $cancelSubCounts = [
             'all' => (clone $cancelBase)->count(),
             'SELLER_LATE_SHIPMENT' => (clone $cancelBase)->where('normalized_cancel_category', 'SELLER_LATE_SHIPMENT')->count(),

@@ -20,7 +20,6 @@ class ShopeeService
         $this->baseUrl = config('shopee.base_url');
         Log::info('ShopeeService constructed', [
             'partner_id' => $this->partnerId,
-            'partner_key' => $this->partnerKey,
         ]);
     }
 
@@ -29,7 +28,9 @@ class ShopeeService
      */
     protected function httpClient()
     {
-        return app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+        $client = Http::timeout(30)->connectTimeout(10);
+
+        return app()->isLocal() ? $client->withoutVerifying() : $client;
     }
 
     public function ensureValidToken(Store $store)
@@ -73,6 +74,15 @@ class ShopeeService
         $shopId = (int) $store->shopee_shop_id;
         $refreshToken = $store->refresh_token;
 
+        if (empty($refreshToken)) {
+            Log::warning('Shopee token refresh skipped: missing refresh token', [
+                'store_id' => $store->id,
+                'shop_id' => $shopId,
+            ]);
+
+            return false;
+        }
+
         $baseString = $this->partnerId . $path . $timestamp;
         $refreshSign = hash_hmac('sha256', $baseString, $this->partnerKey);
 
@@ -88,10 +98,8 @@ class ShopeeService
         ];
 
         Log::info('Shopee Access Token Refresh Request', [
-            'url' => $url,
-            'body' => $body,
-            'base_string' => $baseString,
-            'sign' => $refreshSign,
+            'store_id' => $store->id,
+            'shop_id' => $shopId,
         ]);
 
         $response = $this->httpClient()->withHeaders([
@@ -99,14 +107,15 @@ class ShopeeService
         ])->post($url, $body);
 
         $json = $response->json();
+        $data = $json['response'] ?? $json;
 
         Log::info('Shopee - Refresh Access Token Response', [
-            'response' => $json,
             'status' => $response->status(),
-            'body' => $response->body(),
+            'has_access_token' => isset($data['access_token']),
+            'has_refresh_token' => isset($data['refresh_token']),
+            'error' => $json['error'] ?? null,
+            'message' => $json['message'] ?? null,
         ]);
-
-        $data = $json['response'] ?? $json;
 
         if (isset($data['access_token']) && isset($data['refresh_token'])) {
             $store->update([

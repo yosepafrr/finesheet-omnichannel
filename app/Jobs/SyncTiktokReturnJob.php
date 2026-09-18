@@ -42,6 +42,17 @@ class SyncTiktokReturnJob implements ShouldQueue
                 $response = $tiktokService->searchReturns($this->store, $this->timeFrom, $this->timeTo, $pageToken);
 
                 if (isset($response['code']) && $response['code'] !== 0) {
+                    if ((int) $response['code'] === 36009002) {
+                        Log::warning('TikTok return sync rate limited, retrying later', [
+                            'store_id' => $this->store->id,
+                            'code' => $response['code'],
+                            'message' => $response['message'] ?? null,
+                        ]);
+
+                        $this->release(300);
+                        return;
+                    }
+
                     Log::error("TikTok return list error", ['response' => $response]);
                     break;
                 }

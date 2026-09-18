@@ -66,7 +66,7 @@ const FILTER_GROUPS = [
     { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "TO_CONFIRM_RECEIVE", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
     { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED"] },
     { id: "selesai", label: "Selesai", statuses: ["COMPLETED"] },
-    { id: "gagal_kirim", label: "Pengiriman Gagal", statuses: [] },
+    { id: "gagal_kirim", label: "Pengantaran Gagal", statuses: [] },
     { id: "return", label: "Pengembalian/Refund", statuses: [] },
     { id: "batal", label: "Pembatalan", statuses: ["CANCEL", "CANCELLED", "IN_CANCEL"] },
 ];
@@ -816,7 +816,7 @@ export default function OrderList() {
                                                 }`}
                                         >
                                             {group.label}
-                                            {count > 0 && (group.id === "perlu_dikirim" || group.id === "dikirim") && (
+                                            {count > 0 && (group.id === "perlu_dikirim" || group.id === "dikirim" || group.id === "gagal_kirim") && (
                                                 <span
                                                     className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${isActive
                                                         ? "bg-[#304674] text-white dark:bg-blue-500"
@@ -1203,8 +1203,8 @@ export default function OrderList() {
                                                                             </span>
                                                                         )}
                                                                         {order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
-                                                                            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200">
-                                                                                Pengiriman paket gagal
+                                                                            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
+                                                                                Pengantaran Gagal
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1223,8 +1223,8 @@ export default function OrderList() {
                                                                                         <p className="font-mono text-gray-500 dark:text-slate-400 mb-1">{trackingNo}</p>
                                                                                         {isFailed ? (
                                                                                             <div className="mt-1">
-                                                                                                <p className="font-medium flex items-start gap-1 text-red-600 dark:text-red-400">
-                                                                                                    <span>🔴</span> <span>Pengiriman Gagal</span>
+                                                                                                <p className="font-medium flex items-start gap-1 text-amber-700 dark:text-amber-300">
+                                                                                                    <span>🔴</span> <span>Pengantaran Gagal</span>
                                                                                                 </p>
                                                                                                 {pkg.logistics_status && (
                                                                                                     <p className="text-red-500 dark:text-red-400 mt-0.5 break-words">
@@ -1435,8 +1435,8 @@ export default function OrderList() {
                                                                         </span>
                                                                     )}
                                                                     {order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
-                                                                        <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200">
-                                                                            Pengiriman paket gagal
+                                                                        <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
+                                                                            Pengantaran Gagal
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -1453,8 +1453,8 @@ export default function OrderList() {
                                                                                     <div className="font-mono text-gray-500 dark:text-slate-500">{trackingNo}</div>
                                                                                     {isFailed ? (
                                                                                         <div className="mt-1">
-                                                                                            <div className="font-medium text-red-600 dark:text-red-400 flex items-start gap-1">
-                                                                                                <span>🔴</span> <span>Pengiriman Gagal</span>
+                                                                                            <div className="font-medium text-amber-700 dark:text-amber-300 flex items-start gap-1">
+                                                                                                <span>🔴</span> <span>Pengantaran Gagal</span>
                                                                                             </div>
                                                                                             {pkg.logistics_status && (
                                                                                                 <div className="text-red-500 mt-0.5 break-words">Alasan: {pkg.logistics_status}</div>

@@ -29,7 +29,9 @@ class TiktokService
      */
     protected function httpClient()
     {
-        return app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+        $client = Http::timeout(30)->connectTimeout(10);
+
+        return app()->isLocal() ? $client->withoutVerifying() : $client;
     }
 
     /**

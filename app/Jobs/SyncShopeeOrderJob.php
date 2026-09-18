@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Events\OrderCreated;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
@@ -19,7 +20,7 @@ class SyncShopeeOrderJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
-    public $timeout = 120;
+    public $timeout = 300;
     public $storeId;
     public $daysToSync;
 
@@ -242,6 +243,7 @@ class SyncShopeeOrderJob implements ShouldQueue
                 }
 
                 Log::info("Sync finished for store {$store->id}");
+                Artisan::call('sync:logistics', ['--store_id' => $store->id]);
             } catch (\Throwable $e) {
                 Log::error("Error syncing store {$store->id}", [
                     'message' => $e->getMessage()

@@ -8,6 +8,7 @@ use App\Services\TiktokService;
 use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 
 class SyncTiktokOrderJob implements ShouldQueue
@@ -15,7 +16,7 @@ class SyncTiktokOrderJob implements ShouldQueue
     use Queueable;
 
     public $tries = 3;
-    public $timeout = 120;
+    public $timeout = 300;
     public $storeId;
     public $daysToSync;
 
@@ -64,6 +65,7 @@ class SyncTiktokOrderJob implements ShouldQueue
 
                 // Dispatch return sync for TikTok store
                 \App\Jobs\SyncTiktokReturnJob::dispatch($store, $now->copy()->subDays($this->daysToSync)->timestamp, $now->timestamp)->onQueue('orders');
+                Artisan::call('sync:logistics', ['--store_id' => $store->id]);
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [
                     'store_id' => $store->id,

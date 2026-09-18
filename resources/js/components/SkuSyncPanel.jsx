@@ -268,7 +268,7 @@ export default function SkuSyncPanel({ search = "" }) {
                     animate={{ opacity: 1, y: 0 }}
                     className="relative overflow-hidden bg-gradient-to-br from-blue-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-3xl p-10 border border-blue-100 dark:border-slate-700 shadow-sm flex flex-col items-center justify-center text-center"
                 >
-                    <div className="absolute top-0 left-0 w-full h-full bg-[url('/img/pattern.svg')] opacity-[0.03] pointer-events-none"></div>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(48,70,116,0.22)_1px,transparent_0)] bg-[length:18px_18px] opacity-30 pointer-events-none"></div>
                     <motion.div 
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
