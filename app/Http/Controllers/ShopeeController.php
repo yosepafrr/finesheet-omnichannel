@@ -49,9 +49,24 @@ class ShopeeController extends Controller
         $path = '/api/v2/auth/token/get';
 
         $code = $request->query('code');
-        $shopId = $shopData['shop_id_list'][0] ?? null;
+        $shopId = $request->query('shop_id');
 
-        Log::info('Shopee Callback', ['code' => $code, 'shop_id' => $shopId]);
+        Log::info('Shopee Callback received', [
+            'has_code' => !empty($code),
+            'shop_id' => $shopId,
+            'error' => $request->query('error'),
+            'message' => $request->query('message'),
+        ]);
+
+        if (empty($code) || empty($shopId)) {
+            Log::error('Shopee callback missing required query parameters', [
+                'has_code' => !empty($code),
+                'shop_id' => $shopId,
+                'query' => $request->query(),
+            ]);
+
+            return redirect('/#/stores')->with('error', 'Otorisasi Shopee gagal. Code atau shop_id tidak diterima.');
+        }
 
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
@@ -67,23 +82,32 @@ class ShopeeController extends Controller
             'shop_id' => (int)$shopId,
         ];
 
-        Log::info('Shopee - Sending Request:', ['url' => $url, 'body' => $body]);
+        Log::info('Shopee - Exchanging authorization code', [
+            'shop_id' => $shopId,
+        ]);
 
-        $http = app()->isLocal() ? Http::withoutVerifying() : Http::withOptions([]);
+        $http = app()->isLocal()
+            ? Http::timeout(30)->connectTimeout(10)->withoutVerifying()
+            : Http::timeout(30)->connectTimeout(10);
         $response = $http
             ->withBody(json_encode($body), 'application/json')
             ->post($url);
 
         $result = $response->json();
 
-        Log::info('Shopee - Response:', $result);
+        Log::info('Shopee - Token exchange response', [
+            'status' => $response->status(),
+            'has_access_token' => !empty($result['access_token']),
+            'has_refresh_token' => !empty($result['refresh_token']),
+            'error' => $result['error'] ?? null,
+            'message' => $result['message'] ?? null,
+        ]);
 
         // Simpan data token jika berhasil
         $shopData = $result;
 
-        if ($shopData && !empty($shopData['shop_id_list'])) {
-            $shopId = $shopData['shop_id_list'][0];
-            Log::info('Shopee - Saving Store Data', ['shop_id' => $shopId, 'data' => $shopData]);
+        if ($shopData && !empty($shopData['access_token']) && !empty($shopData['refresh_token'])) {
+            Log::info('Shopee - Saving Store Data', ['shop_id' => $shopId]);
 
             $accessToken = $result['access_token'];
             $refreshToken = $result['refresh_token'];
@@ -94,9 +118,16 @@ class ShopeeController extends Controller
             $store = new Store();
             $store->shopee_shop_id = $shopId;
             $store->access_token = $accessToken;
+            $store->refresh_token = $refreshToken;
+            $store->token_expired_at = $tokenExpiredAt;
 
             $shopInfo = $shopee->getShopProfile($store);
-            Log::info('Shopee - Shop Info:', $shopInfo);
+            Log::info('Shopee - Shop Info received', [
+                'shop_id' => $shopId,
+                'shop_name' => $shopInfo['shop_name'] ?? null,
+                'error' => $shopInfo['error'] ?? null,
+                'message' => $shopInfo['message'] ?? null,
+            ]);
 
             $store =  Auth::user()->stores()->updateOrCreate(
                 ['shopee_shop_id' => $shopId],
@@ -118,104 +149,21 @@ class ShopeeController extends Controller
                 'data'     => $store->toArray()
             ]);
 
-
-
-            $itemList = $shopee->getItemList($store);
-            Log::info('Item List Response:', ['item_list' => $itemList]);
-            if (empty($itemList)) {
-                Log::warning('Toko belum punya produk atau item list kosong');
-                return;
-            }
-
-
-            $itemIds = collect($itemList)->pluck('item_id')->take(20)->toArray();
-            Log::info('Item IDs to fetch:', ['item_id_list' => $itemIds]);
-
-            $itemDetails = $shopee->getItemBaseInfo($store, $itemIds);
-            $itemVariants = $shopee->getItemsVariant($store, $itemIds);
-
-            Log::info('Raw data item detail', ['data' => $itemDetails]);
-
-
-            if (empty($itemDetails)) {
-                Log::warning('Item base info kosong untuk item_id_list', $itemIds);
-            } else {
-                foreach ($itemDetails as $item) {
-                    try {
-                        $savedItems = Product::updateOrCreate(
-                            [
-                                'product_id' => $item['item_id'],
-                                'store_id' => $store->id,
-                            ],
-                            [
-                                'platform'   => 'Shopee',
-                                'product_name'  => $item['item_name'] ?? 'Unknown',
-                                'image'      => $item['promotion_image']['image_url_list'][0] ?? null,
-                                'price'      => $item['price_info'][0]['current_price'] ?? 0,
-                                'product_sku'   => $item['item_sku'] ?? null,
-                                'product_status' => $item['item_status'] ?? null,
-                                'stock'      => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
-                                'category'   => $item['category_id'] ?? null,
-                            ]
-                        );
-                        Log::info("Produk {$item['item_id']} berhasil disimpan");
-
-                        // Simpan variant items jika ada
-                        if (!empty($itemVariants[$item['item_id']]['model'])) {
-                            foreach ($itemVariants[$item['item_id']]['model'] as $model) {
-                                try {
-                                    Log::info("Otw simpan variant", [
-                                        'item_id'  => $item['item_id'],
-                                        'model_id' => Arr::get($model, 'model_id'),
-                                    ]);
-
-                                    $variantSaved = VariantProduct::updateOrCreate(
-                                        [
-                                            'product_id'  => $savedItems->id, // id dari tabel products
-                                            'model_id' => Arr::get($model, 'model_id'),
-                                        ],
-                                        [
-                                            'model_name' => Arr::get($model, 'model_name'),
-                                            'model_sku'  => Arr::get($model, 'model_sku'),
-                                            'stock'      => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
-                                            'price'      => Arr::get($model, 'price_info.0.current_price', 0),
-                                            'status'     => Arr::get($model, 'model_status'),
-                                            'tier_index' => Arr::get($model, 'tier_index'),
-                                            'variant_name' => Arr::get($model, 'variant_name'),
-                                            'variant_options' => Arr::get($model, 'variant_options'),
-                                            'variant_image' => Arr::get($model, 'variant_image'),
-                                        ]
-                                    );
-
-                                    Log::info("Variant {$model['model_id']} untuk item {$item['item_id']} berhasil disimpan ke DB", [
-                                        'db_id' => $variantSaved->id,
-                                    ]);
-                                } catch (\Throwable $e) {
-                                    Log::error("Gagal simpan variant ke DB", [
-                                        'item_id'  => $item['item_id'],
-                                        'model_id' => $model['model_id'] ?? null,
-                                        'error'    => $e->getMessage(),
-                                        'trace'    => $e->getTraceAsString(),
-                                        'data'     => $model
-                                    ]);
-                                }
-                            }
-                        }
-                    } catch (\Throwable $e) {
-                        Log::error('Gagal simpan produk Shopee', [
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString(),
-                            'data' => $item
-                        ]);
-                    }
-                }
-            }
-            
-            // Sync Orders synchronously for 180 days (Initial Sync)
-            \App\Jobs\SyncShopeeOrderJob::dispatchSync($store->id, 180);
+            \App\Jobs\SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
+            \App\Jobs\SyncShopeeOrderJob::dispatch($store->id, 180)->onQueue('orders');
+            \App\Jobs\SyncShopeeReturnJob::dispatch($store)->onQueue('orders');
 
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
         }
+
+        Log::error('Shopee token exchange failed', [
+            'shop_id' => $shopId,
+            'status' => $response->status(),
+            'error' => $result['error'] ?? null,
+            'message' => $result['message'] ?? null,
+        ]);
+
+        return redirect('/#/stores')->with('error', 'Otorisasi Shopee gagal. Token tidak diterima dari Shopee.');
     }
 
     public function updateProducts(Request $request, ShopeeService $shopee)
