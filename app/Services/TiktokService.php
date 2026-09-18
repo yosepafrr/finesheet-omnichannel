@@ -430,31 +430,46 @@ class TiktokService
     {
         $accessToken = $this->ensureValidToken($store);
         $shopId = $store->shopee_shop_id; 
-
-        $path = "/fulfillment/202309/orders/{$orderId}/tracking";
-        $timestamp = time();
-
-        $queries = [
-            'app_key' => $this->appKey,
-            'timestamp' => $timestamp,
-            'shop_cipher' => $shopId,
+        $paths = [
+            "/logistics/202604/orders/{$orderId}/tracking",
+            "/fulfillment/202309/orders/{$orderId}/tracking",
         ];
+        $lastResponse = [];
 
-        $sign = $this->generateSign($path, $queries);
-        $queries['sign'] = $sign;
+        foreach ($paths as $index => $path) {
+            if ($index > 0) {
+                usleep(200000);
+            }
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $timestamp = time();
+            $queries = [
+                'app_key' => $this->appKey,
+                'timestamp' => $timestamp,
+                'shop_cipher' => $shopId,
+            ];
 
-        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
-            ->get($url);
+            $queries['sign'] = $this->generateSign($path, $queries);
+            $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $response = $this->httpClient()
+                ->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
+                ->get($url);
 
-        $res = $response->json();
-        Log::info('TikTok - Fetching Tracking Info', [
-            'status' => $response->status(), 
-            'order_id' => $orderId
-        ]);
+            $lastResponse = $response->json() ?? [];
+            Log::info('TikTok - Fetching Tracking Info', [
+                'status' => $response->status(),
+                'order_id' => $orderId,
+                'path' => $path,
+                'response_code' => $lastResponse['code'] ?? null,
+            ]);
 
-        return $res;
+            if ($response->successful()
+                && (int) ($lastResponse['code'] ?? -1) === 0
+                && !empty($lastResponse['data'])) {
+                return $lastResponse;
+            }
+        }
+
+        return $lastResponse;
     }
 
     /**

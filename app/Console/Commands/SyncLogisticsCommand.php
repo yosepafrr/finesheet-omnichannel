@@ -14,7 +14,8 @@ class SyncLogisticsCommand extends Command
 {
     protected $signature = 'sync:logistics
         {--store_id= : Only sync logistics for one store}
-        {--order_sn= : Only sync logistics for one order}';
+        {--order_sn= : Only sync logistics for one order}
+        {--force : Ignore the TikTok eight-hour refresh interval}';
     protected $description = 'Sync logistics and tracking info for active packages';
 
     public function handle(LogisticsStatusNormalizer $normalizer)
@@ -30,6 +31,13 @@ class SyncLogisticsCommand extends Command
                 $q->where(function ($statusQuery) {
                     $statusQuery->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
                         ->orWhereNull('normalized_logistics_status');
+                });
+            })
+            ->when(!$this->option('order_sn') && !$this->option('force'), function ($q) {
+                $q->where(function ($freshnessQuery) {
+                    $freshnessQuery->where('platform', '!=', 'Tiktokshop')
+                        ->orWhereNull('raw_data')
+                        ->orWhere('updated_at', '<=', now()->subHours(8));
                 });
             })
             ->when($this->option('store_id'), function ($q, $storeId) {
@@ -49,6 +57,7 @@ class SyncLogisticsCommand extends Command
 
         $shopee = new ShopeeService();
         $tiktok = new TiktokService();
+        $processedTiktokOrders = [];
 
         foreach ($packages as $pkg) {
             try {
@@ -58,7 +67,12 @@ class SyncLogisticsCommand extends Command
                 if ($pkg->platform === 'Shopee') {
                     $this->syncShopeeLogistics($pkg, $order, $shopee);
                 } elseif ($pkg->platform === 'Tiktokshop') {
+                    if (isset($processedTiktokOrders[$order->id])) {
+                        continue;
+                    }
+                    $processedTiktokOrders[$order->id] = true;
                     $this->syncTiktokLogistics($pkg, $order, $tiktok, $normalizer);
+                    usleep(200000);
                 }
             } catch (\Exception $e) {
                 Log::error("Failed to sync logistics for package {$pkg->package_id}", ['error' => $e->getMessage()]);
@@ -196,10 +210,7 @@ class SyncLogisticsCommand extends Command
         }
 
         $pkg->update([
-            'tracking_number' => $tracking['tracking_number']
-                ?? $tracking['tracking_no']
-                ?? $tracking['shipping_tracking_number']
-                ?? $pkg->tracking_number,
+            'tracking_number' => $normalizer->trackingNumber($tracking) ?? $pkg->tracking_number,
             'logistics_status' => $normalizer->latestDescription($tracking) ?: $pkg->logistics_status,
             'normalized_logistics_status' => $normalizer->normalize($tracking, $pkg->normalized_logistics_status),
             'raw_data' => $tracking,

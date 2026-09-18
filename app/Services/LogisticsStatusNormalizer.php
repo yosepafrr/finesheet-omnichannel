@@ -6,6 +6,9 @@ class LogisticsStatusNormalizer
 {
     private const FAILED_DELIVERY_PHRASES = [
         'delivery failed',
+        'delivery fail',
+        'delivery failure',
+        'delivery exception',
         'delivery unsuccessful',
         'failed delivery',
         'failed to deliver',
@@ -28,6 +31,8 @@ class LogisticsStatusNormalizer
         'being returned to the sender',
         'package return',
         'return in progress',
+        'return started',
+        'recipient rejected',
         'dikembalikan',
         'paket gagal',
         'pengiriman gagal',
@@ -74,6 +79,22 @@ class LogisticsStatusNormalizer
         return $events[0]['description'];
     }
 
+    public function trackingNumber(array $payload): ?string
+    {
+        foreach ($payload['logistics_details'] ?? [] as $detail) {
+            if (!empty($detail['newest_tracking_no'])) {
+                return (string) $detail['newest_tracking_no'];
+            }
+        }
+
+        return $this->findFirstValue($payload, [
+            'newest_tracking_no',
+            'tracking_number',
+            'tracking_no',
+            'shipping_tracking_number',
+        ]);
+    }
+
     private function collectEvents(array $value, array &$events): void
     {
         $description = $value['description']
@@ -112,6 +133,26 @@ class LogisticsStatusNormalizer
         });
 
         return $this->normalizeText(implode(' ', $parts));
+    }
+
+    private function findFirstValue(array $value, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (isset($value[$key]) && is_scalar($value[$key]) && (string) $value[$key] !== '') {
+                return (string) $value[$key];
+            }
+        }
+
+        foreach ($value as $child) {
+            if (is_array($child)) {
+                $result = $this->findFirstValue($child, $keys);
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function normalizeText(string $text): string

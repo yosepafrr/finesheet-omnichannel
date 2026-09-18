@@ -19,11 +19,15 @@ class LogisticsStatusNormalizerTest extends TestCase
     public static function failedDeliveryPayloads(): array
     {
         return [
-            'official TikTok tracking shape' => [[
-                'tracking' => [[
-                    'description' => 'Package is returning to sender',
-                    'update_time_millis' => 1_725_000_000_000,
-                    'action_code' => 30901,
+            'official TikTok 202604 tracking shape' => [[
+                'order_id' => '585780442699957833',
+                'logistics_details' => [[
+                    'newest_tracking_no' => 'JY1587607104',
+                    'track_list' => [[
+                        'description' => 'Package is returning to sender',
+                        'update_time_millis' => 1_725_000_000_000,
+                        'action_code_name' => 'return_to_sender',
+                    ]],
                 ]],
             ]],
             'machine status' => [['logistics_status' => 'DELIVERY_FAILED']],
@@ -51,5 +55,18 @@ class LogisticsStatusNormalizerTest extends TestCase
         $normalizer = new LogisticsStatusNormalizer;
 
         $this->assertFalse($normalizer->isFailedDelivery('Pesanan dibatalkan karena pembeli terlambat membayar'));
+    }
+
+    public function test_it_reads_the_latest_tracking_number_from_tiktok_202604_payload(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer();
+        $payload = [
+            'logistics_details' => [[
+                'newest_tracking_no' => 'JY1587607104',
+                'track_list' => [['tracking_no' => 'OLD123']],
+            ]],
+        ];
+
+        $this->assertSame('JY1587607104', $normalizer->trackingNumber($payload));
     }
 }
