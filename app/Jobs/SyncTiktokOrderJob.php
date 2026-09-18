@@ -5,7 +5,7 @@ namespace App\Jobs;
 use Carbon\Carbon;
 use App\Models\Store;
 use App\Services\TiktokService;
-use App\Http\Controllers\TiktokController;
+use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +40,7 @@ class SyncTiktokOrderJob implements ShouldQueue
         }
 
         $tiktokService = new TiktokService();
-        $controller = new TiktokController();
+        $controller = new TikTokController();
         
         $now = Carbon::now('UTC');
         $intervalDays = 14; // Tiktok limit is usually 14-30 days per request
