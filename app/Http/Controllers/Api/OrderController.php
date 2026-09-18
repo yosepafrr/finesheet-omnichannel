@@ -41,7 +41,10 @@ class OrderController extends Controller
             })
             ->count();
 
-        $cancelBase = (clone $baseQuery)->whereIn('order_status', ['CANCEL', 'CANCELLED', 'IN_CANCEL']);
+        $cancelBase = (clone $baseQuery)->whereIn('order_status', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
+            ->whereDoesntHave('packages', function ($q) {
+                $q->where('normalized_logistics_status', 'DELIVERY_FAILED');
+            });
         $cancelSubCounts = [
             'all' => (clone $cancelBase)->count(),
             'SELLER_LATE_SHIPMENT' => (clone $cancelBase)->where('normalized_cancel_category', 'SELLER_LATE_SHIPMENT')->count(),
@@ -71,6 +74,15 @@ class OrderController extends Controller
         if ($request->has('statuses') && !empty($request->statuses)) {
             $statuses = is_array($request->statuses) ? $request->statuses : explode(',', $request->statuses);
             $query->whereIn('order_status', $statuses);
+
+            // Exclude DELIVERY_FAILED from regular status filters (like CANCELLED) so they only show in Pengiriman Gagal tab
+            if (!($request->has('is_failed_delivery') && $request->is_failed_delivery === 'true')) {
+                if (in_array('CANCELLED', $statuses) || in_array('CANCEL', $statuses) || in_array('IN_CANCEL', $statuses)) {
+                    $query->whereDoesntHave('packages', function ($q) {
+                        $q->where('normalized_logistics_status', 'DELIVERY_FAILED');
+                    });
+                }
+            }
         }
 
         // Filter by cancel category

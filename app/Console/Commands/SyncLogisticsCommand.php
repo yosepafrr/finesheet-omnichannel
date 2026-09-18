@@ -99,7 +99,7 @@ class SyncLogisticsCommand extends Command
                 foreach ($t['tracking_info'] as $event) {
                     $desc = strtolower($event['description'] ?? '');
                     $latestEventDesc = $desc;
-                    if (str_contains($desc, 'fail') || str_contains($desc, 'exception') || str_contains($desc, 'returned to seller') || str_contains($desc, 'could not be delivered')) {
+                    if (str_contains($desc, 'fail') || str_contains($desc, 'exception') || str_contains($desc, 'returned to seller') || str_contains($desc, 'could not be delivered') || str_contains($desc, 'dikembalikan') || str_contains($desc, 'gagal') || str_contains($desc, 'retur')) {
                         $failed = true;
                     }
                     if (str_contains($desc, 'delivered') && !str_contains($desc, 'fail')) {

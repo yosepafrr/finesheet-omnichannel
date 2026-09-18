@@ -662,9 +662,7 @@ class PayableService
 
         foreach ($orders as $order) {
             $this->recordOrderEvent($order);
-            if (in_array($order->order_status, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
-                $this->recordCancellationEvent($order, 'FAILED_DELIVERY');
-            }
+            $this->recordCancellationEvent($order, 'FAILED_DELIVERY');
         }
 
         // Step 3: Sync return events for this user's stores

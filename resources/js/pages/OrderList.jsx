@@ -1192,7 +1192,7 @@ export default function OrderList() {
                                                                                 platformStatus={order.returns[0].platform_status}
                                                                             />
                                                                         )}
-                                                                        {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && (
+                                                                        {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && !order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
                                                                             <span
                                                                                 className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200"
                                                                                 title={order.cancel_reason ? `Alasan: ${order.cancel_reason}` : ''}
@@ -1200,6 +1200,11 @@ export default function OrderList() {
                                                                                 {order.normalized_cancel_category === 'SELLER_LATE_SHIPMENT' && 'Terlambat Dikirim Penjual'}
                                                                                 {order.normalized_cancel_category === 'BUYER_SIDE' && 'Sisi Buyer / Pembayaran'}
                                                                                 {order.normalized_cancel_category === 'UNKNOWN' && (order.cancel_reason || 'Alasan Lain')}
+                                                                            </span>
+                                                                        )}
+                                                                        {order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
+                                                                            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200">
+                                                                                Pengiriman paket gagal
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1419,7 +1424,7 @@ export default function OrderList() {
                                                                             platformStatus={order.returns[0].platform_status}
                                                                         />
                                                                     )}
-                                                                    {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && (
+                                                                    {order.normalized_cancel_category && ['CANCEL', 'CANCELLED', 'IN_CANCEL'].includes(order.order_status) && !order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
                                                                         <span
                                                                             className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300"
                                                                             title={order.cancel_reason ? `Alasan: ${order.cancel_reason}` : ''}
@@ -1427,6 +1432,11 @@ export default function OrderList() {
                                                                             {order.normalized_cancel_category === 'SELLER_LATE_SHIPMENT' && 'Terlambat Dikirim Penjual'}
                                                                             {order.normalized_cancel_category === 'BUYER_SIDE' && 'Sisi Buyer / Pembayaran'}
                                                                             {order.normalized_cancel_category === 'UNKNOWN' && (order.cancel_reason || 'Alasan Lain')}
+                                                                        </span>
+                                                                    )}
+                                                                    {order.packages?.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED') && (
+                                                                        <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 dark:bg-slate-700/80 text-red-800 dark:text-red-200">
+                                                                            Pengiriman paket gagal
                                                                         </span>
                                                                     )}
                                                                 </div>
