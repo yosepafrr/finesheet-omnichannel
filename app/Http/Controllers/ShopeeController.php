@@ -9,6 +9,7 @@ use Illuminate\Support\Arr;
 use App\Models\VariantProduct;
 use Illuminate\Http\Request;
 use App\Services\ShopeeService;
+use App\Services\InitialOrderSyncDispatcher;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -41,7 +42,11 @@ class ShopeeController extends Controller
         return redirect($url);
     }
 
-    public function handleShopeeCallback(Request $request, ShopeeService $shopee)
+    public function handleShopeeCallback(
+        Request $request,
+        ShopeeService $shopee,
+        InitialOrderSyncDispatcher $initialOrderSync
+    )
     {
         $partnerId = config('shopee.partner_id');
         $partnerKey = config('shopee.partner_key');
@@ -156,8 +161,7 @@ class ShopeeController extends Controller
             ]);
 
             \App\Jobs\SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
-            \App\Jobs\SyncShopeeOrderJob::dispatch($store->id, 180, true, 'initial')->onQueue('orders');
-            \App\Jobs\SyncShopeeReturnJob::dispatch($store)->onQueue('orders');
+            $initialOrderSync->dispatch($store);
 
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
         }

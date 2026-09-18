@@ -32,6 +32,8 @@ class LogisticsSyncService
                 $query->where(function ($statusQuery) {
                     $statusQuery->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
                         ->orWhereNull('normalized_logistics_status');
+                })->whereHas('order', function ($orderQuery) {
+                    $orderQuery->whereIn('order_status', ['SHIPPED', 'IN_TRANSIT']);
                 });
             })
             ->when(!$orderSn && !$force, function ($query) {

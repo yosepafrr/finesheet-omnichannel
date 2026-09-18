@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Services\TiktokService;
 use App\Services\LogisticsStatusNormalizer;
+use App\Services\InitialOrderSyncDispatcher;
 use App\Models\Product;
 use App\Models\VariantProduct;
 use App\Models\Order;
@@ -26,7 +27,11 @@ class TikTokController extends Controller
         return redirect($url);
     }
 
-    public function handleTiktokCallback(Request $request, TiktokService $tiktok)
+    public function handleTiktokCallback(
+        Request $request,
+        TiktokService $tiktok,
+        InitialOrderSyncDispatcher $initialOrderSync
+    )
     {
         $code = $request->query('code');
         
@@ -75,7 +80,7 @@ class TikTokController extends Controller
         Log::info('TikTok - Store saved', ['store' => $store]);
 
         \App\Jobs\SyncTiktokProductJob::dispatch($store->id)->onQueue('products');
-        \App\Jobs\SyncTiktokOrderJob::dispatch($store->id, 180, null, null, true, 'initial')->onQueue('orders');
+        $initialOrderSync->dispatch($store);
 
         return redirect('/#/stores')->with('success', 'Toko TikTok berhasil terhubung. Sinkronisasi awal sedang berjalan di latar belakang.');
     }
@@ -243,7 +248,12 @@ class TikTokController extends Controller
                     // Fetch actual/estimated escrow in the background
                     if ($wasNew || $previousStatus !== $incomingStatus) {
                         $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
-                        \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $incomingStatus ?? '', $grossAmount)->onQueue('orders');
+                        \App\Jobs\SyncTiktokEscrowJob::dispatch(
+                            $store->id,
+                            $order['id'],
+                            $incomingStatus ?? '',
+                            $grossAmount
+                        )->onQueue('orders-low');
                     }
 
                     if (!empty($order['line_items'])) {

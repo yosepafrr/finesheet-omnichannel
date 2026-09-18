@@ -17,9 +17,9 @@ class SyncStoreLogisticsJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 120;
+    public $tries = 720;
     public $timeout = 60;
-    public $uniqueFor = 1800;
+    public $uniqueFor = 7200;
     public $storeId;
     public $showProgress;
     public $syncContext;
@@ -63,7 +63,7 @@ class SyncStoreLogisticsJob implements ShouldQueue, ShouldBeUnique
                 $packageIdsChunk,
                 $this->showProgress,
                 $this->syncContext
-            )->onQueue('orders');
+            )->onQueue('logistics');
         }
 
         Log::info('Store logistics sync prepared', [

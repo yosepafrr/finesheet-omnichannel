@@ -298,7 +298,7 @@ export default function OrderList() {
         () => initialSaved?.selectedCancelCategory || "all"
     );
     const [selectedStore, setSelectedStore] = useState(
-        () => initialSaved?.selectedStore || ""
+        () => initialSaved?.selectedStore ? String(initialSaved.selectedStore) : ""
     );
     const [searchQuery, setSearchQuery] = useState(
         () => initialSaved?.searchQuery || ""
@@ -320,11 +320,11 @@ export default function OrderList() {
     const [excludeReturns, setExcludeReturns] = useState(false);
     const {
         syncs,
-        syncsByStore,
         isAnySyncing,
         recentlyCompleted,
         refresh: refreshSyncStatus,
     } = useOrderSyncStatus();
+    const isSyncBusy = syncing || syncingStoreId !== null || isAnySyncing;
 
     const isInitialMount = useRef(true);
     const scrollRestoredRef = useRef(false);
@@ -438,6 +438,8 @@ export default function OrderList() {
     }, [saveStateToStorage]);
 
     const handleSync = async () => {
+        if (isSyncBusy) return;
+
         setSyncing(true);
         try {
             await axios.post("/api/sync/orders");
@@ -450,6 +452,8 @@ export default function OrderList() {
     };
 
     const handleSyncStore = async (storeId) => {
+        if (isSyncBusy) return;
+
         setSyncingStoreId(storeId);
         try {
             await axios.post("/api/sync/orders", { store_id: storeId });
@@ -526,6 +530,21 @@ export default function OrderList() {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    useEffect(() => {
+        if (!selectedStore || !Array.isArray(data?.stores)) {
+            return;
+        }
+
+        const storeStillExists = data.stores.some(
+            (store) => String(store.id) === String(selectedStore),
+        );
+
+        if (!storeStillExists) {
+            setSelectedStore("");
+            setIsStoreDropdownOpen(false);
+        }
+    }, [data?.stores, selectedStore]);
 
     useEffect(() => {
         if (recentlyCompleted) {
@@ -672,6 +691,13 @@ export default function OrderList() {
         (selectedFilterId === "batal" && selectedCancelCategory !== "all") ||
         Boolean(selectedStore);
 
+    const selectedStoreOption = data?.stores?.find(
+        (store) => String(store.id) === String(selectedStore),
+    );
+    const selectedStoreLabel = selectedStore === ""
+        ? "Semua Toko"
+        : selectedStoreOption?.store_name || (data ? "Semua Toko" : "Memuat toko...");
+
     return (
         <AppLayout>
             <div className="min-h-screen min-w-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 py-2 px-1 sm:px-2">
@@ -693,15 +719,16 @@ export default function OrderList() {
                             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
                                 <button
                                     onClick={handleSync}
-                                    disabled={syncing || syncingStoreId !== null || isAnySyncing}
-                                    className="flex w-full md:w-auto items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap"
+                                    disabled={isSyncBusy}
+                                    aria-busy={isSyncBusy}
+                                    className="flex w-full md:w-auto items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-70 whitespace-nowrap"
                                 >
                                     <span
-                                        className={`material-symbols-rounded text-[20px] ${syncing || isAnySyncing ? "animate-spin" : ""}`}
+                                        className={`material-symbols-rounded text-[20px] ${isSyncBusy ? "animate-spin" : ""}`}
                                     >
                                         sync
                                     </span>
-                                    {syncing || isAnySyncing
+                                    {isSyncBusy
                                         ? "Menyelaraskan..."
                                         : "Sinkronisasi Data"}
                                 </button>
@@ -732,13 +759,7 @@ export default function OrderList() {
                                         className="flex items-center justify-between w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 pl-4 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#304674] dark:focus:ring-blue-500 shadow-sm text-sm transition-all hover:border-gray-300 dark:hover:border-slate-600"
                                     >
                                         <span className="truncate pr-2">
-                                            {selectedStore === ""
-                                                ? "Semua Toko"
-                                                : data?.stores?.find(
-                                                    (s) =>
-                                                        s.id == selectedStore,
-                                                )?.store_name ||
-                                                "Toko Tidak Diketahui"}
+                                            {selectedStoreLabel}
                                         </span>
                                         <span
                                             className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}
@@ -794,7 +815,7 @@ export default function OrderList() {
                                                                 key={store.id}
                                                                 onClick={() => {
                                                                     setSelectedStore(
-                                                                        store.id,
+                                                                        String(store.id),
                                                                     );
                                                                     setIsStoreDropdownOpen(
                                                                         false,
@@ -1049,13 +1070,14 @@ export default function OrderList() {
 
                                 <button
                                     onClick={handleSync}
-                                    disabled={syncing}
-                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#253659] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm disabled:opacity-50"
+                                    disabled={isSyncBusy}
+                                    aria-busy={isSyncBusy}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#304674] hover:bg-[#253659] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <span className={`material-symbols-rounded text-sm ${syncing ? "animate-spin" : ""}`}>
+                                    <span className={`material-symbols-rounded text-sm ${isSyncBusy ? "animate-spin" : ""}`}>
                                         sync
                                     </span>
-                                    {syncing ? "Menyinkronkan..." : "Sinkronisasi Data"}
+                                    {isSyncBusy ? "Menyelaraskan..." : "Sinkronisasi Data"}
                                 </button>
                             </div>
                         </motion.div>
@@ -1112,11 +1134,12 @@ export default function OrderList() {
                                             </span>
                                             <button
                                                 onClick={() => handleSyncStore(store.id)}
-                                                disabled={syncingStoreId === store.id || syncing || Boolean(syncsByStore[String(store.id)])}
-                                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                                                disabled={isSyncBusy}
+                                                aria-busy={isSyncBusy}
+                                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                             >
-                                                <span className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id || syncsByStore[String(store.id)] ? 'animate-spin' : ''}`}>sync</span>
-                                                {syncingStoreId === store.id || syncsByStore[String(store.id)] ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
+                                                <span className={`material-symbols-rounded text-[16px] ${isSyncBusy ? 'animate-spin' : ''}`}>sync</span>
+                                                {isSyncBusy ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
                                             </button>
                                         </div>
                                     </div>

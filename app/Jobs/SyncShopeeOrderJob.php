@@ -14,30 +14,61 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 
 class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 3;
+    public $tries = 120;
+    public $maxExceptions = 3;
     public $timeout = 300;
     public $uniqueFor = 1800;
     public $storeId;
     public $daysToSync;
     public $showProgress;
     public $syncContext;
+    public $timeFrom;
+    public $timeTo;
 
-    public function __construct($storeId = null, $daysToSync = 14, $showProgress = false, $syncContext = 'manual')
+    public function __construct(
+        $storeId = null,
+        $daysToSync = 14,
+        $showProgress = false,
+        $syncContext = 'manual',
+        $timeFrom = null,
+        $timeTo = null
+    )
     {
         $this->storeId = $storeId;
         $this->daysToSync = $daysToSync;
         $this->showProgress = $showProgress;
         $this->syncContext = $syncContext;
+        $this->timeFrom = $timeFrom;
+        $this->timeTo = $timeTo;
     }
 
     public function uniqueId(): string
     {
+        if ($this->timeFrom !== null && $this->timeTo !== null) {
+            return ($this->storeId ?? 'all').":range:{$this->timeFrom}:{$this->timeTo}";
+        }
+
         return ($this->storeId ?? 'all') . ':' . $this->daysToSync;
+    }
+
+    public function middleware(): array
+    {
+        if (!$this->storeId) {
+            return [];
+        }
+
+        return [
+            (new WithoutOverlapping("order-sync:{$this->storeId}"))
+                ->shared()
+                ->releaseAfter(5)
+                ->expireAfter(330),
+        ];
     }
 
     public function handle()
@@ -55,14 +86,18 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
         }
 
         $shopee = new ShopeeService();
-        $now = Carbon::now('UTC');
+        $now = $this->timeTo !== null
+            ? Carbon::createFromTimestamp($this->timeTo, 'UTC')
+            : Carbon::now('UTC');
         $intervalDays = 15;
 
         foreach ($stores as $store) {
             try {
                 $accessToken = $shopee->ensureValidToken($store);
 
-                $cursorDate = $now->copy()->subDays($this->daysToSync)->startOfDay();
+                $cursorDate = $this->timeFrom !== null
+                    ? Carbon::createFromTimestamp($this->timeFrom, 'UTC')
+                    : $now->copy()->subDays($this->daysToSync)->startOfDay();
 
                 while ($cursorDate < $now) {
                     $startTime = $cursorDate->copy();
@@ -254,12 +289,12 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 
                 Log::info("Sync finished for store {$store->id}");
 
-                if ($this->showProgress) {
+                if ($this->showProgress && $this->timeFrom === null) {
                     SyncStoreLogisticsJob::dispatch(
                         $store->id,
                         true,
                         $this->syncContext
-                    )->onQueue('orders');
+                    )->onQueue('logistics');
                 }
             } catch (\Throwable $e) {
                 Log::error("Error syncing store {$store->id}", [

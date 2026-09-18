@@ -10,6 +10,7 @@ use App\Jobs\SyncTiktokEscrowJob;
 use App\Jobs\SyncTiktokOrderJob;
 use App\Jobs\SyncTiktokProductJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use PHPUnit\Framework\TestCase;
 
 class QueueUniquenessTest extends TestCase
@@ -27,12 +28,17 @@ class QueueUniquenessTest extends TestCase
         $range = new SyncTiktokOrderJob(12, 14, 1000, 2000);
         $this->assertSame('12:range:1000:2000', $range->uniqueId());
 
+        $shopeeRange = new SyncShopeeOrderJob(12, 15, false, 'backfill', 1000, 2000);
+        $this->assertSame('12:range:1000:2000', $shopeeRange->uniqueId());
+
         $trackedTiktok = new SyncTiktokOrderJob(12, 180, null, null, true, 'initial');
         $trackedShopee = new SyncShopeeOrderJob(12, 180, true, 'initial');
         $this->assertTrue($trackedTiktok->showProgress);
         $this->assertTrue($trackedShopee->showProgress);
         $this->assertSame('initial', $trackedTiktok->syncContext);
         $this->assertSame('initial', $trackedShopee->syncContext);
+        $this->assertInstanceOf(WithoutOverlapping::class, $trackedTiktok->middleware()[0]);
+        $this->assertInstanceOf(WithoutOverlapping::class, $trackedShopee->middleware()[0]);
     }
 
     public function test_tiktok_child_jobs_are_unique_per_order(): void

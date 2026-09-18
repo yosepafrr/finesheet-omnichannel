@@ -9,13 +9,15 @@ use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Log;
 
 class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
 {
     use Queueable;
 
-    public $tries = 3;
+    public $tries = 120;
+    public $maxExceptions = 3;
     public $timeout = 300;
     public $uniqueFor = 1800;
     public $storeId;
@@ -49,6 +51,20 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
         }
 
         return ($this->storeId ?? 'all') . ':' . $this->daysToSync;
+    }
+
+    public function middleware(): array
+    {
+        if (!$this->storeId) {
+            return [];
+        }
+
+        return [
+            (new WithoutOverlapping("order-sync:{$this->storeId}"))
+                ->shared()
+                ->releaseAfter(5)
+                ->expireAfter(330),
+        ];
     }
 
     public function handle(): void
@@ -96,7 +112,7 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
                             $endTime->timestamp,
                             $this->showProgress,
                             $this->syncContext
-                        )->onQueue('orders');
+                        )->onQueue($this->queue ?: 'orders');
 
                         $cursorDate = $endTime;
                     }
@@ -105,14 +121,14 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
                         $store,
                         $now->copy()->subDays($this->daysToSync)->timestamp,
                         $now->timestamp
-                    )->onQueue('orders');
+                    )->onQueue($this->queue ?: 'orders');
 
                     if ($this->showProgress) {
                         SyncStoreLogisticsJob::dispatch(
                             $store->id,
                             true,
                             $this->syncContext
-                        )->onQueue('orders');
+                        )->onQueue('logistics');
                     }
 
                     continue;
@@ -132,14 +148,18 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 // Dispatch return sync for TikTok store
-                \App\Jobs\SyncTiktokReturnJob::dispatch($store, $now->copy()->subDays($this->daysToSync)->timestamp, $now->timestamp)->onQueue('orders');
+                \App\Jobs\SyncTiktokReturnJob::dispatch(
+                    $store,
+                    $now->copy()->subDays($this->daysToSync)->timestamp,
+                    $now->timestamp
+                )->onQueue($this->queue ?: 'orders');
 
                 if ($this->showProgress) {
                     SyncStoreLogisticsJob::dispatch(
                         $store->id,
                         true,
                         $this->syncContext
-                    )->onQueue('orders');
+                    )->onQueue('logistics');
                 }
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [

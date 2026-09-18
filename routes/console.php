@@ -2,6 +2,9 @@
 
 use App\Jobs\SyncShopeeOrderJob;
 use App\Jobs\SyncShopeeProductJob;
+use App\Jobs\SyncStoreLogisticsJob;
+use App\Jobs\SyncTiktokOrderJob;
+use App\Models\Store;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -11,14 +14,37 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::call(function () {
-    dispatch(new SyncShopeeOrderJob())->onQueue('orders');
-    dispatch(new \App\Jobs\SyncTiktokOrderJob())->onQueue('orders');
-})->everyThirtyMinutes();
+    Store::query()
+        ->whereIn('platform', ['Shopee', 'Tiktokshop'])
+        ->select(['id', 'platform'])
+        ->chunkById(100, function ($stores) {
+            foreach ($stores as $store) {
+                if ($store->platform === 'Shopee') {
+                    SyncShopeeOrderJob::dispatch($store->id, 14, false, 'scheduled')->onQueue('orders-low');
+                } else {
+                    SyncTiktokOrderJob::dispatch($store->id, 14, null, null, false, 'scheduled')->onQueue('orders-low');
+                }
+            }
+        });
+})->cron('0,30 * * * *')
+    ->name('dispatch-scheduled-order-sync')
+    ->withoutOverlapping(25);
 
 Schedule::call(function () {
     dispatch(new SyncShopeeProductJob())->onQueue('products');
     dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
 })->hourly();
 
-Schedule::command('sync:logistics')->everyThirtyMinutes()->withoutOverlapping(30);
+Schedule::call(function () {
+    Store::query()
+        ->whereIn('platform', ['Shopee', 'Tiktokshop'])
+        ->select(['id'])
+        ->chunkById(100, function ($stores) {
+            foreach ($stores as $store) {
+                SyncStoreLogisticsJob::dispatch($store->id, false, 'scheduled')->onQueue('logistics');
+            }
+        });
+})->cron('10,40 * * * *')
+    ->name('dispatch-scheduled-logistics-sync')
+    ->withoutOverlapping(25);
 Schedule::command('tokens:refresh')->everyFifteenMinutes();

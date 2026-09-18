@@ -5,7 +5,8 @@
 - npm run dev
 - php artisan schedule:work
 <!-- - php artisan job -->
-- php artisan queue:work --queue=orders
+- php artisan queue:work --queue=orders,orders-low
+- php artisan queue:work --queue=logistics
 - php artisan queue:work --queue=products
 - php artisan reverb:start
 - php artisan serve

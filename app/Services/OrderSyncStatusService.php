@@ -102,7 +102,7 @@ class OrderSyncStatusService
     private function trackedJobs()
     {
         return DB::table('jobs')
-            ->where('queue', 'orders')
+            ->whereIn('queue', ['orders', 'logistics'])
             ->where(function ($query) {
                 $query->where('payload', 'like', '%SyncShopeeOrderJob%')
                     ->orWhere('payload', 'like', '%SyncTiktokOrderJob%')
