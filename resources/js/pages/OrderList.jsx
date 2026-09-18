@@ -504,9 +504,7 @@ export default function OrderList() {
                 setData(res.data);
             }
         } catch (err) {
-            if (axios.isCancel(err)) {
-                console.log('Request canceled', err.message);
-            } else {
+            if (!axios.isCancel(err)) {
                 console.error(err);
             }
         } finally {
@@ -530,9 +528,9 @@ export default function OrderList() {
 
     // Listen to real-time events to auto-refresh order list seamlessly
     useEffect(() => {
-        const handleOrderEvent = (e) => {
+        const handleOrderEvent = () => {
             if (realtimeRefreshTimeoutRef.current) {
-                return;
+                clearTimeout(realtimeRefreshTimeoutRef.current);
             }
 
             realtimeRefreshTimeoutRef.current = setTimeout(() => {
@@ -552,10 +550,25 @@ export default function OrderList() {
         };
     }, []); // Empty deps: register once, always calls latest fetchData via ref
 
-    // Polling fallback every 30s (in case WebSocket misses events)
+    // Poll only while Reverb is unavailable. A connected WebSocket already
+    // delivers order changes and does not need a second refresh mechanism.
     useEffect(() => {
-        const interval = setInterval(() => fetchDataRef.current(true), 30000);
-        return () => clearInterval(interval);
+        const refreshIfRealtimeUnavailable = () => {
+            const connectionState = window.Echo?.connector?.pusher?.connection?.state;
+            const realtimeConnected = connectionState === 'connected';
+
+            if (document.visibilityState === 'visible' && !realtimeConnected) {
+                fetchDataRef.current(true);
+            }
+        };
+
+        const interval = setInterval(refreshIfRealtimeUnavailable, 60000);
+        document.addEventListener('visibilitychange', refreshIfRealtimeUnavailable);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', refreshIfRealtimeUnavailable);
+        };
     }, []); // Empty deps: register once
 
     // Restore scroll position after data has finished loading and rendering

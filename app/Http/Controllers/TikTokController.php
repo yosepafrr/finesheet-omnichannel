@@ -196,23 +196,30 @@ class TikTokController extends Controller
                         }
                     }
 
-                    $orderModel = Order::updateOrCreate(
-                        ['order_sn' => $order['id']],
-                        [
-                            'platform' => 'Tiktokshop',
-                            'store_id' => $store->id,
-                            'order_status' => $order['status'] ?? null,
-                            'cancel_source' => $cancelSource,
-                            'cancel_reason' => $cancelReason,
-                            'normalized_cancel_category' => $normalizedCancelCategory,
-                            'order_time' => isset($order['create_time']) ? Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
-                            'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
-                            'message_to_seller' => $order['buyer_message'] ?? null,
-                            'order_selling_price' => $order['payment']['total_amount'] ?? 0,
-                            'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
-                            'raw_data' => $order,
-                        ]
-                    );
+                    $orderModel = Order::firstOrNew(['order_sn' => $order['id']]);
+                    $wasNew = !$orderModel->exists;
+                    $previousStatus = $orderModel->order_status;
+                    $incomingStatus = $order['status'] ?? null;
+
+                    $orderModel->fill([
+                        'platform' => 'Tiktokshop',
+                        'store_id' => $store->id,
+                        'order_status' => $incomingStatus,
+                        'cancel_source' => $cancelSource,
+                        'cancel_reason' => $cancelReason,
+                        'normalized_cancel_category' => $normalizedCancelCategory,
+                        'order_time' => isset($order['create_time']) ? Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
+                        'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
+                        'message_to_seller' => $order['buyer_message'] ?? null,
+                        'order_selling_price' => $order['payment']['total_amount'] ?? 0,
+                        'raw_data' => $order,
+                    ]);
+
+                    if ($wasNew || $orderModel->escrow_amount === null) {
+                        $orderModel->escrow_amount = $order['payment']['original_total_product_price'] ?? 0;
+                    }
+
+                    $orderModel->save();
 
                     // Insert default package to be picked up by logistics sync
                     // We don't have tracking info here, SyncLogisticsCommand will fetch it
@@ -227,8 +234,10 @@ class TikTokController extends Controller
                     );
 
                     // Fetch actual/estimated escrow in the background
-                    $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
-                    \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $order['status'] ?? '', $grossAmount)->onQueue('orders');
+                    if ($wasNew || $previousStatus !== $incomingStatus) {
+                        $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
+                        \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $incomingStatus ?? '', $grossAmount)->onQueue('orders');
+                    }
 
                     if (!empty($order['line_items'])) {
                         // TikTok lists multiple same items as separate line_item entries. We should group them by product_id and sku_name to get quantity.

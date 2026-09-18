@@ -7,17 +7,19 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use App\Models\Order;
 use App\Models\Store;
 use App\Services\TiktokService;
 
-class SyncTiktokEscrowJob implements ShouldQueue
+class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
     public $timeout = 60;
+    public $uniqueFor = 3600;
 
     protected $storeId;
     protected $orderId;
@@ -33,6 +35,15 @@ class SyncTiktokEscrowJob implements ShouldQueue
         $this->orderId = $orderId;
         $this->status = $status;
         $this->originalTotalProductPrice = $originalTotalProductPrice;
+    }
+
+    public function uniqueId(): string
+    {
+        return implode(':', [
+            $this->storeId,
+            $this->orderId,
+            strtoupper((string) $this->status),
+        ]);
     }
 
     /**
@@ -55,8 +66,10 @@ class SyncTiktokEscrowJob implements ShouldQueue
         $tiktok = new TiktokService();
         $tiktok->ensureValidToken($store);
 
-        $escrowAmount = $this->originalTotalProductPrice;
-        $feeDetails = null;
+        // Keep previously resolved values when TikTok has no newer settlement
+        // data or when its finance endpoint is temporarily unavailable.
+        $escrowAmount = $orderModel->escrow_amount ?? $this->originalTotalProductPrice;
+        $feeDetails = $orderModel->fee_details;
 
         try {
             // Check if order is completed / settled

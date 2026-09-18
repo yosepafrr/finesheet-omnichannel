@@ -7,14 +7,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 
-class HandleTiktokOrderWebhookJob implements ShouldQueue
+class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
     public $timeout = 60;
+    public $uniqueFor = 300;
 
     protected $shopId;
     protected $orderId;
@@ -23,6 +25,11 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue
     {
         $this->shopId = $shopId;
         $this->orderId = $orderId;
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->shopId . ':' . $this->orderId;
     }
 
     public function handle()
@@ -68,27 +75,36 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue
                 }
             }
 
-            $orderModel = \App\Models\Order::updateOrCreate(
-                ['order_sn' => $order['id']],
-                [
-                    'platform' => 'Tiktokshop',
-                    'store_id' => $store->id,
-                    'order_status' => $order['status'] ?? null,
-                    'cancel_source' => $cancelSource,
-                    'cancel_reason' => $cancelReason,
-                    'normalized_cancel_category' => $normalizedCancelCategory,
-                    'order_time' => isset($order['create_time']) ? \Carbon\Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
-                    'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
-                    'message_to_seller' => $order['buyer_message'] ?? null,
-                    'order_selling_price' => $order['payment']['total_amount'] ?? 0,
-                    'escrow_amount' => $order['payment']['original_total_product_price'] ?? 0,
-                    'raw_data' => $order,
-                ]
-            );
+            $orderModel = \App\Models\Order::firstOrNew(['order_sn' => $order['id']]);
+            $wasNew = !$orderModel->exists;
+            $previousStatus = $orderModel->order_status;
+            $incomingStatus = $order['status'] ?? null;
+
+            $orderModel->fill([
+                'platform' => 'Tiktokshop',
+                'store_id' => $store->id,
+                'order_status' => $incomingStatus,
+                'cancel_source' => $cancelSource,
+                'cancel_reason' => $cancelReason,
+                'normalized_cancel_category' => $normalizedCancelCategory,
+                'order_time' => isset($order['create_time']) ? \Carbon\Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
+                'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
+                'message_to_seller' => $order['buyer_message'] ?? null,
+                'order_selling_price' => $order['payment']['total_amount'] ?? 0,
+                'raw_data' => $order,
+            ]);
+
+            if ($wasNew || $orderModel->escrow_amount === null) {
+                $orderModel->escrow_amount = $order['payment']['original_total_product_price'] ?? 0;
+            }
+
+            $orderModel->save();
 
             // Fetch actual/estimated escrow in the background
-            $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
-            \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $order['status'] ?? '', $grossAmount)->onQueue('orders');
+            if ($wasNew || $previousStatus !== $incomingStatus) {
+                $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
+                \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $incomingStatus ?? '', $grossAmount)->onQueue('orders');
+            }
 
             if (!empty($order['line_items'])) {
                 $groupedItems = [];

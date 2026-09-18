@@ -13,14 +13,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 
-class SyncShopeeOrderJob implements ShouldQueue
+class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
     public $timeout = 300;
+    public $uniqueFor = 1800;
     public $storeId;
     public $daysToSync;
 
@@ -28,6 +30,11 @@ class SyncShopeeOrderJob implements ShouldQueue
     {
         $this->storeId = $storeId;
         $this->daysToSync = $daysToSync;
+    }
+
+    public function uniqueId(): string
+    {
+        return ($this->storeId ?? 'all') . ':' . $this->daysToSync;
     }
 
     public function handle()
