@@ -46,8 +46,17 @@ class Order extends Model
                 }
             }
 
-            // Broadcast OrderUpdated if it was an update to an existing order
-            if (!$order->wasRecentlyCreated) {
+            // Broadcast only meaningful order-list changes. Bulk sync can save many
+            // rows and would otherwise flood the browser with refresh events.
+            $shouldBroadcastUpdate = !$order->wasRecentlyCreated && $order->wasChanged([
+                'order_status',
+                'normalized_cancel_category',
+                'order_selling_price',
+                'escrow_amount',
+                'escrow_amount_after_adjustment',
+            ]);
+
+            if ($shouldBroadcastUpdate) {
                 try {
                     broadcast(new \App\Events\OrderUpdated($order));
                 } catch (\Throwable $e) {

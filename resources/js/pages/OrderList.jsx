@@ -523,6 +523,7 @@ export default function OrderList() {
     // Keep a ref to the latest fetchData so the event listener is always up-to-date
     // without needing to re-register on every filter change
     const fetchDataRef = useRef(fetchData);
+    const realtimeRefreshTimeoutRef = useRef(null);
     useEffect(() => {
         fetchDataRef.current = fetchData;
     });
@@ -530,13 +531,22 @@ export default function OrderList() {
     // Listen to real-time events to auto-refresh order list seamlessly
     useEffect(() => {
         const handleOrderEvent = (e) => {
-            console.log("OrderList: Real-time update received, refetching silently...", e.type, e.detail);
-            fetchDataRef.current(true);
+            if (realtimeRefreshTimeoutRef.current) {
+                return;
+            }
+
+            realtimeRefreshTimeoutRef.current = setTimeout(() => {
+                realtimeRefreshTimeoutRef.current = null;
+                fetchDataRef.current(true);
+            }, 3000);
         };
 
         window.addEventListener('order-created', handleOrderEvent);
         window.addEventListener('order-updated', handleOrderEvent);
         return () => {
+            if (realtimeRefreshTimeoutRef.current) {
+                clearTimeout(realtimeRefreshTimeoutRef.current);
+            }
             window.removeEventListener('order-created', handleOrderEvent);
             window.removeEventListener('order-updated', handleOrderEvent);
         };
