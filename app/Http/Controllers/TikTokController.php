@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Services\TiktokService;
+use App\Services\LogisticsStatusNormalizer;
 use App\Models\Product;
 use App\Models\VariantProduct;
 use App\Models\Order;
@@ -223,7 +224,7 @@ class TikTokController extends Controller
 
                     // Insert default package to be picked up by logistics sync
                     // We don't have tracking info here, SyncLogisticsCommand will fetch it
-                    \App\Models\OrderPackage::firstOrCreate(
+                    $orderPackage = \App\Models\OrderPackage::firstOrCreate(
                         [
                             'order_id' => $orderModel->id,
                             'package_id' => $orderModel->order_sn
@@ -232,6 +233,15 @@ class TikTokController extends Controller
                             'platform' => 'Tiktokshop'
                         ]
                     );
+
+                    $logisticsNormalizer = app(LogisticsStatusNormalizer::class);
+                    if ($logisticsNormalizer->isFailedDelivery($order)) {
+                        $orderPackage->update([
+                            'logistics_status' => $cancelReason ?: 'Pengiriman paket gagal',
+                            'normalized_logistics_status' => 'DELIVERY_FAILED',
+                            'raw_data' => $order,
+                        ]);
+                    }
 
                     // Fetch actual/estimated escrow in the background
                     if ($wasNew || $previousStatus !== $incomingStatus) {

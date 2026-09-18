@@ -3,32 +3,49 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use App\Models\Order;
 use App\Models\OrderPackage;
+use App\Services\LogisticsStatusNormalizer;
 use App\Services\ShopeeService;
 use App\Services\TiktokService;
 use Illuminate\Support\Facades\Log;
 
 class SyncLogisticsCommand extends Command
 {
-    protected $signature = 'sync:logistics {--store_id= : Only sync logistics for one store}';
+    protected $signature = 'sync:logistics
+        {--store_id= : Only sync logistics for one store}
+        {--order_sn= : Only sync logistics for one order}';
     protected $description = 'Sync logistics and tracking info for active packages';
 
-    public function handle()
+    public function handle(LogisticsStatusNormalizer $normalizer)
     {
         Log::info('SyncLogisticsCommand started');
 
+        $this->ensureRequestedOrderHasPackage($normalizer);
+        $this->backfillTiktokPackages($normalizer);
+
         // Fetch packages that are not yet completely delivered or failed
-        $packages = OrderPackage::where(function ($q) {
-                $q->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
-                    ->orWhereNull('normalized_logistics_status');
+        $packages = OrderPackage::query()
+            ->when(!$this->option('order_sn'), function ($q) {
+                $q->where(function ($statusQuery) {
+                    $statusQuery->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
+                        ->orWhereNull('normalized_logistics_status');
+                });
             })
             ->when($this->option('store_id'), function ($q, $storeId) {
                 $q->whereHas('order', function ($orderQuery) use ($storeId) {
                     $orderQuery->where('store_id', $storeId);
                 });
             })
+            ->when($this->option('order_sn'), function ($q, $orderSn) {
+                $q->whereHas('order', function ($orderQuery) use ($orderSn) {
+                    $orderQuery->where('order_sn', $orderSn);
+                });
+            })
             ->with('order.store')
             ->get();
+
+        $this->info("Memproses {$packages->count()} paket.");
 
         $shopee = new ShopeeService();
         $tiktok = new TiktokService();
@@ -41,7 +58,7 @@ class SyncLogisticsCommand extends Command
                 if ($pkg->platform === 'Shopee') {
                     $this->syncShopeeLogistics($pkg, $order, $shopee);
                 } elseif ($pkg->platform === 'Tiktokshop') {
-                    $this->syncTiktokLogistics($pkg, $order, $tiktok);
+                    $this->syncTiktokLogistics($pkg, $order, $tiktok, $normalizer);
                 }
             } catch (\Exception $e) {
                 Log::error("Failed to sync logistics for package {$pkg->package_id}", ['error' => $e->getMessage()]);
@@ -49,6 +66,89 @@ class SyncLogisticsCommand extends Command
         }
 
         Log::info('SyncLogisticsCommand finished');
+        $this->info('Sinkronisasi logistik selesai.');
+
+        return self::SUCCESS;
+    }
+
+    private function ensureRequestedOrderHasPackage(LogisticsStatusNormalizer $normalizer): void
+    {
+        $orderSn = $this->option('order_sn');
+        if (!$orderSn) {
+            return;
+        }
+
+        $order = Order::where('order_sn', $orderSn)->first();
+        if (!$order) {
+            $this->error("Order {$orderSn} tidak ditemukan.");
+            return;
+        }
+
+        $package = OrderPackage::firstOrCreate(
+            ['order_id' => $order->id, 'package_id' => $order->order_sn],
+            ['platform' => $order->platform]
+        );
+
+        if ($normalizer->isFailedDelivery([$order->cancel_reason, $order->raw_data])) {
+            $package->update([
+                'logistics_status' => $order->cancel_reason ?: $package->logistics_status,
+                'normalized_logistics_status' => 'DELIVERY_FAILED',
+            ]);
+        }
+    }
+
+    private function backfillTiktokPackages(LogisticsStatusNormalizer $normalizer): void
+    {
+        if ($this->option('order_sn')) {
+            return;
+        }
+
+        Order::where('platform', 'Tiktokshop')
+            ->whereIn('order_status', ['SHIPPED', 'IN_TRANSIT'])
+            ->whereDoesntHave('packages')
+            ->when($this->option('store_id'), function ($query, $storeId) {
+                $query->where('store_id', $storeId);
+            })
+            ->chunkById(200, function ($orders) {
+                foreach ($orders as $order) {
+                    OrderPackage::firstOrCreate(
+                        ['order_id' => $order->id, 'package_id' => $order->order_sn],
+                        ['platform' => 'Tiktokshop']
+                    );
+                }
+            });
+
+        Order::where('platform', 'Tiktokshop')
+            ->whereIn('order_status', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
+            ->whereDoesntHave('packages', function ($query) {
+                $query->where('normalized_logistics_status', 'DELIVERY_FAILED');
+            })
+            ->where(function ($query) {
+                $query->whereRaw('LOWER(cancel_reason) LIKE ?', ['%gagal%'])
+                    ->orWhereRaw('LOWER(cancel_reason) LIKE ?', ['%deliver%'])
+                    ->orWhereRaw('LOWER(cancel_reason) LIKE ?', ['%return%'])
+                    ->orWhereRaw('LOWER(cancel_reason) LIKE ?', ['%dikembalikan%']);
+            })
+            ->when($this->option('store_id'), function ($query, $storeId) {
+                $query->where('store_id', $storeId);
+            })
+            ->chunkById(200, function ($orders) use ($normalizer) {
+                foreach ($orders as $order) {
+                    if (!$normalizer->isFailedDelivery([$order->cancel_reason, $order->raw_data])) {
+                        continue;
+                    }
+
+                    $package = OrderPackage::firstOrCreate(
+                        ['order_id' => $order->id, 'package_id' => $order->order_sn],
+                        ['platform' => 'Tiktokshop']
+                    );
+
+                    $package->update([
+                        'logistics_status' => $order->cancel_reason ?: 'Pengiriman paket gagal',
+                        'normalized_logistics_status' => 'DELIVERY_FAILED',
+                    ]);
+                }
+            });
     }
 
     private function syncShopeeLogistics($pkg, $order, $shopee)
@@ -81,137 +181,28 @@ class SyncLogisticsCommand extends Command
         ]);
     }
 
-    private function syncTiktokLogistics($pkg, $order, $tiktok)
+    private function syncTiktokLogistics($pkg, $order, $tiktok, LogisticsStatusNormalizer $normalizer)
     {
         $res = $tiktok->getTrackingInfo($order->store, $order->order_sn);
-        $trackingList = $res['data']['tracking_info_list']
-            ?? $res['data']['packages']
-            ?? $res['data']['package_list']
-            ?? [];
+        $tracking = $res['data'] ?? [];
 
-        if (empty($trackingList) && !empty($res['data'])) {
-            $trackingList = [$res['data']];
-        }
-        
-        foreach ($trackingList as $t) {
-            $packageId = $t['package_id']
-                ?? $t['package_id_str']
-                ?? $t['package_number']
-                ?? $t['id']
-                ?? $order->order_sn;
-            
-            // Match with the current package or create a new one if multiple
-            $targetPkg = $packageId === $pkg->package_id ? $pkg : OrderPackage::firstOrNew([
-                'order_id' => $order->id,
-                'package_id' => $packageId
+        if (empty($tracking) || !is_array($tracking)) {
+            Log::warning('TikTok tracking response has no data', [
+                'order_sn' => $order->order_sn,
+                'code' => $res['code'] ?? null,
+                'message' => $res['message'] ?? null,
             ]);
-
-            $targetPkg->platform = 'Tiktokshop';
-            $targetPkg->tracking_number = $t['tracking_number']
-                ?? $t['tracking_no']
-                ?? $t['shipping_tracking_number']
-                ?? $targetPkg->tracking_number;
-
-            $failed = false;
-            $delivered = false;
-            $latestEventDesc = $this->extractLatestTrackingDescription($t);
-            $trackingText = $this->flattenTrackingText($t);
-            
-            if (!empty($t['tracking_info'])) {
-                foreach ($t['tracking_info'] as $event) {
-                    $desc = strtolower($event['description'] ?? $event['event'] ?? $event['status'] ?? '');
-                    if (str_contains($desc, 'delivered') && !$this->isFailedDeliveryText($desc)) {
-                        $delivered = true;
-                    }
-                }
-            }
-
-            if ($this->isFailedDeliveryText($trackingText)) {
-                $failed = true;
-            }
-            
-            $normalized = $targetPkg->normalized_logistics_status;
-            if ($failed) $normalized = 'DELIVERY_FAILED';
-            elseif ($delivered) $normalized = 'DELIVERED';
-            elseif (!empty($trackingText) || !empty($t['tracking_info'])) $normalized = 'IN_TRANSIT';
-            
-            $targetPkg->logistics_status = $latestEventDesc ?: $targetPkg->logistics_status;
-            $targetPkg->normalized_logistics_status = $normalized;
-            $targetPkg->raw_data = $t;
-            $targetPkg->save();
-        }
-    }
-
-    private function extractLatestTrackingDescription(array $tracking): string
-    {
-        $events = $tracking['tracking_info']
-            ?? $tracking['tracking_info_list']
-            ?? $tracking['events']
-            ?? [];
-
-        if (!empty($events) && is_array($events)) {
-            $latest = reset($events);
-            if (is_array($latest)) {
-                return $latest['description']
-                    ?? $latest['event']
-                    ?? $latest['status']
-                    ?? $latest['message']
-                    ?? '';
-            }
+            return;
         }
 
-        return $tracking['description']
-            ?? $tracking['logistics_status']
-            ?? $tracking['status']
-            ?? $tracking['sub_status']
-            ?? '';
-    }
-
-    private function flattenTrackingText(array $value): string
-    {
-        $parts = [];
-        array_walk_recursive($value, function ($item) use (&$parts) {
-            if (is_scalar($item)) {
-                $parts[] = (string) $item;
-            }
-        });
-
-        return strtolower(implode(' ', $parts));
-    }
-
-    private function isFailedDeliveryText(string $text): bool
-    {
-        $needles = [
-            'delivery_failed',
-            'delivery failed',
-            'delivery unsuccessful',
-            'failed delivery',
-            'failed to deliver',
-            'could not be delivered',
-            'unable to deliver',
-            'returned to seller',
-            'returned to sender',
-            'return to seller',
-            'return to sender',
-            'dikembalikan',
-            'dikembalikan kepada',
-            'dikembalikan ke',
-            'paket gagal',
-            'pengiriman gagal',
-            'pengantaran gagal',
-            'gagal dikirim',
-            'gagal antar',
-            'gagal diantar',
-            'tidak berhasil dikirim',
-            'tidak dapat dikirim',
-        ];
-
-        foreach ($needles as $needle) {
-            if (str_contains($text, $needle)) {
-                return true;
-            }
-        }
-
-        return false;
+        $pkg->update([
+            'tracking_number' => $tracking['tracking_number']
+                ?? $tracking['tracking_no']
+                ?? $tracking['shipping_tracking_number']
+                ?? $pkg->tracking_number,
+            'logistics_status' => $normalizer->latestDescription($tracking) ?: $pkg->logistics_status,
+            'normalized_logistics_status' => $normalizer->normalize($tracking, $pkg->normalized_logistics_status),
+            'raw_data' => $tracking,
+        ]);
     }
 }

@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
+use App\Services\LogisticsStatusNormalizer;
 
 class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 {
@@ -99,6 +100,23 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             }
 
             $orderModel->save();
+
+            $orderPackage = \App\Models\OrderPackage::firstOrCreate(
+                [
+                    'order_id' => $orderModel->id,
+                    'package_id' => $orderModel->order_sn,
+                ],
+                ['platform' => 'Tiktokshop']
+            );
+
+            $logisticsNormalizer = app(LogisticsStatusNormalizer::class);
+            if ($logisticsNormalizer->isFailedDelivery($order)) {
+                $orderPackage->update([
+                    'logistics_status' => $cancelReason ?: 'Pengiriman paket gagal',
+                    'normalized_logistics_status' => 'DELIVERY_FAILED',
+                    'raw_data' => $order,
+                ]);
+            }
 
             // Fetch actual/estimated escrow in the background
             if ($wasNew || $previousStatus !== $incomingStatus) {
