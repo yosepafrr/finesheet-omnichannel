@@ -8,7 +8,6 @@ use App\Models\Store;
 use App\Events\OrderCreated;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
@@ -250,7 +249,6 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 Log::info("Sync finished for store {$store->id}");
-                Artisan::call('sync:logistics', ['--store_id' => $store->id]);
             } catch (\Throwable $e) {
                 Log::error("Error syncing store {$store->id}", [
                     'message' => $e->getMessage()

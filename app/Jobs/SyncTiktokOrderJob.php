@@ -9,7 +9,6 @@ use App\Http\Controllers\TikTokController;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 
 class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
@@ -72,7 +71,6 @@ class SyncTiktokOrderJob implements ShouldQueue, ShouldBeUnique
 
                 // Dispatch return sync for TikTok store
                 \App\Jobs\SyncTiktokReturnJob::dispatch($store, $now->copy()->subDays($this->daysToSync)->timestamp, $now->timestamp)->onQueue('orders');
-                Artisan::call('sync:logistics', ['--store_id' => $store->id]);
             } catch (\Exception $e) {
                 Log::error('Failed to sync Tiktok store orders', [
                     'store_id' => $store->id,

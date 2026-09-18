@@ -20,6 +20,5 @@ Schedule::call(function () {
     dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
 })->hourly();
 
-Schedule::command('sync:logistics')->everyThirtyMinutes();
+Schedule::command('sync:logistics')->everyThirtyMinutes()->withoutOverlapping(30);
 Schedule::command('tokens:refresh')->everyFifteenMinutes();
-
