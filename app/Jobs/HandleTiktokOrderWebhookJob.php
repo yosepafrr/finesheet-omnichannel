@@ -10,6 +10,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use App\Services\LogisticsStatusNormalizer;
+use App\Services\TiktokEscrowAmountResolver;
+use App\Services\TiktokService;
 
 class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 {
@@ -33,7 +35,10 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         return $this->shopId . ':' . $this->orderId;
     }
 
-    public function handle()
+    public function handle(
+        TiktokService $tiktok,
+        TiktokEscrowAmountResolver $escrowResolver
+    )
     {
         Log::info("HandleTiktokOrderWebhookJob started for Order: {$this->orderId}");
 
@@ -54,7 +59,6 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         }
 
         try {
-            $tiktok = new \App\Services\TiktokService();
             $tiktok->ensureValidToken($store);
 
             $response = $tiktok->getOrderDetail($store, $this->orderId);
@@ -80,6 +84,10 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             $wasNew = !$orderModel->exists;
             $previousStatus = $orderModel->order_status;
             $incomingStatus = $order['status'] ?? null;
+            $fallbackSalePrice = $escrowResolver->fallbackSalePrice($order);
+            $needsEscrowRefresh = $wasNew
+                || $previousStatus !== $incomingStatus
+                || $escrowResolver->needsRefresh($orderModel->fee_details, $incomingStatus);
 
             $orderModel->fill([
                 'platform' => 'Tiktokshop',
@@ -95,8 +103,8 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 'raw_data' => $order,
             ]);
 
-            if ($wasNew || $orderModel->escrow_amount === null) {
-                $orderModel->escrow_amount = $order['payment']['original_total_product_price'] ?? 0;
+            if (empty($orderModel->fee_details)) {
+                $orderModel->escrow_amount = $fallbackSalePrice;
             }
 
             $orderModel->save();
@@ -119,9 +127,13 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             }
 
             // Fetch actual/estimated escrow in the background
-            if ($wasNew || $previousStatus !== $incomingStatus) {
-                $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
-                \App\Jobs\SyncTiktokEscrowJob::dispatch($store->id, $order['id'], $incomingStatus ?? '', $grossAmount)->onQueue('orders');
+            if ($needsEscrowRefresh) {
+                \App\Jobs\SyncTiktokEscrowJob::dispatch(
+                    $store->id,
+                    $order['id'],
+                    $incomingStatus ?? '',
+                    $fallbackSalePrice
+                )->onQueue('orders-low');
             }
 
             if (!empty($order['line_items'])) {

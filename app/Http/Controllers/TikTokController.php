@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Services\TiktokService;
+use App\Services\TiktokEscrowAmountResolver;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\InitialOrderSyncDispatcher;
 use App\Models\Product;
@@ -181,6 +182,7 @@ class TikTokController extends Controller
             $hasMore = true;
             $pageToken = '';
             $totalSynced = 0;
+            $escrowResolver = app(TiktokEscrowAmountResolver::class);
 
             while ($hasMore) {
                 $response = $tiktok->getOrderList($store, $timeFrom, $timeTo, $pageToken);
@@ -203,6 +205,10 @@ class TikTokController extends Controller
                     $wasNew = !$orderModel->exists;
                     $previousStatus = $orderModel->order_status;
                     $incomingStatus = $order['status'] ?? null;
+                    $fallbackSalePrice = $escrowResolver->fallbackSalePrice($order);
+                    $needsEscrowRefresh = $wasNew
+                        || $previousStatus !== $incomingStatus
+                        || $escrowResolver->needsRefresh($orderModel->fee_details, $incomingStatus);
 
                     $orderModel->fill([
                         'platform' => 'Tiktokshop',
@@ -218,8 +224,8 @@ class TikTokController extends Controller
                         'raw_data' => $order,
                     ]);
 
-                    if ($wasNew || $orderModel->escrow_amount === null) {
-                        $orderModel->escrow_amount = $order['payment']['original_total_product_price'] ?? 0;
+                    if (empty($orderModel->fee_details)) {
+                        $orderModel->escrow_amount = $fallbackSalePrice;
                     }
 
                     $orderModel->save();
@@ -246,13 +252,12 @@ class TikTokController extends Controller
                     }
 
                     // Fetch actual/estimated escrow in the background
-                    if ($wasNew || $previousStatus !== $incomingStatus) {
-                        $grossAmount = $order['payment']['original_total_product_price'] ?? 0;
+                    if ($needsEscrowRefresh) {
                         \App\Jobs\SyncTiktokEscrowJob::dispatch(
                             $store->id,
                             $order['id'],
                             $incomingStatus ?? '',
-                            $grossAmount
+                            $fallbackSalePrice
                         )->onQueue('orders-low');
                     }
 

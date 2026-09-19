@@ -397,7 +397,7 @@ class TiktokService
         $accessToken = $this->ensureValidToken($store);
         $shopId = $store->shopee_shop_id; 
 
-        $path = "/finance/202309/orders/{$orderId}/statement_transactions";
+        $path = "/finance/202501/orders/{$orderId}/statement_transactions";
         $timestamp = time();
 
         $queries = [

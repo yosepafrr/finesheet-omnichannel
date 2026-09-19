@@ -11,6 +11,10 @@
 - php artisan reverb:start
 - php artisan serve
 
+### Perbaikan data escrow TikTok lama
+- php artisan sync:tiktok-escrow --days=180
+- php artisan sync:tiktok-escrow --order_sn=ORDER_ID --force
+
 ### Akun
 yosep.adrianaa@gmail.com
 yosep123

@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use App\Models\Order;
 use App\Models\Store;
+use App\Services\TiktokEscrowAmountResolver;
 use App\Services\TiktokService;
 
 class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
@@ -24,17 +25,20 @@ class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
     protected $storeId;
     protected $orderId;
     protected $status;
+    protected $fallbackSalePrice;
+    // Retained so jobs serialized before this release can still be decoded.
     protected $originalTotalProductPrice;
 
     /**
      * Create a new job instance.
      */
-    public function __construct($storeId, $orderId, $status, $originalTotalProductPrice = 0)
+    public function __construct($storeId, $orderId, $status, $fallbackSalePrice = 0)
     {
         $this->storeId = $storeId;
         $this->orderId = $orderId;
         $this->status = $status;
-        $this->originalTotalProductPrice = $originalTotalProductPrice;
+        $this->fallbackSalePrice = $fallbackSalePrice;
+        $this->originalTotalProductPrice = null;
     }
 
     public function uniqueId(): string
@@ -49,7 +53,10 @@ class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(
+        TiktokService $tiktok,
+        TiktokEscrowAmountResolver $resolver
+    ): void
     {
         $store = Store::find($this->storeId);
         if (!$store || $store->platform !== 'Tiktokshop') {
@@ -63,72 +70,61 @@ class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $tiktok = new TiktokService();
         $tiktok->ensureValidToken($store);
 
-        // Keep previously resolved values when TikTok has no newer settlement
-        // data or when its finance endpoint is temporarily unavailable.
-        $escrowAmount = $orderModel->escrow_amount ?? $this->originalTotalProductPrice;
-        $feeDetails = $orderModel->fee_details;
+        $existingFeeDetails = $orderModel->fee_details;
+        $escrowAmount = empty($existingFeeDetails)
+            ? $resolver->fallbackForOrder($orderModel)
+            : (float) $orderModel->escrow_amount;
+
+        if (empty($existingFeeDetails) && $escrowAmount <= 0 && is_numeric($this->fallbackSalePrice)) {
+            $escrowAmount = (float) $this->fallbackSalePrice;
+        }
+
+        $financeResult = null;
+        $financeResponse = null;
 
         try {
-            // Check if order is completed / settled
-            // TikTok status can be COMPLETED, SHIPPED, AWAITING_SHIPMENT, CANCELLED
             if (strtoupper($this->status) === 'COMPLETED') {
-                $statementRes = $tiktok->getStatementTransaction($store, $this->orderId);
-                
-                $transactions = $statementRes['data']['statement_transactions'] ?? [];
-                if (!empty($transactions)) {
-                    $feeDetails = $transactions; // Save the raw transaction details
-                    // Usually there's one transaction per order, or multiple if split. We sum them up.
-                    $sumSettlement = 0;
-                    foreach ($transactions as $txn) {
-                        $sumSettlement += floatval($txn['settlement_amount'] ?? 0);
-                    }
-                    $escrowAmount = $sumSettlement;
-                }
-            } else {
-                $unsettledRes = $tiktok->getUnsettledTransaction($store, $this->orderId);
-                
-                // Get the total est_settlement_amount for this order
-                $transactions = $unsettledRes['data']['transactions'] ?? [];
-                if (!empty($transactions)) {
-                    // Extract only the relevant transactions for this order
-                    $orderTxns = [];
-                    // Sum up the est_settlement_amount for this specific order
-                    $sumEstSettlement = 0;
-                    foreach ($transactions as $txn) {
-                        if (isset($txn['order_id']) && $txn['order_id'] == $this->orderId) {
-                            $orderTxns[] = $txn;
-                            $sumEstSettlement += floatval($txn['est_settlement_amount'] ?? 0);
-                        }
-                    }
-                    if (!empty($orderTxns)) {
-                        $feeDetails = $orderTxns;
-                    }
-                    if ($sumEstSettlement > 0) {
-                        $escrowAmount = $sumEstSettlement;
-                    }
-                }
+                $financeResponse = $tiktok->getStatementTransaction($store, $this->orderId);
+                $financeResult = $resolver->settled($financeResponse);
             }
-        } catch (\Exception $e) {
+
+            // A completed order can briefly remain in TikTok's unsettled list,
+            // so use it when a statement is not available yet.
+            if ($financeResult === null) {
+                $financeResponse = $tiktok->getUnsettledTransaction($store, $this->orderId);
+                $financeResult = $resolver->unsettled($financeResponse, (string) $this->orderId);
+            }
+        } catch (\Throwable $e) {
             Log::error("TikTok Escrow Sync Error", [
                 'order_id' => $this->orderId,
                 'message' => $e->getMessage()
             ]);
-            // Escrow will fallback to $this->originalTotalProductPrice
         }
 
-        // Update the order in DB
+        if ($financeResult !== null) {
+            $escrowAmount = $financeResult['amount'];
+        } else {
+            Log::warning('TikTok finance data is not available; keeping the best fallback', [
+                'order_id' => $this->orderId,
+                'response_code' => $financeResponse['code'] ?? null,
+                'response_message' => $financeResponse['message'] ?? null,
+            ]);
+        }
+
         $orderModel->update([
             'escrow_amount' => $escrowAmount,
-            'fee_details' => $feeDetails,
+            'fee_details' => $financeResult['details'] ?? $existingFeeDetails,
         ]);
 
         Log::info("TikTok Escrow Synced", [
             'order_id' => $this->orderId,
             'status' => $this->status,
-            'final_escrow' => $escrowAmount
+            'source' => $financeResult['details']['source']
+                ?? $existingFeeDetails['source']
+                ?? 'sale_price_fallback',
+            'final_escrow' => $escrowAmount,
         ]);
     }
 }
