@@ -7,9 +7,7 @@ use App\Models\User;
 use App\Models\Supplier;
 use App\Models\PayablePeriod;
 use App\Models\PayableEvent;
-use App\Models\Setting;
 use App\Services\PayableService;
-use Carbon\Carbon;
 
 class MigratePayablePeriods extends Command
 {
@@ -23,30 +21,21 @@ class MigratePayablePeriods extends Command
         foreach ($users as $user) {
             $this->info("Processing User ID: {$user->id}");
             
-            // 1. Get global config
-            $config = Setting::where('key', 'recap_period_config')->where('user_id', $user->id)->first();
-            $lengthDays = 14;
-            $firstStart = Carbon::now()->startOfDay();
-            
-            if ($config) {
-                $lengthDays = $config->value['length_days'] ?? 14;
-                if (!empty($config->value['first_period_start'])) {
-                    $firstStart = Carbon::parse($config->value['first_period_start']);
-                }
-            }
-
-            // 2. Update all suppliers for this user
+            // Supplier period configuration is intentionally independent. Never
+            // copy the legacy user-level setting into unconfigured suppliers.
             $suppliers = Supplier::where('user_id', $user->id)->get();
             foreach ($suppliers as $supplier) {
+                if (!$supplier->first_period_start) {
+                    $this->line("Skipped unconfigured supplier {$supplier->id}");
+                    continue;
+                }
+
                 if (!$supplier->period_length_days) {
-                    $supplier->period_length_days = $lengthDays;
-                    $supplier->first_period_start = $firstStart;
-                    $supplier->save();
-                    $this->line("Updated supplier {$supplier->id} config");
+                    $supplier->update(['period_length_days' => 14]);
                 }
             }
 
-            // 3. Find all old periods (supplier_id is null)
+            // Find all old periods (supplier_id is null)
             $oldPeriods = PayablePeriod::where('user_id', $user->id)->whereNull('supplier_id')->get();
             
             if ($oldPeriods->isEmpty()) {
@@ -54,8 +43,8 @@ class MigratePayablePeriods extends Command
                 continue;
             }
 
-            // 4. Generate new periods for all suppliers up to now
-            foreach ($suppliers as $supplier) {
+            // Generate periods only for suppliers explicitly configured by the user.
+            foreach ($suppliers->whereNotNull('first_period_start') as $supplier) {
                 $payableService->ensureAllPeriods($supplier->first_period_start, $user->id, $supplier);
             }
 
