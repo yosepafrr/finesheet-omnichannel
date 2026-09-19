@@ -357,36 +357,83 @@ class TiktokService
     public function getUnsettledTransaction($store, $orderId)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         $path = '/finance/202507/orders/unsettled';
-        $timestamp = time();
+        $pageToken = '';
+        $seenPageTokens = [];
+        $page = 0;
+        $lastResponse = [];
 
-        $queries = [
-            'app_key' => $this->appKey,
-            'timestamp' => $timestamp,
-            'shop_cipher' => $shopId,
-            'order_id' => $orderId,
-            'page_size' => 10,
-            'sort_field' => 'order_create_time',
-            'sort_order' => 'DESC'
-        ];
+        do {
+            $queries = [
+                'app_key' => $this->appKey,
+                'timestamp' => time(),
+                'shop_cipher' => $shopId,
+                'order_id' => $orderId,
+                'page_size' => 100,
+                'sort_field' => 'order_create_time',
+                'sort_order' => 'DESC',
+            ];
 
-        $sign = $this->generateSign($path, $queries);
-        $queries['sign'] = $sign;
+            if ($pageToken !== '') {
+                $queries['page_token'] = $pageToken;
+            }
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $queries['sign'] = $this->generateSign($path, $queries);
+            $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $response = $this->httpClient()
+                ->withHeaders([
+                    'x-tts-access-token' => $accessToken,
+                    'Content-Type' => 'application/json',
+                ])
+                ->get($url);
 
-        $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
-            ->get($url);
+            $lastResponse = $response->json() ?? [];
+            $transactions = $lastResponse['data']['transactions'] ?? [];
+            $matchingTransactions = array_values(array_filter(
+                $transactions,
+                fn ($transaction) => is_array($transaction)
+                    && isset($transaction['order_id'])
+                    && (string) $transaction['order_id'] === (string) $orderId
+            ));
 
-        $res = $response->json();
-        Log::info('TikTok - Fetching Unsettled Transaction', [
-            'status' => $response->status(), 
-            'order_id' => $orderId
-        ]);
+            Log::info('TikTok - Fetching Unsettled Transaction', [
+                'status' => $response->status(),
+                'response_code' => $lastResponse['code'] ?? null,
+                'order_id' => $orderId,
+                'page' => $page + 1,
+                'transaction_count' => count($transactions),
+                'matched' => count($matchingTransactions),
+            ]);
 
-        return $res;
+            if (!$response->successful() || ($lastResponse['code'] ?? null) !== 0) {
+                return $lastResponse;
+            }
+
+            if ($matchingTransactions !== []) {
+                $lastResponse['data']['transactions'] = $matchingTransactions;
+                $lastResponse['data']['total_count'] = count($matchingTransactions);
+
+                return $lastResponse;
+            }
+
+            $nextPageToken = (string) ($lastResponse['data']['next_page_token'] ?? '');
+            if ($nextPageToken === '' || isset($seenPageTokens[$nextPageToken])) {
+                break;
+            }
+
+            $seenPageTokens[$nextPageToken] = true;
+            $pageToken = $nextPageToken;
+            $page++;
+        } while (true);
+
+        if (isset($lastResponse['data'])) {
+            $lastResponse['data']['transactions'] = [];
+            $lastResponse['data']['total_count'] = 0;
+        }
+
+        return $lastResponse;
     }
 
     /**
