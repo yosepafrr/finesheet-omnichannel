@@ -20,6 +20,10 @@
     {{-- Injeksi User yang sedang Login untuk Echo & Multi-Tenant --}}
     <script>
         window.authUser = @json(auth()->user());
+        window.flashMessages = @json([
+            'success' => session('success'),
+            'error' => session('error'),
+        ]);
     </script>
 
     @php

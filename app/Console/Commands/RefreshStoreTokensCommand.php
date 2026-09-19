@@ -80,7 +80,7 @@ class RefreshStoreTokensCommand extends Command
             try {
                 $success = false;
                 if ($platform === 'shopee') {
-                    $success = $shopeeService->refreshAccessToken($store);
+                    $success = $shopeeService->refreshAccessToken($store, (bool) $force);
                 } elseif ($platform === 'tiktokshop' || $platform === 'tiktok') {
                     $res = $tiktokService->refreshAccessToken($store);
                     $success = !empty($res);

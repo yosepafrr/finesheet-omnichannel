@@ -19,6 +19,12 @@ class StoreController extends Controller
                 'Tiktokshop' => asset('Marketplace-logo/tts.png'),
             ];
 
+            $authorizationValid = $store->shop_expired_at
+                && Carbon::parse($store->shop_expired_at)->isFuture()
+                && !empty($store->refresh_token);
+            $tokenNeedsRefresh = !$store->token_expired_at
+                || Carbon::parse($store->token_expired_at)->isPast();
+
             return [
                 'id' => $store->id,
                 'platform' => $store->platform,
@@ -26,11 +32,8 @@ class StoreController extends Controller
                 'shop_id' => $store->shopee_shop_id,
                 'logo' => $logos[$store->platform] ?? null,
 
-                'is_active' =>
-                    $store->shop_expired_at &&
-                    Carbon::parse($store->shop_expired_at)->isFuture() &&
-                    $store->token_expired_at &&
-                    Carbon::parse($store->token_expired_at)->isFuture(),
+                'is_active' => $authorizationValid,
+                'token_needs_refresh' => $tokenNeedsRefresh,
             ];
         });
 

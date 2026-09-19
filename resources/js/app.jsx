@@ -368,6 +368,14 @@ function App() {
 
     useEffect(() => {
         console.log('App Mounted');
+
+        if (window.flashMessages?.success) {
+            toast.success(window.flashMessages.success);
+        }
+        if (window.flashMessages?.error) {
+            toast.error(window.flashMessages.error, { duration: 8000 });
+        }
+        window.flashMessages = {};
     }, []);
 
     if (!PageComponent) {

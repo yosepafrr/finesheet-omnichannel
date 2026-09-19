@@ -4,8 +4,10 @@ namespace App\Services;
 
 use Carbon\Carbon;
 use App\Models\Store;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 class ShopeeService
 {
@@ -35,10 +37,54 @@ class ShopeeService
 
     public function ensureValidToken(Store $store)
     {
-        if (empty($store->token_expired_at) || Carbon::now('Asia/Jakarta')->addMinutes(60)->gte($store->token_expired_at)) {
+        $expiresAt = $store->token_expired_at ? Carbon::parse($store->token_expired_at) : null;
+        if (!$expiresAt || now()->addMinutes(60)->gte($expiresAt)) {
             $this->refreshAccessToken($store);
+
+            if ($store->exists) {
+                $store->refresh();
+                $expiresAt = $store->token_expired_at ? Carbon::parse($store->token_expired_at) : null;
+            }
         }
+
+        if (empty($store->access_token) || !$expiresAt || $expiresAt->isPast()) {
+            throw new RuntimeException("Token Shopee untuk toko {$store->shopee_shop_id} sudah kedaluwarsa dan gagal diperbarui.");
+        }
+
         return $store->access_token;
+    }
+
+    public function exchangeAuthorizationCode(string $code, int $shopId): array
+    {
+        $path = '/api/v2/auth/token/get';
+        $timestamp = time();
+        $baseString = $this->partnerId . $path . $timestamp;
+        $sign = hash_hmac('sha256', $baseString, $this->partnerKey);
+        $url = "{$this->baseUrl}{$path}"
+            . "?partner_id={$this->partnerId}"
+            . "&timestamp={$timestamp}"
+            . "&sign={$sign}";
+        $body = [
+            'code' => $code,
+            'shop_id' => $shopId,
+        ];
+
+        $response = $this->httpClient()
+            ->withBody(json_encode($body, JSON_THROW_ON_ERROR), 'application/json')
+            ->post($url);
+        $result = $response->json() ?? [];
+
+        Log::info('Shopee - Token exchange response', [
+            'shop_id' => $shopId,
+            'status' => $response->status(),
+            'has_access_token' => !empty($result['access_token']),
+            'has_refresh_token' => !empty($result['refresh_token']),
+            'error' => $result['error'] ?? null,
+            'message' => $result['message'] ?? null,
+            'request_id' => $result['request_id'] ?? null,
+        ]);
+
+        return $result;
     }
 
     // FUNGSI AMBIL INFORMASI TOKO
@@ -66,70 +112,83 @@ class ShopeeService
     }
 
     // FUNGSI REFRESH ACCESS TOKEN
-    public function refreshAccessToken(Store $store)
+    public function refreshAccessToken(Store $store, bool $force = false)
     {
-        $path = '/api/v2/auth/access_token/get';
-        $timestamp = time();
-
         $shopId = (int) $store->shopee_shop_id;
-        $refreshToken = $store->refresh_token;
 
-        if (empty($refreshToken)) {
-            Log::warning('Shopee token refresh skipped: missing refresh token', [
+        try {
+            return Cache::lock("shopee-token-refresh:{$shopId}", 30)->block(10, function () use ($store, $shopId, $force) {
+                if ($store->exists) {
+                    $store->refresh();
+                }
+
+                $expiresAt = $store->token_expired_at ? Carbon::parse($store->token_expired_at) : null;
+                if (!$force && $expiresAt && now()->addMinutes(60)->lt($expiresAt)) {
+                    return true;
+                }
+
+                $refreshToken = $store->refresh_token;
+                if (empty($refreshToken)) {
+                    Log::warning('Shopee token refresh skipped: missing refresh token', [
+                        'store_id' => $store->id,
+                        'shop_id' => $shopId,
+                    ]);
+
+                    return false;
+                }
+
+                $path = '/api/v2/auth/access_token/get';
+                $timestamp = time();
+                $baseString = $this->partnerId . $path . $timestamp;
+                $refreshSign = hash_hmac('sha256', $baseString, $this->partnerKey);
+                $url = "{$this->baseUrl}{$path}"
+                    . "?partner_id={$this->partnerId}"
+                    . "&timestamp={$timestamp}"
+                    . "&sign={$refreshSign}";
+                $body = [
+                    'partner_id' => (int) $this->partnerId,
+                    'shop_id' => $shopId,
+                    'refresh_token' => $refreshToken,
+                ];
+
+                $response = $this->httpClient()
+                    ->withBody(json_encode($body, JSON_THROW_ON_ERROR), 'application/json')
+                    ->post($url);
+                $json = $response->json() ?? [];
+                $data = $json['response'] ?? $json;
+
+                Log::info('Shopee - Refresh Access Token Response', [
+                    'store_id' => $store->id,
+                    'shop_id' => $shopId,
+                    'status' => $response->status(),
+                    'has_access_token' => !empty($data['access_token']),
+                    'has_refresh_token' => !empty($data['refresh_token']),
+                    'error' => $json['error'] ?? null,
+                    'message' => $json['message'] ?? null,
+                    'request_id' => $json['request_id'] ?? null,
+                ]);
+
+                if (!empty($data['access_token']) && !empty($data['refresh_token'])) {
+                    $store->update([
+                        'access_token' => $data['access_token'],
+                        'refresh_token' => $data['refresh_token'],
+                        'token_expired_at' => now()->addSeconds((int) ($data['expire_in'] ?? 14400)),
+                    ]);
+
+                    return true;
+                }
+
+                return false;
+            });
+        } catch (\Throwable $e) {
+            Log::error('Shopee token refresh failed', [
                 'store_id' => $store->id,
                 'shop_id' => $shopId,
+                'error' => $e->getMessage(),
             ]);
 
             return false;
         }
-
-        $baseString = $this->partnerId . $path . $timestamp;
-        $refreshSign = hash_hmac('sha256', $baseString, $this->partnerKey);
-
-        $url = "{$this->baseUrl}{$path}"
-            . "?partner_id={$this->partnerId}"
-            . "&timestamp={$timestamp}"
-            . "&sign={$refreshSign}";
-
-        $body = [
-            'partner_id' => (int) $this->partnerId,
-            'shop_id' => $shopId,
-            'refresh_token' => $refreshToken,
-        ];
-
-        Log::info('Shopee Access Token Refresh Request', [
-            'store_id' => $store->id,
-            'shop_id' => $shopId,
-        ]);
-
-        $response = $this->httpClient()->withHeaders([
-            'Content-Type' => 'application/json',
-        ])->post($url, $body);
-
-        $json = $response->json();
-        $data = $json['response'] ?? $json;
-
-        Log::info('Shopee - Refresh Access Token Response', [
-            'status' => $response->status(),
-            'has_access_token' => isset($data['access_token']),
-            'has_refresh_token' => isset($data['refresh_token']),
-            'error' => $json['error'] ?? null,
-            'message' => $json['message'] ?? null,
-        ]);
-
-        if (isset($data['access_token']) && isset($data['refresh_token'])) {
-            $store->update([
-                'access_token' => $data['access_token'],
-                'refresh_token' => $data['refresh_token'],
-                'token_expired_at' => Carbon::createFromTimestamp($data['expire_in'] + $timestamp)
-                    ->setTimezone('Asia/Jakarta'),
-            ]);
-
-            return true;
-        }
-
-        Log::error('Shopee - Failed to refresh access token', ['response' => $response->body()]);
-        return false;
     }
 
     protected function generateSign($path, $timestamp, $accessToken, $shopId)
@@ -156,13 +215,11 @@ class ShopeeService
             . "&time_to={$timeTo}"
             . "&page_size=100";
 
-        Log::info('Shopee - Fetching Order List', ['url' => $url]);
-        Log::info('Shopee - Params', [
+        Log::info('Shopee - Fetching Order List', [
             'partner_id' => $this->partnerId,
             'shop_id' => $shopId,
-            'access_token' => $accessToken,
-            'sign' => $sign,
-            'url' => $url,
+            'time_from' => $timeFrom,
+            'time_to' => $timeTo,
         ]);
 
 

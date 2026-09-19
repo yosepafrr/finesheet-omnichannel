@@ -13,7 +13,6 @@ use App\Services\InitialOrderSyncDispatcher;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Http;
 
 class ShopeeController extends Controller
 {
@@ -21,18 +20,40 @@ class ShopeeController extends Controller
     {
         $partnerId = config('shopee.partner_id');
         $partnerKey = config('shopee.partner_key');
+        $redirectUrl = config('shopee.redirect_uri');
+        $baseUrl = rtrim((string) config('shopee.base_url'), '/');
+
+        if (empty($partnerId) || empty($partnerKey) || empty($redirectUrl) || empty($baseUrl)) {
+            Log::error('Shopee authorization configuration is incomplete', [
+                'has_partner_id' => !empty($partnerId),
+                'has_partner_key' => !empty($partnerKey),
+                'redirect_uri' => $redirectUrl,
+                'base_url' => $baseUrl,
+            ]);
+
+            return redirect('/#/stores')->with(
+                'error',
+                'Konfigurasi otorisasi Shopee belum lengkap. Hubungi administrator.'
+            );
+        }
+
+        if (app()->isProduction() && preg_match('/sandbox|test-stable/i', $baseUrl)) {
+            Log::error('Shopee production authorization points to a sandbox endpoint', [
+                'base_url' => $baseUrl,
+                'redirect_uri' => $redirectUrl,
+                'partner_id' => $partnerId,
+            ]);
+
+            return redirect('/#/stores')->with(
+                'error',
+                'Konfigurasi Shopee production masih menggunakan endpoint sandbox.'
+            );
+        }
+
         $timestamp = time();
         $path = '/api/v2/shop/auth_partner';
-
-
-
-
-        // HARUS pakai path, bukan redirectUrl di base_string
         $baseString = $partnerId . $path . $timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
-
-        $redirectUrl = config('shopee.redirect_uri'); // pastikan ini terdaftar di Shopee developer dashboard
-        $baseUrl = config('shopee.base_url');
         $url = "{$baseUrl}{$path}"
             . "?partner_id={$partnerId}"
             . "&timestamp={$timestamp}"
@@ -48,13 +69,8 @@ class ShopeeController extends Controller
         InitialOrderSyncDispatcher $initialOrderSync
     )
     {
-        $partnerId = config('shopee.partner_id');
-        $partnerKey = config('shopee.partner_key');
-        $timestamp = time();
-        $path = '/api/v2/auth/token/get';
-
         $code = $request->query('code');
-        $shopId = $request->query('shop_id');
+        $shopId = (int) $request->query('shop_id');
 
         Log::info('Shopee Callback received', [
             'has_code' => !empty($code),
@@ -63,70 +79,70 @@ class ShopeeController extends Controller
             'message' => $request->query('message'),
         ]);
 
-        if (empty($code) || empty($shopId)) {
+        if (empty($code) || $shopId <= 0) {
             Log::error('Shopee callback missing required query parameters', [
                 'has_code' => !empty($code),
                 'shop_id' => $shopId,
-                'query' => $request->query(),
             ]);
 
             return redirect('/#/stores')->with('error', 'Otorisasi Shopee gagal. Code atau shop_id tidak diterima.');
         }
 
-        $baseString = $partnerId . $path . $timestamp;
-        $sign = hash_hmac('sha256', $baseString, $partnerKey);
+        try {
+            $result = $shopee->exchangeAuthorizationCode((string) $code, $shopId);
+            if (empty($result['access_token']) || empty($result['refresh_token'])) {
+                Log::error('Shopee token exchange failed', [
+                    'shop_id' => $shopId,
+                    'error' => $result['error'] ?? null,
+                    'message' => $result['message'] ?? null,
+                    'request_id' => $result['request_id'] ?? null,
+                ]);
 
-        $baseUrl = config('shopee.base_url');
-        $url = "{$baseUrl}{$path}"
-            . "?partner_id={$partnerId}"
-            . "&timestamp={$timestamp}"
-            . "&sign={$sign}";
+                return redirect('/#/stores')->with(
+                    'error',
+                    'Otorisasi Shopee gagal: '.($result['message'] ?? 'token tidak diterima dari Shopee.')
+                );
+            }
 
-        $body = [
-            'code' => $code,
-            'shop_id' => (int)$shopId,
-        ];
+            $existingStore = Store::query()
+                ->where('platform', 'Shopee')
+                ->where('shopee_shop_id', (string) $shopId)
+                ->first();
 
-        Log::info('Shopee - Exchanging authorization code', [
-            'shop_id' => $shopId,
-        ]);
+            if ($existingStore && (int) $existingStore->user_id !== (int) Auth::id()) {
+                Log::warning('Shopee authorization rejected because shop belongs to another user', [
+                    'shop_id' => $shopId,
+                    'existing_store_id' => $existingStore->id,
+                    'request_user_id' => Auth::id(),
+                ]);
 
-        $http = app()->isLocal()
-            ? Http::timeout(30)->connectTimeout(10)->withoutVerifying()
-            : Http::timeout(30)->connectTimeout(10);
-        $response = $http
-            ->withBody(json_encode($body), 'application/json')
-            ->post($url);
-
-        $result = $response->json();
-
-        Log::info('Shopee - Token exchange response', [
-            'status' => $response->status(),
-            'has_access_token' => !empty($result['access_token']),
-            'has_refresh_token' => !empty($result['refresh_token']),
-            'error' => $result['error'] ?? null,
-            'message' => $result['message'] ?? null,
-        ]);
-
-        // Simpan data token jika berhasil
-        $shopData = $result;
-
-        if ($shopData && !empty($shopData['access_token']) && !empty($shopData['refresh_token'])) {
-            Log::info('Shopee - Saving Store Data', ['shop_id' => $shopId]);
+                return redirect('/#/stores')->with(
+                    'error',
+                    'Toko Shopee tersebut sudah terhubung ke akun Finesheet lain.'
+                );
+            }
 
             $accessToken = $result['access_token'];
             $refreshToken = $result['refresh_token'];
-            $tokenExpiredAt = Carbon::createFromTimestamp($result['expire_in'] + $timestamp)
-                ->setTimezone('Asia/Jakarta');
+            $tokenExpiredAt = now()->addSeconds((int) ($result['expire_in'] ?? 14400));
 
+            $temporaryStore = new Store([
+                'shopee_shop_id' => (string) $shopId,
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
+                'token_expired_at' => $tokenExpiredAt,
+            ]);
 
-            $store = new Store();
-            $store->shopee_shop_id = $shopId;
-            $store->access_token = $accessToken;
-            $store->refresh_token = $refreshToken;
-            $store->token_expired_at = $tokenExpiredAt;
+            try {
+                $shopInfo = $shopee->getShopProfile($temporaryStore);
+            } catch (\Throwable $profileException) {
+                $shopInfo = [];
+                Log::warning('Shopee shop profile could not be loaded during callback', [
+                    'shop_id' => $shopId,
+                    'error' => $profileException->getMessage(),
+                ]);
+            }
 
-            $shopInfo = $shopee->getShopProfile($store);
             Log::info('Shopee - Shop Info received', [
                 'shop_id' => $shopId,
                 'shop_name' => data_get($shopInfo, 'response.shop_name') ?? data_get($shopInfo, 'shop_name'),
@@ -140,40 +156,53 @@ class ShopeeController extends Controller
             $shopExpireTime = data_get($shopInfo, 'response.expire_time')
                 ?? data_get($shopInfo, 'expire_time');
 
-            $store =  Auth::user()->stores()->updateOrCreate(
-                ['shopee_shop_id' => $shopId],
-                [
-                    'platform'              => 'Shopee',
-                    'store_name'            => $shopName,
-                    'shop_expired_at'       => $shopExpireTime
-                        ? Carbon::createFromTimestamp($shopExpireTime)
-                        : now()->addYear(),
-                    'access_token'          => $accessToken,
-                    'refresh_token'         => $refreshToken,
-                    'token_expired_at'      => $tokenExpiredAt,
-                ]
-            );
+            $storeData = [
+                'platform' => 'Shopee',
+                'store_name' => $shopName,
+                'shop_expired_at' => $shopExpireTime
+                    ? Carbon::createFromTimestamp($shopExpireTime)
+                    : ($existingStore?->shop_expired_at ?? now()->addYear()),
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
+                'token_expired_at' => $tokenExpiredAt,
+            ];
 
-            // Log hasil penyimpanan
-            Log::info('Data store berhasil diupdate/ditambahkan', [
+            if ($existingStore) {
+                $existingStore->update($storeData);
+                $store = $existingStore->fresh();
+            } else {
+                $store = Auth::user()->stores()->create([
+                    'shopee_shop_id' => (string) $shopId,
+                    ...$storeData,
+                ]);
+            }
+
+            Log::info('Shopee store authorization saved', [
                 'store_id' => $store->id,
-                'data'     => $store->toArray()
+                'shop_id' => $shopId,
+                'user_id' => Auth::id(),
             ]);
 
             \App\Jobs\SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
             $initialOrderSync->dispatch($store);
 
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
+        } catch (\Throwable $e) {
+            $reference = substr(hash('sha256', $shopId.'|'.microtime(true)), 0, 10);
+            Log::error('Shopee callback failed', [
+                'reference' => $reference,
+                'shop_id' => $shopId,
+                'user_id' => Auth::id(),
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return redirect('/#/stores')->with(
+                'error',
+                "Otorisasi Shopee gagal diproses. Referensi: {$reference}."
+            );
         }
-
-        Log::error('Shopee token exchange failed', [
-            'shop_id' => $shopId,
-            'status' => $response->status(),
-            'error' => $result['error'] ?? null,
-            'message' => $result['message'] ?? null,
-        ]);
-
-        return redirect('/#/stores')->with('error', 'Otorisasi Shopee gagal. Token tidak diterima dari Shopee.');
     }
 
     public function updateProducts(Request $request, ShopeeService $shopee)

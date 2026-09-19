@@ -47,4 +47,7 @@ Schedule::call(function () {
 })->cron('10,40 * * * *')
     ->name('dispatch-scheduled-logistics-sync')
     ->withoutOverlapping(25);
-Schedule::command('tokens:refresh')->everyFifteenMinutes();
+Schedule::command('tokens:refresh')
+    ->everyFifteenMinutes()
+    ->name('refresh-marketplace-tokens')
+    ->withoutOverlapping(10);
