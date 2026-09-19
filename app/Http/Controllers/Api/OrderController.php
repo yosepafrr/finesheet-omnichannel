@@ -132,7 +132,7 @@ class OrderController extends Controller
                         return [
                             'product_name' => $firstProduct->product_name,
                             'model_name' => $firstProduct->model_name,
-                            'image' => $firstProduct->product->image ?? null,
+                            'image' => $firstProduct->product->image ?? $firstProduct->image,
                             'variant_image' => $variant ? $variant->variant_image : null,
                             'quantity' => $firstProduct->quantity_purchased,
                         ];
@@ -148,7 +148,7 @@ class OrderController extends Controller
                             'model_name' => $product->model_name,
                             'quantity_purchased' => $product->quantity_purchased,
                             'price' => $product->price,
-                            'image' => $product->product->image ?? null,
+                            'image' => $product->product->image ?? $product->image,
                             'variant_image' => $variant ? $variant->variant_image : null,
                         ];
                     }),
@@ -249,7 +249,7 @@ class OrderController extends Controller
                     'quantity_purchased' => $product->quantity_purchased,
                     'price' => $product->price,
                     'subtotal' => $product->price * $product->quantity_purchased,
-                    'image' => $product->product->image ?? null,
+                    'image' => $product->product->image ?? $product->image,
                     'variant_image' => $variant ? $variant->variant_image : null,
                 ];
             }),

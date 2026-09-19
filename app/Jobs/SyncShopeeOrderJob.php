@@ -113,6 +113,13 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                         $startTime->timestamp,
                         $endTime->timestamp
                     );
+
+                    if (!empty($orders['error'])) {
+                        throw new \RuntimeException(
+                            'Shopee order list API failed: '.$orders['error'].' - '
+                            .($orders['message'] ?? 'unknown error')
+                        );
+                    }
                     
                     // Pindahkan kursor waktu ke depan untuk iterasi selanjutnya
                     $cursorDate->addDays($intervalDays);
@@ -129,6 +136,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 
                     $orderSnList = array_column($orders['response']['order_list'], 'order_sn');
                     $chunks = array_chunk($orderSnList, 50);
+                    $escrowOrderSns = [];
 
                     foreach ($chunks as $chunk) {
                         // Refresh store model to get latest token
@@ -137,9 +145,10 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                         $detailsResponse = $shopee->getOrderDetails($store, $chunk);
 
                         if (empty($detailsResponse['response']['order_list'])) {
+                            $apiError = $detailsResponse['error'] ?? null;
                             Log::warning("No order details for store {$store->id}, saving with minimal data", [
                                 'order_sns' => $chunk,
-                                'api_error' => $detailsResponse['error'] ?? 'unknown',
+                                'api_error' => $apiError ?? 'unknown',
                                 'api_message' => $detailsResponse['message'] ?? 'unknown',
                             ]);
                             // Save orders with minimal data when details API fails
@@ -171,22 +180,19 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                     Log::error("Error saving minimal order {$orderSn}", ['message' => $e->getMessage()]);
                                 }
                             }
+
+                            if (!empty($apiError)) {
+                                throw new \RuntimeException(
+                                    "Shopee order detail API failed: {$apiError} - "
+                                    . ($detailsResponse['message'] ?? 'unknown error')
+                                );
+                            }
+
                             continue;
                         }
 
                         foreach ($detailsResponse['response']['order_list'] as $detail) {
                             try {
-                                // Try escrow but don't let it block order creation
-                                $escrow = [];
-                                try {
-                                    $escrowResponse = $shopee->getEscrowDetail($store, $detail['order_sn']);
-                                    $escrow = $escrowResponse['response'] ?? [];
-                                } catch (\Throwable $escrowEx) {
-                                    Log::warning("Escrow failed for {$detail['order_sn']}, saving order without escrow data", [
-                                        'error' => $escrowEx->getMessage()
-                                    ]);
-                                }
-
                                 $cancelSource = $detail['cancel_by'] ?? null;
                                 $cancelReason = $detail['cancel_reason'] ?? null;
                                 $buyerCancelReason = $detail['buyer_cancel_reason'] ?? null;
@@ -214,10 +220,6 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                             ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone'))
                                             : null,
                                         'message_to_seller' => $detail['message_to_seller'] ?? null,
-                                        'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
-                                        'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
-                                        'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
-                                        'fee_details' => $escrow['income_details'] ?? null,
                                         'quantity_purchased' => $detail['item_list'][0]['model_quantity_purchased'] ?? null,
                                         'product_id' => $detail['item_list'][0]['item_id'] ?? null,
                                         'raw_data' => $detail,
@@ -258,22 +260,27 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                     foreach ($detail['item_list'] as $shopeeItem) {
                                         $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
                                         $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
+                                        $modelName = !empty($shopeeItem['model_name'])
+                                            ? $shopeeItem['model_name']
+                                            : 'without variant';
                                         
                                         \App\Models\OrderProduct::updateOrCreate(
                                             [
                                                 'order_id' => $orderModel->id,
-                                                'product_id' => $shopeeItem['item_id']
+                                                'product_id' => $shopeeItem['item_id'],
+                                                'model_name' => $modelName,
                                             ],
                                             [
                                                 'product_name' => $shopeeItem['item_name'] ?? null,
                                                 'quantity_purchased' => $shopeeItem['model_quantity_purchased'] ?? 0,
                                                 'price' => $price,
                                                 'image' => $imageUrl,
-                                                'model_name' => $shopeeItem['model_name'] ?: 'without variant',
                                             ]
                                         );
                                     }
                                 }
+
+                                $escrowOrderSns[$detail['order_sn']] = true;
 
                                 // OrderCreated notification moved to Order::saved model event
                             } catch (\Throwable $inner) {
@@ -283,6 +290,32 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                 ]);
                                 continue;
                             }
+                        }
+                    }
+
+                    // Payment calls are intentionally last so a slow endpoint cannot
+                    // leave order details and products half-synchronized.
+                    foreach (array_keys($escrowOrderSns) as $orderSn) {
+                        try {
+                            $orderModel = Order::where('order_sn', $orderSn)->first();
+                            if (!$orderModel) {
+                                continue;
+                            }
+
+                            $escrowResponse = $shopee->getEscrowDetail($store, $orderSn);
+                            $escrow = $escrowResponse['response'] ?? [];
+                            if (!empty($escrow)) {
+                                $orderModel->update([
+                                    'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? $orderModel->order_selling_price,
+                                    'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? $orderModel->escrow_amount,
+                                    'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? $orderModel->escrow_amount_after_adjustment,
+                                    'fee_details' => $escrow['income_details'] ?? $orderModel->fee_details,
+                                ]);
+                            }
+                        } catch (\Throwable $escrowEx) {
+                            Log::warning("Escrow failed for {$orderSn}, order detail was still saved", [
+                                'error' => $escrowEx->getMessage()
+                            ]);
                         }
                     }
                 }
@@ -300,7 +333,11 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                 Log::error("Error syncing store {$store->id}", [
                     'message' => $e->getMessage()
                 ]);
-                // jangan throw biar job tetap dianggap sukses untuk store lain
+
+                if ($this->storeId) {
+                    throw $e;
+                }
+
                 continue;
             }
         }

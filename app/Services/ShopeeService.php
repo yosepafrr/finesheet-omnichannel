@@ -11,6 +11,34 @@ use RuntimeException;
 
 class ShopeeService
 {
+    private const ORDER_DETAIL_OPTIONAL_FIELDS = [
+        'buyer_user_id',
+        'buyer_username',
+        'estimated_shipping_fee',
+        'recipient_address',
+        'actual_shipping_fee',
+        'actual_shipping_fee_confirmed',
+        'goods_to_declare',
+        'note',
+        'note_update_time',
+        'item_list',
+        'pay_time',
+        'dropshipper',
+        'dropshipper_phone',
+        'split_up',
+        'buyer_cancel_reason',
+        'cancel_by',
+        'cancel_reason',
+        'fulfillment_flag',
+        'pickup_done_time',
+        'package_list',
+        'shipping_carrier',
+        'payment_method',
+        'total_amount',
+        'invoice_data',
+        'checkout_shipping_carrier',
+    ];
+
     protected $partnerId;
     protected $partnerKey;
     protected $baseUrl;
@@ -200,21 +228,7 @@ class ShopeeService
     // AMBIL DATA LIST ORDER
     public function getOrderList(string $accessToken, string $shopId, int $timeFrom, int $timeTo)
     {
-        $timestamp = time();
         $path = '/api/v2/order/get_order_list';
-        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
-
-        $url = "{$this->baseUrl}{$path}"
-            . "?partner_id={$this->partnerId}"
-            . "&timestamp={$timestamp}"
-            . "&sign={$sign}"
-            . "&access_token={$accessToken}"
-            . "&shop_id={$shopId}"
-            . "&time_range_field=update_time"
-            . "&time_from={$timeFrom}"
-            . "&time_to={$timeTo}"
-            . "&page_size=100";
-
         Log::info('Shopee - Fetching Order List', [
             'partner_id' => $this->partnerId,
             'shop_id' => $shopId,
@@ -222,10 +236,68 @@ class ShopeeService
             'time_to' => $timeTo,
         ]);
 
+        $cursor = '';
+        $allOrders = [];
+        $result = [];
+        $page = 0;
 
-        $response = $this->httpClient()->get($url);
+        do {
+            $page++;
+            $timestamp = time();
+            $params = [
+                'partner_id' => $this->partnerId,
+                'timestamp' => $timestamp,
+                'sign' => $this->generateSign($path, $timestamp, $accessToken, $shopId),
+                'access_token' => $accessToken,
+                'shop_id' => $shopId,
+                'time_range_field' => 'update_time',
+                'time_from' => $timeFrom,
+                'time_to' => $timeTo,
+                'page_size' => 100,
+            ];
 
-        return $response->json();
+            if ($cursor !== '') {
+                $params['cursor'] = $cursor;
+            }
+
+            $response = $this->httpClient()->get("{$this->baseUrl}{$path}", $params);
+            $result = $response->json() ?? [];
+
+            if (!empty($result['error'])) {
+                return $result;
+            }
+
+            $pageOrders = $result['response']['order_list'] ?? [];
+            foreach ($pageOrders as $order) {
+                if (!empty($order['order_sn'])) {
+                    $allOrders[$order['order_sn']] = $order;
+                }
+            }
+
+            $hasMore = (bool) ($result['response']['more'] ?? false);
+            $nextCursor = (string) ($result['response']['next_cursor'] ?? '');
+
+            if ($hasMore && ($nextCursor === '' || $nextCursor === $cursor)) {
+                Log::warning('Shopee order pagination stopped because cursor did not advance', [
+                    'shop_id' => $shopId,
+                    'page' => $page,
+                ]);
+                break;
+            }
+
+            $cursor = $nextCursor;
+        } while ($hasMore && $page < 100);
+
+        data_set($result, 'response.order_list', array_values($allOrders));
+        data_set($result, 'response.more', false);
+
+        Log::info('Shopee - Order List fetched', [
+            'shop_id' => $shopId,
+            'pages' => $page,
+            'orders' => count($allOrders),
+        ]);
+
+        return $result;
     }
 
     // AMBIL DATA LIST RETURN
@@ -273,23 +345,35 @@ class ShopeeService
         $shop_id = $store->shopee_shop_id;
         $access_token = $this->ensureValidToken($store);
 
-        $path = "/api/v2/order/get_order_detail";
+        $path = '/api/v2/order/get_order_detail';
         $timestamp = time();
 
         $base_string = $this->partnerId . $path . $timestamp . $access_token . $shop_id;
         $sign = hash_hmac('sha256', $base_string, $this->partnerKey);
 
-        $response = $this->httpClient()->get("{$this->baseUrl}/api/v2/order/get_order_detail", [
+        $response = $this->httpClient()->get("{$this->baseUrl}{$path}", [
             'partner_id' => $this->partnerId,
             'timestamp' => $timestamp,
             'sign' => $sign,
             'shop_id' => $shop_id,
             'access_token' => $access_token,
             'order_sn_list' => implode(',', $orderSnList),
-            "response_optional_fields" => "item_list,cancel_reason,cancel_by,buyer_cancel_reason",
+            'response_optional_fields' => implode(',', self::ORDER_DETAIL_OPTIONAL_FIELDS),
         ]);
 
-        return json_decode($response->getBody(), true);
+        $result = $response->json() ?? [];
+
+        if (!empty($result['error'])) {
+            Log::warning('Shopee order detail API returned an error', [
+                'shop_id' => $shop_id,
+                'order_count' => count($orderSnList),
+                'error' => $result['error'],
+                'message' => $result['message'] ?? null,
+                'request_id' => $result['request_id'] ?? null,
+            ]);
+        }
+
+        return $result;
     }
 
     // AMBIL DATA UANG SETELAH DIPOTONG

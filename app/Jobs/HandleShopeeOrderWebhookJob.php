@@ -21,6 +21,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
 
     public $tries = 3;
     public $timeout = 60;
+    public $backoff = [10, 30, 60];
 
     protected $shopId;
     protected $orderSn;
@@ -52,23 +53,40 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
             $detailsResponse = $shopee->getOrderDetails($store, [$this->orderSn]);
 
             if (empty($detailsResponse['response']['order_list'])) {
-                Log::warning("No order details found from Shopee for {$this->orderSn}");
-                return;
+                $message = $detailsResponse['message'] ?? 'order detail is not available yet';
+                Log::warning("No order details found from Shopee for {$this->orderSn}", [
+                    'error' => $detailsResponse['error'] ?? null,
+                    'message' => $message,
+                ]);
+
+                throw new \RuntimeException("Shopee order detail unavailable: {$message}");
             }
 
             $detail = $detailsResponse['response']['order_list'][0];
-
-            // Ambil detail escrow/income (Opsional, tapi penting untuk harga)
-            $escrowResponse = $shopee->getEscrowDetail($store, $this->orderSn);
-            $escrow = $escrowResponse['response'] ?? [];
-            $firstItem = $escrow['order_income']['items'][0] ?? null;
+            $cancelSource = $detail['cancel_by'] ?? null;
+            $cancelReason = $detail['cancel_reason'] ?? null;
+            $buyerCancelReason = $detail['buyer_cancel_reason'] ?? null;
+            $normalizedCancelCategory = null;
+            if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || !empty($cancelSource) || !empty($cancelReason)) {
+                $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize(
+                    'Shopee',
+                    $cancelSource,
+                    $cancelReason,
+                    $buyerCancelReason
+                );
+            }
 
             $orderModel = Order::updateOrCreate(
                 ['order_sn' => $detail['order_sn']],
                 [
                     'store_id' => $store->id,
+                    'platform' => 'Shopee',
                     'booking_sn' => $detail['booking_sn'] ?? null,
                     'order_status' => $detail['order_status'] ?? null,
+                    'cancel_source' => $cancelSource,
+                    'cancel_reason' => $cancelReason,
+                    'buyer_cancel_reason' => $buyerCancelReason,
+                    'normalized_cancel_category' => $normalizedCancelCategory,
                     'order_time' => isset($detail['create_time'])
                         ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone'))
                         : now(),
@@ -77,36 +95,78 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
                         ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone'))
                         : null,
                     'message_to_seller' => $detail['message_to_seller'] ?? null,
-                    'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
-                    'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
-                    'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
-                    'quantity_purchased' => $firstItem['quantity_purchased'] ?? null,
-                    'product_id' => $firstItem['item_id'] ?? null,
+                    'raw_data' => $detail,
                 ]
             );
+
+            if (!empty($detail['package_list'])) {
+                foreach ($detail['package_list'] as $package) {
+                    \App\Models\OrderPackage::updateOrCreate(
+                        [
+                            'order_id' => $orderModel->id,
+                            'package_id' => $package['package_number'] ?? $orderModel->order_sn,
+                        ],
+                        [
+                            'platform' => 'Shopee',
+                            'tracking_number' => $package['tracking_number'] ?? null,
+                            'logistics_status' => $package['logistics_status'] ?? null,
+                            'normalized_logistics_status' => ($package['logistics_status'] ?? '') === 'LOGISTICS_DELIVERY_FAILED'
+                                ? 'DELIVERY_FAILED'
+                                : null,
+                            'raw_data' => $package,
+                        ]
+                    );
+                }
+            } else {
+                \App\Models\OrderPackage::firstOrCreate(
+                    [
+                        'order_id' => $orderModel->id,
+                        'package_id' => $orderModel->order_sn,
+                    ],
+                    ['platform' => 'Shopee']
+                );
+            }
 
             if (!empty($detail['item_list'])) {
                 foreach ($detail['item_list'] as $shopeeItem) {
                     $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
                     $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
-                    
+                    $modelName = !empty($shopeeItem['model_name'])
+                        ? $shopeeItem['model_name']
+                        : 'without variant';
+
                     OrderProduct::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
-                            'product_id' => $shopeeItem['item_id']
+                            'product_id' => $shopeeItem['item_id'],
+                            'model_name' => $modelName,
                         ],
                         [
                             'product_name' => $shopeeItem['item_name'] ?? null,
                             'quantity_purchased' => $shopeeItem['model_quantity_purchased'] ?? 0,
                             'price' => $price,
-                            'model_name' => $shopeeItem['model_name'] ?? null,
-                            'image_url' => $imageUrl,
+                            'image' => $imageUrl,
                         ]
                     );
                 }
             }
 
-            // OrderCreated notification moved to Order::saved model event
+            try {
+                $escrowResponse = $shopee->getEscrowDetail($store, $this->orderSn);
+                $escrow = $escrowResponse['response'] ?? [];
+                if (!empty($escrow)) {
+                    $orderModel->update([
+                        'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? $orderModel->order_selling_price,
+                        'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? $orderModel->escrow_amount,
+                        'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? $orderModel->escrow_amount_after_adjustment,
+                        'fee_details' => $escrow['income_details'] ?? $orderModel->fee_details,
+                    ]);
+                }
+            } catch (\Throwable $escrowException) {
+                Log::warning("Escrow failed for {$this->orderSn}, webhook order detail was still saved", [
+                    'error' => $escrowException->getMessage(),
+                ]);
+            }
 
             Log::info("HandleShopeeOrderWebhookJob successfully completed for {$this->orderSn}");
         } catch (\Throwable $e) {
