@@ -7,7 +7,10 @@ use App\Jobs\SyncTiktokUnsettledJob;
 use App\Models\Order;
 use App\Models\Store;
 use App\Services\TiktokEscrowAmountResolver;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Bus\Dispatcher;
+use Illuminate\Contracts\Cache\Repository as Cache;
 
 class SyncTiktokEscrowCommand extends Command
 {
@@ -68,12 +71,16 @@ class SyncTiktokEscrowCommand extends Command
             ->pluck('store_id');
 
         $unsettledQueued = 0;
+        $unsettledSkipped = 0;
         Store::query()
             ->where('platform', 'Tiktokshop')
             ->whereIn('id', $storeIds)
-            ->each(function (Store $store) use (&$unsettledQueued) {
-                SyncTiktokUnsettledJob::dispatch($store->id)->onQueue('orders-low');
-                $unsettledQueued++;
+            ->each(function (Store $store) use (&$unsettledQueued, &$unsettledSkipped) {
+                if ($this->dispatchUnsettled($store)) {
+                    $unsettledQueued++;
+                } else {
+                    $unsettledSkipped++;
+                }
             });
 
         $settledQueued = 0;
@@ -99,9 +106,29 @@ class SyncTiktokEscrowCommand extends Command
             });
 
         $this->info(
-            "{$unsettledQueued} sinkronisasi unsettled per toko dan {$settledQueued} sinkronisasi settled per pesanan dimasukkan ke antrean orders-low."
+            "{$unsettledQueued} sinkronisasi unsettled dan {$settledQueued} sinkronisasi settled dimasukkan ke antrean orders-low; {$unsettledSkipped} unsettled dilewati karena sudah antre/berjalan."
         );
 
         return self::SUCCESS;
+    }
+
+    private function dispatchUnsettled(Store $store): bool
+    {
+        $job = (new SyncTiktokUnsettledJob($store->id))->onQueue('orders-low');
+        $lock = new UniqueLock(app(Cache::class));
+
+        if (! $lock->acquire($job)) {
+            return false;
+        }
+
+        try {
+            app(Dispatcher::class)->dispatch($job);
+
+            return true;
+        } catch (\Throwable $e) {
+            $lock->release($job);
+
+            throw $e;
+        }
     }
 }

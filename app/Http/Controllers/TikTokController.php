@@ -71,12 +71,14 @@ class TikTokController extends Controller
 
         // Take the first authorized shop
         $shopId = $shopList[0]['cipher'] ?? $shopList[0]['id'] ?? 'unknown';
+        $platformShopId = $shopList[0]['id'] ?? null;
         $shopName = $shopList[0]['name'] ?? 'Toko TikTok';
 
         $store = Auth::user()->stores()->updateOrCreate(
             ['shopee_shop_id' => $shopId], // Reusing shopee_shop_id for tiktok shop_id/cipher to save schema
             [
                 'platform' => 'Tiktokshop',
+                'platform_shop_id' => $platformShopId,
                 'store_name' => $shopName,
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,

@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Services\TiktokService;
+use App\Services\TiktokStoreResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
@@ -25,20 +27,11 @@ class HandleTiktokProductWebhookJob implements ShouldQueue
         $this->productId = $productId;
     }
 
-    public function handle()
+    public function handle(TiktokService $tiktok, TiktokStoreResolver $storeResolver)
     {
         Log::info("HandleTiktokProductWebhookJob started for Product: {$this->productId}");
 
-        // Di database, tiktok_shop_id disimpan sebagai Cipher (ROW_...) di dalam kolom shopee_shop_id.
-        // Webhook TikTok mengirimkan shop_id berupa angka (numeric).
-        // Sehingga pencarian strict menggunakan $this->shopId akan gagal.
-        // Solusi sementara: Ambil toko TikTok pertama milik user, ATAU cari berdasarkan platform.
-        $store = \App\Models\Store::where('platform', 'Tiktokshop')
-                      ->where(function($query) {
-                          $query->where('shopee_shop_id', $this->shopId)
-                                ->orWhere('shopee_shop_id', 'LIKE', 'ROW_%');
-                      })
-                      ->first();
+        $store = $storeResolver->resolve($this->shopId);
 
         if (!$store) {
             Log::warning("TikTok Store not found for shop_id: {$this->shopId}");
@@ -46,7 +39,6 @@ class HandleTiktokProductWebhookJob implements ShouldQueue
         }
 
         try {
-            $tiktok = new \App\Services\TiktokService();
             $tiktok->ensureValidToken($store);
 
             $detailResponse = $tiktok->getProductDetail($store, $this->productId);

@@ -15,6 +15,7 @@ class Store extends Model
         'refresh_token',
         'token_expired_at',
         'shopee_shop_id',
+        'platform_shop_id',
         'user_id'
     ];
 

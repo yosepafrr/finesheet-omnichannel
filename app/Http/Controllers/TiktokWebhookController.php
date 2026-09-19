@@ -120,10 +120,19 @@ class TiktokWebhookController extends Controller
                 HandleTiktokOrderWebhookJob::dispatch($shopId, $orderId)->onQueue('orders');
             }
 
-            $store = \App\Models\Store::where('platform', 'Tiktokshop')
-                ->where(function($query) use ($shopId) {
-                    $query->where('shopee_shop_id', $shopId)
-                          ->orWhere('shopee_shop_id', 'LIKE', 'ROW_%');
+            $store = $orderId
+                ? \App\Models\Order::query()
+                    ->where('platform', 'Tiktokshop')
+                    ->where('order_sn', $orderId)
+                    ->with('store')
+                    ->first()?->store
+                : null;
+
+            $store ??= \App\Models\Store::query()
+                ->where('platform', 'Tiktokshop')
+                ->where(function ($query) use ($shopId) {
+                    $query->where('platform_shop_id', (string) $shopId)
+                        ->orWhere('shopee_shop_id', (string) $shopId);
                 })
                 ->first();
 
