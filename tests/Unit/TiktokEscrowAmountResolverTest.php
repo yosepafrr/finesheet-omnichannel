@@ -28,20 +28,37 @@ class TiktokEscrowAmountResolverTest extends TestCase
         $this->assertSame(223000.0, $amount);
     }
 
-    public function test_unsettled_prefers_the_official_aggregate_amount(): void
+    public function test_unsettled_ignores_the_shop_aggregate_and_uses_matching_order_transactions(): void
     {
         $result = $this->resolver->unsettled([
             'code' => 0,
             'data' => [
-                'sum_est_settlement_amount' => '125078',
+                'sum_est_settlement_amount' => '16977387',
                 'transactions' => [
                     ['order_id' => 'ORDER-1', 'est_settlement_amount' => '100000'],
+                    ['order_id' => 'ORDER-1', 'est_settlement_amount' => '25078'],
+                    ['order_id' => 'ORDER-2', 'est_settlement_amount' => '999999'],
                 ],
             ],
         ], 'ORDER-1');
 
         $this->assertSame(125078.0, $result['amount']);
         $this->assertSame('unsettled', $result['details']['source']);
+    }
+
+    public function test_unsettled_rejects_an_aggregate_when_the_order_is_not_in_the_page(): void
+    {
+        $result = $this->resolver->unsettled([
+            'code' => 0,
+            'data' => [
+                'sum_est_settlement_amount' => '16977387',
+                'transactions' => [
+                    ['order_id' => 'ORDER-2', 'est_settlement_amount' => '999999'],
+                ],
+            ],
+        ], 'ORDER-1');
+
+        $this->assertNull($result);
     }
 
     public function test_unsettled_can_sum_transactions_when_the_aggregate_is_absent(): void
@@ -82,7 +99,9 @@ class TiktokEscrowAmountResolverTest extends TestCase
             'code' => 0,
             'data' => [
                 'sum_est_settlement_amount' => '0',
-                'transactions' => [],
+                'transactions' => [
+                    ['order_id' => 'ORDER-1', 'est_settlement_amount' => '0'],
+                ],
             ],
         ], 'ORDER-1');
 
@@ -91,9 +110,34 @@ class TiktokEscrowAmountResolverTest extends TestCase
 
     public function test_completed_order_keeps_refreshing_until_settled_data_is_available(): void
     {
-        $this->assertTrue($this->resolver->needsRefresh(null, 'IN_TRANSIT'));
-        $this->assertFalse($this->resolver->needsRefresh(['source' => 'unsettled'], 'IN_TRANSIT'));
-        $this->assertTrue($this->resolver->needsRefresh(['source' => 'unsettled'], 'COMPLETED'));
-        $this->assertFalse($this->resolver->needsRefresh(['source' => 'settled'], 'COMPLETED'));
+        $unsettled = [
+            'source' => 'unsettled',
+            'transactions' => [['est_settlement_amount' => '125078']],
+        ];
+        $settled = [
+            'source' => 'settled',
+            'summary' => ['settlement_amount' => '120500'],
+        ];
+
+        $this->assertTrue($this->resolver->needsRefresh(null, 'IN_TRANSIT', 125078));
+        $this->assertFalse($this->resolver->needsRefresh($unsettled, 'IN_TRANSIT', 125078));
+        $this->assertTrue($this->resolver->needsRefresh($unsettled, 'COMPLETED', 125078));
+        $this->assertFalse($this->resolver->needsRefresh($settled, 'COMPLETED', 120500));
+    }
+
+    public function test_shop_aggregate_saved_as_order_escrow_is_invalid(): void
+    {
+        $corruptedDetails = [
+            'source' => 'unsettled',
+            'summary' => ['sum_est_settlement_amount' => '16977387'],
+            'transactions' => [['est_settlement_amount' => '125078']],
+        ];
+
+        $this->assertFalse(
+            $this->resolver->hasValidStoredAmount($corruptedDetails, 16977387)
+        );
+        $this->assertTrue(
+            $this->resolver->needsRefresh($corruptedDetails, 'IN_TRANSIT', 16977387)
+        );
     }
 }

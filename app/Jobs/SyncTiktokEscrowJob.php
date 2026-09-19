@@ -73,11 +73,15 @@ class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
         $tiktok->ensureValidToken($store);
 
         $existingFeeDetails = $orderModel->fee_details;
-        $escrowAmount = empty($existingFeeDetails)
-            ? $resolver->fallbackForOrder($orderModel)
-            : (float) $orderModel->escrow_amount;
+        $hasValidExistingAmount = $resolver->hasValidStoredAmount(
+            $existingFeeDetails,
+            $orderModel->escrow_amount
+        );
+        $escrowAmount = $hasValidExistingAmount
+            ? (float) $orderModel->escrow_amount
+            : $resolver->fallbackForOrder($orderModel);
 
-        if (empty($existingFeeDetails) && $escrowAmount <= 0 && is_numeric($this->fallbackSalePrice)) {
+        if (!$hasValidExistingAmount && $escrowAmount <= 0 && is_numeric($this->fallbackSalePrice)) {
             $escrowAmount = (float) $this->fallbackSalePrice;
         }
 
@@ -115,7 +119,8 @@ class SyncTiktokEscrowJob implements ShouldQueue, ShouldBeUnique
 
         $orderModel->update([
             'escrow_amount' => $escrowAmount,
-            'fee_details' => $financeResult['details'] ?? $existingFeeDetails,
+            'fee_details' => $financeResult['details']
+                ?? ($hasValidExistingAmount ? $existingFeeDetails : null),
         ]);
 
         Log::info("TikTok Escrow Synced", [

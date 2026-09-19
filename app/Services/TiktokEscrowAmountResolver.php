@@ -6,14 +6,52 @@ use App\Models\Order;
 
 class TiktokEscrowAmountResolver
 {
-    public function needsRefresh(?array $financeDetails, ?string $status): bool
+    public function needsRefresh(?array $financeDetails, ?string $status, $storedAmount = null): bool
     {
-        if (empty($financeDetails)) {
+        if (!$this->hasValidStoredAmount($financeDetails, $storedAmount)) {
             return true;
         }
 
         return strtoupper((string) $status) === 'COMPLETED'
             && ($financeDetails['source'] ?? null) !== 'settled';
+    }
+
+    public function hasValidStoredAmount(?array $financeDetails, $storedAmount): bool
+    {
+        if (empty($financeDetails) || !is_numeric($storedAmount)) {
+            return false;
+        }
+
+        $source = $financeDetails['source'] ?? null;
+        if ($source === 'unsettled') {
+            $amounts = $this->transactionAmounts(
+                $financeDetails['transactions'] ?? [],
+                'est_settlement_amount'
+            );
+
+            return $amounts !== []
+                && abs(array_sum($amounts) - (float) $storedAmount) < 0.01;
+        }
+
+        if ($source === 'settled') {
+            $settledAmount = $financeDetails['summary']['settlement_amount'] ?? null;
+
+            return is_numeric($settledAmount)
+                && abs((float) $settledAmount - (float) $storedAmount) < 0.01;
+        }
+
+        // Finance details saved by the previous implementation were a raw list.
+        if (array_is_list($financeDetails)) {
+            $amounts = $this->transactionAmounts($financeDetails, 'est_settlement_amount');
+            if ($amounts === []) {
+                $amounts = $this->transactionAmounts($financeDetails, 'settlement_amount');
+            }
+
+            return $amounts !== []
+                && abs(array_sum($amounts) - (float) $storedAmount) < 0.01;
+        }
+
+        return false;
     }
 
     public function fallbackSalePrice(array $order): float
@@ -44,35 +82,29 @@ class TiktokEscrowAmountResolver
         }
 
         $data = $response['data'];
-        $transactions = array_values(array_filter(
+        $allTransactions = array_values(array_filter(
             $data['transactions'] ?? [],
-            fn (array $transaction) => !isset($transaction['order_id'])
-                || (string) $transaction['order_id'] === $orderId
+            fn ($transaction) => is_array($transaction)
+        ));
+        $transactions = array_values(array_filter(
+            $allTransactions,
+            fn (array $transaction) => isset($transaction['order_id'])
+                && (string) $transaction['order_id'] === $orderId
         ));
 
-        if ($this->hasNumericAmount($data, 'sum_est_settlement_amount')) {
-            return $this->result(
-                $this->numericAmount($data['sum_est_settlement_amount']),
-                'unsettled',
-                $data,
-                $transactions
-            );
+        // Some response variants omit order_id when exactly one filtered row is
+        // returned. Never use the shop-wide aggregate for a multi-row response.
+        if ($transactions === [] && count($allTransactions) === 1 && !isset($allTransactions[0]['order_id'])) {
+            $transactions = $allTransactions;
         }
 
-        $amounts = array_values(array_filter(
-            array_map(
-                fn (array $transaction) => $transaction['est_settlement_amount'] ?? null,
-                $transactions
-            ),
-            fn ($amount) => is_numeric($amount)
-        ));
-
+        $amounts = $this->transactionAmounts($transactions, 'est_settlement_amount');
         if ($amounts === []) {
             return null;
         }
 
         return $this->result(
-            array_sum(array_map('floatval', $amounts)),
+            array_sum($amounts),
             'unsettled',
             $data,
             $transactions
@@ -96,20 +128,14 @@ class TiktokEscrowAmountResolver
         }
 
         $transactions = $data['statement_transactions'] ?? [];
-        $amounts = array_values(array_filter(
-            array_map(
-                fn (array $transaction) => $transaction['settlement_amount'] ?? null,
-                $transactions
-            ),
-            fn ($amount) => is_numeric($amount)
-        ));
+        $amounts = $this->transactionAmounts($transactions, 'settlement_amount');
 
         if ($amounts === []) {
             return null;
         }
 
         return $this->result(
-            array_sum(array_map('floatval', $amounts)),
+            array_sum($amounts),
             'settled',
             $data,
             $transactions
@@ -140,5 +166,19 @@ class TiktokEscrowAmountResolver
     private function numericAmount($amount): float
     {
         return is_numeric($amount) ? (float) $amount : 0.0;
+    }
+
+    private function transactionAmounts(array $transactions, string $key): array
+    {
+        return array_values(array_map(
+            'floatval',
+            array_filter(
+                array_map(
+                    fn ($transaction) => is_array($transaction) ? ($transaction[$key] ?? null) : null,
+                    $transactions
+                ),
+                fn ($amount) => is_numeric($amount)
+            )
+        ));
     }
 }

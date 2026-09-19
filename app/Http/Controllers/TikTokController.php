@@ -208,7 +208,11 @@ class TikTokController extends Controller
                     $fallbackSalePrice = $escrowResolver->fallbackSalePrice($order);
                     $needsEscrowRefresh = $wasNew
                         || $previousStatus !== $incomingStatus
-                        || $escrowResolver->needsRefresh($orderModel->fee_details, $incomingStatus);
+                        || $escrowResolver->needsRefresh(
+                            $orderModel->fee_details,
+                            $incomingStatus,
+                            $orderModel->escrow_amount
+                        );
 
                     $orderModel->fill([
                         'platform' => 'Tiktokshop',

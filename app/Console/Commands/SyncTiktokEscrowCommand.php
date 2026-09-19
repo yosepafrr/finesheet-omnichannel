@@ -20,17 +20,25 @@ class SyncTiktokEscrowCommand extends Command
     public function handle(TiktokEscrowAmountResolver $resolver): int
     {
         $queued = 0;
+        $force = (bool) $this->option('force');
         $query = Order::query()
             ->where('platform', 'Tiktokshop')
             ->where('order_time', '>=', now()->subDays(max(1, (int) $this->option('days'))))
             ->when($this->option('store_id'), fn ($q, $storeId) => $q->where('store_id', (int) $storeId))
             ->when($this->option('order_sn'), fn ($q, $orderSn) => $q->where('order_sn', $orderSn))
-            ->when(!$this->option('force'), fn ($q) => $q->whereNull('fee_details'))
             ->with('orderProducts')
             ->orderBy('id');
 
-        $query->chunkById(100, function ($orders) use ($resolver, &$queued) {
+        $query->chunkById(100, function ($orders) use ($resolver, $force, &$queued) {
             foreach ($orders as $order) {
+                if (!$force && !$resolver->needsRefresh(
+                    $order->fee_details,
+                    $order->order_status,
+                    $order->escrow_amount
+                )) {
+                    continue;
+                }
+
                 SyncTiktokEscrowJob::dispatch(
                     $order->store_id,
                     $order->order_sn,
