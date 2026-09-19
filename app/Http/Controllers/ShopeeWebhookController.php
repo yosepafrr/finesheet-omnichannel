@@ -63,6 +63,11 @@ class ShopeeWebhookController extends Controller
                 'configured_url' => config('shopee.webhook_url'),
                 'forwarded_proto' => $request->header('X-Forwarded-Proto'),
                 'forwarded_host' => $request->header('X-Forwarded-Host'),
+                'diagnostics' => $signatureVerifier->diagnostics(
+                    $rawBody,
+                    $signature,
+                    $signatureUrls
+                ),
             ]);
 
             return response()->json(['error' => 'Invalid signature'], 401);

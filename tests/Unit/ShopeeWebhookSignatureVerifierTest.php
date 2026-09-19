@@ -44,4 +44,19 @@ class ShopeeWebhookSignatureVerifierTest extends TestCase
         $this->assertFalse($verifier->verify('{"code":0}', null));
         $this->assertFalse($verifier->verify('{"code":0}', 'invalid'));
     }
+
+    public function test_it_reports_signature_strategy_without_exposing_the_signature(): void
+    {
+        $key = 'test-partner-key';
+        $url = 'https://finesheet.id/webhook/shopee';
+        $body = '{"code":0}';
+        $signature = hash_hmac('sha256', $body, $key);
+        $verifier = new ShopeeWebhookSignatureVerifier($key, $url);
+
+        $diagnostics = $verifier->diagnostics($body, $signature);
+
+        $this->assertSame(['hmac_body'], $diagnostics['matches']);
+        $this->assertSame(strlen($body), $diagnostics['body_length']);
+        $this->assertArrayNotHasKey('signature', $diagnostics);
+    }
 }
