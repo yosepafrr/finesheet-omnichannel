@@ -4,6 +4,8 @@ use App\Jobs\SyncShopeeOrderJob;
 use App\Jobs\SyncShopeeProductJob;
 use App\Jobs\SyncStoreLogisticsJob;
 use App\Jobs\SyncTiktokOrderJob;
+use App\Jobs\SyncTiktokProductJob;
+use App\Jobs\SyncTiktokUnsettledJob;
 use App\Models\Store;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -31,8 +33,8 @@ Schedule::call(function () {
     ->withoutOverlapping(25);
 
 Schedule::call(function () {
-    dispatch(new SyncShopeeProductJob())->onQueue('products');
-    dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
+    dispatch(new SyncShopeeProductJob)->onQueue('products');
+    dispatch(new SyncTiktokProductJob)->onQueue('products');
 })->hourly();
 
 Schedule::call(function () {
@@ -50,4 +52,17 @@ Schedule::call(function () {
 Schedule::command('tokens:refresh')
     ->everyFifteenMinutes()
     ->name('refresh-marketplace-tokens')
+    ->withoutOverlapping(10);
+
+Schedule::call(function () {
+    Store::query()
+        ->where('platform', 'Tiktokshop')
+        ->select('id')
+        ->chunkById(100, function ($stores) {
+            foreach ($stores as $store) {
+                SyncTiktokUnsettledJob::dispatch($store->id)->onQueue('orders-low');
+            }
+        });
+})->everyFifteenMinutes()
+    ->name('dispatch-tiktok-unsettled-sync')
     ->withoutOverlapping(10);

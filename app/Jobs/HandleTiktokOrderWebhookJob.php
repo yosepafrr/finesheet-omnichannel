@@ -2,26 +2,35 @@
 
 namespace App\Jobs;
 
-use Illuminate\Bus\Queueable;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
-use Illuminate\Foundation\Bus\Dispatchable;
+use App\Models\Order;
+use App\Models\OrderPackage;
+use App\Models\OrderProduct;
+use App\Models\Store;
 use App\Services\LogisticsStatusNormalizer;
+use App\Services\OrderCancellationMapper;
 use App\Services\TiktokEscrowAmountResolver;
 use App\Services\TiktokService;
+use Carbon\Carbon;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
-class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
+class HandleTiktokOrderWebhookJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
+
     public $timeout = 60;
+
     public $uniqueFor = 300;
 
     protected $shopId;
+
     protected $orderId;
 
     public function __construct($shopId, $orderId)
@@ -32,29 +41,29 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 
     public function uniqueId(): string
     {
-        return $this->shopId . ':' . $this->orderId;
+        return $this->shopId.':'.$this->orderId;
     }
 
     public function handle(
         TiktokService $tiktok,
         TiktokEscrowAmountResolver $escrowResolver
-    )
-    {
+    ) {
         Log::info("HandleTiktokOrderWebhookJob started for Order: {$this->orderId}");
 
         // Di database, tiktok_shop_id disimpan sebagai Cipher (ROW_...) di dalam kolom shopee_shop_id.
         // Webhook TikTok mengirimkan shop_id berupa angka (numeric).
         // Sehingga pencarian strict menggunakan $this->shopId akan gagal.
         // Solusi sementara: Ambil toko TikTok pertama milik user, ATAU cari berdasarkan platform.
-        $store = \App\Models\Store::where('platform', 'Tiktokshop')
-                      ->where(function($query) {
-                          $query->where('shopee_shop_id', $this->shopId)
-                                ->orWhere('shopee_shop_id', 'LIKE', 'ROW_%');
-                      })
-                      ->first();
+        $store = Store::where('platform', 'Tiktokshop')
+            ->where(function ($query) {
+                $query->where('shopee_shop_id', $this->shopId)
+                    ->orWhere('shopee_shop_id', 'LIKE', 'ROW_%');
+            })
+            ->first();
 
-        if (!$store) {
+        if (! $store) {
             Log::warning("TikTok Store not found for shop_id: {$this->shopId}");
+
             return;
         }
 
@@ -66,6 +75,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 
             if (empty($orders)) {
                 Log::warning("No order details found from TikTok for {$this->orderId}");
+
                 return;
             }
 
@@ -75,13 +85,13 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             $cancelReason = $order['cancel_reason'] ?? null;
             $normalizedCancelCategory = null;
             if (in_array($order['status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
-                if (!empty($cancelSource) || !empty($cancelReason)) {
-                    $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
+                if (! empty($cancelSource) || ! empty($cancelReason)) {
+                    $normalizedCancelCategory = OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
                 }
             }
 
-            $orderModel = \App\Models\Order::firstOrNew(['order_sn' => $order['id']]);
-            $wasNew = !$orderModel->exists;
+            $orderModel = Order::firstOrNew(['order_sn' => $order['id']]);
+            $wasNew = ! $orderModel->exists;
             $previousStatus = $orderModel->order_status;
             $incomingStatus = $order['status'] ?? null;
             $fallbackSalePrice = $escrowResolver->fallbackSalePrice($order);
@@ -100,7 +110,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 'cancel_source' => $cancelSource,
                 'cancel_reason' => $cancelReason,
                 'normalized_cancel_category' => $normalizedCancelCategory,
-                'order_time' => isset($order['create_time']) ? \Carbon\Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
+                'order_time' => isset($order['create_time']) ? Carbon::createFromTimestamp($order['create_time'])->setTimezone(config('app.timezone')) : now(),
                 'cod' => (isset($order['payment_method_name']) && strtoupper($order['payment_method_name']) === 'CASH ON DELIVERY' || (isset($order['is_cod']) && $order['is_cod'] === true)),
                 'message_to_seller' => $order['buyer_message'] ?? null,
                 'order_selling_price' => $order['payment']['total_amount'] ?? 0,
@@ -113,7 +123,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 
             $orderModel->save();
 
-            $orderPackage = \App\Models\OrderPackage::firstOrCreate(
+            $orderPackage = OrderPackage::firstOrCreate(
                 [
                     'order_id' => $orderModel->id,
                     'package_id' => $orderModel->order_sn,
@@ -132,19 +142,24 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
 
             // Fetch actual/estimated escrow in the background
             if ($needsEscrowRefresh) {
-                \App\Jobs\SyncTiktokEscrowJob::dispatch(
-                    $store->id,
-                    $order['id'],
-                    $incomingStatus ?? '',
-                    $fallbackSalePrice
-                )->onQueue('orders-low');
+                if (strtoupper((string) $incomingStatus) === 'COMPLETED') {
+                    SyncTiktokEscrowJob::dispatch(
+                        $store->id,
+                        $order['id'],
+                        $incomingStatus ?? '',
+                        $fallbackSalePrice
+                    )->onQueue('orders-low');
+                } else {
+                    SyncTiktokUnsettledJob::dispatch($store->id)
+                        ->onQueue('orders-low');
+                }
             }
 
-            if (!empty($order['line_items'])) {
+            if (! empty($order['line_items'])) {
                 $groupedItems = [];
                 foreach ($order['line_items'] as $item) {
-                    $key = $item['product_id'] . '_' . ($item['sku_name'] ?? 'without variant');
-                    if (!isset($groupedItems[$key])) {
+                    $key = $item['product_id'].'_'.($item['sku_name'] ?? 'without variant');
+                    if (! isset($groupedItems[$key])) {
                         $groupedItems[$key] = $item;
                         $groupedItems[$key]['computed_quantity'] = 1;
                     } else {
@@ -153,7 +168,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 }
 
                 foreach ($groupedItems as $item) {
-                    \App\Models\OrderProduct::updateOrCreate(
+                    OrderProduct::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
                             'product_id' => $item['product_id'],
@@ -175,7 +190,7 @@ class HandleTiktokOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         } catch (\Throwable $e) {
             Log::error("Error processing HandleTiktokOrderWebhookJob for {$this->orderId}", [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }

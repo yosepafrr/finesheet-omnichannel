@@ -9,6 +9,7 @@ use App\Jobs\SyncStoreLogisticsJob;
 use App\Jobs\SyncTiktokEscrowJob;
 use App\Jobs\SyncTiktokOrderJob;
 use App\Jobs\SyncTiktokProductJob;
+use App\Jobs\SyncTiktokUnsettledJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use PHPUnit\Framework\TestCase;
@@ -55,10 +56,14 @@ class QueueUniquenessTest extends TestCase
     public function test_tiktok_product_sync_is_unique_per_store(): void
     {
         $job = new SyncTiktokProductJob(12);
+        $unsettled = new SyncTiktokUnsettledJob(12);
 
         $this->assertInstanceOf(ShouldBeUnique::class, $job);
         $this->assertSame('12', $job->uniqueId());
         $this->assertSame(300, $job->timeout);
+        $this->assertInstanceOf(ShouldBeUnique::class, $unsettled);
+        $this->assertSame('12', $unsettled->uniqueId());
+        $this->assertSame(300, $unsettled->timeout);
     }
 
     public function test_logistics_sync_jobs_are_unique_and_track_the_logistics_phase(): void

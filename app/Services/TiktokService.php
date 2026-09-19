@@ -2,15 +2,17 @@
 
 namespace App\Services;
 
-use Carbon\Carbon;
 use App\Models\Store;
-use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class TiktokService
 {
     protected $appKey;
+
     protected $appSecret;
+
     protected $baseUrl;
 
     public function __construct()
@@ -48,11 +50,11 @@ class TiktokService
             if ($key === 'sign' || $key === 'access_token') {
                 continue; // Exclude these
             }
-            $queryStr .= $key . $value;
+            $queryStr .= $key.$value;
         }
 
         // 3. Wrap with app_secret and include path and body
-        $stringToSign = $this->appSecret . $path . $queryStr . $body . $this->appSecret;
+        $stringToSign = $this->appSecret.$path.$queryStr.$body.$this->appSecret;
 
         // 4. HMAC-SHA256
         return hash_hmac('sha256', $stringToSign, $this->appSecret);
@@ -64,8 +66,8 @@ class TiktokService
     public function getAccessToken($code)
     {
         $path = '/api/v2/token/get';
-        
-        $url = config('services.tiktok.auth_url') . $path;
+
+        $url = config('services.tiktok.auth_url').$path;
 
         $queries = [
             'app_key' => $this->appKey,
@@ -73,7 +75,7 @@ class TiktokService
             'grant_type' => 'authorized_code',
         ];
 
-        // TikTok doesn't typically require signature for token endpoint, 
+        // TikTok doesn't typically require signature for token endpoint,
         // but we pass app_key and app_secret in queries
         $queries['app_secret'] = $this->appSecret;
 
@@ -91,7 +93,7 @@ class TiktokService
     public function refreshAccessToken(Store $store)
     {
         $path = '/api/v2/token/refresh';
-        
+
         $queries = [
             'app_key' => $this->appKey,
             'app_secret' => $this->appSecret,
@@ -99,18 +101,19 @@ class TiktokService
             'grant_type' => 'refresh_token',
         ];
 
-        $response = $this->httpClient()->get(config('services.tiktok.auth_url') . $path, $queries);
+        $response = $this->httpClient()->get(config('services.tiktok.auth_url').$path, $queries);
         $result = $response->json();
 
         Log::info('TikTok - Refresh Token Response', $result);
 
         $data = $result['data'] ?? [];
-        if (!empty($data['access_token'])) {
+        if (! empty($data['access_token'])) {
             $store->update([
                 'access_token' => $data['access_token'],
                 'refresh_token' => $data['refresh_token'],
                 'token_expired_at' => Carbon::createFromTimestamp($data['access_token_expire_in'])->setTimezone('Asia/Jakarta'),
             ]);
+
             return $data['access_token'];
         }
 
@@ -125,6 +128,7 @@ class TiktokService
         if (empty($store->token_expired_at) || Carbon::now('Asia/Jakarta')->addHours(24)->gte($store->token_expired_at)) {
             $this->refreshAccessToken($store);
         }
+
         return $store->access_token;
     }
 
@@ -145,7 +149,8 @@ class TiktokService
         $queries['sign'] = $sign;
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken])
-            ->get($this->baseUrl . $path, $queries);
+            ->get($this->baseUrl.$path, $queries);
+
         return $response->json();
     }
 
@@ -172,17 +177,17 @@ class TiktokService
 
         $sign = $this->generateSign($path, $queries, $bodyStr);
         $queries['sign'] = $sign;
-        
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->withBody($bodyStr, 'application/json')
             ->post($url);
-        
+
         $res = $response->json();
         Log::info('TikTok - Fetching Product List', [
-            'status' => $response->status(), 
-            'count' => count($res['data']['products'] ?? [])
+            'status' => $response->status(),
+            'count' => count($res['data']['products'] ?? []),
         ]);
 
         return $res;
@@ -194,9 +199,9 @@ class TiktokService
     public function getProductDetail($store, $productId)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
-        $path = '/product/202309/products/' . $productId;
+        $path = '/product/202309/products/'.$productId;
         $timestamp = time();
 
         $queries = [
@@ -207,16 +212,16 @@ class TiktokService
 
         $sign = $this->generateSign($path, $queries);
         $queries['sign'] = $sign;
-        
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->get($url);
-        
+
         $res = $response->json();
         Log::info('TikTok - Fetching Product Detail', [
-            'product_id' => $productId, 
-            'status' => $response->status()
+            'product_id' => $productId,
+            'status' => $response->status(),
         ]);
 
         return $res;
@@ -228,7 +233,7 @@ class TiktokService
     public function getOrderDetail($store, $orderId)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         // TikTok Shop OpenAPI v2.0 for fetching specific orders
         $path = '/order/202309/orders';
@@ -244,15 +249,15 @@ class TiktokService
         $sign = $this->generateSign($path, $queries);
         $queries['sign'] = $sign;
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->get($url);
 
         $res = $response->json();
         Log::info('TikTok - Fetching Order Detail', [
-            'status' => $response->status(), 
-            'order_id' => $orderId
+            'status' => $response->status(),
+            'order_id' => $orderId,
         ]);
 
         return $res;
@@ -264,7 +269,7 @@ class TiktokService
     public function getOrderList($store, $timeFrom, $timeTo, $pageToken = '')
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         $path = '/order/202309/orders/search';
         $timestamp = time();
@@ -276,7 +281,7 @@ class TiktokService
             'page_size' => 100,
         ];
 
-        if (!empty($pageToken)) {
+        if (! empty($pageToken)) {
             $queries['page_token'] = $pageToken;
         }
 
@@ -289,7 +294,7 @@ class TiktokService
         $sign = $this->generateSign($path, $queries, $bodyStr);
         $queries['sign'] = $sign;
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->withBody($bodyStr, 'application/json')
@@ -297,8 +302,8 @@ class TiktokService
 
         $res = $response->json();
         Log::info('TikTok - Fetching Order List', [
-            'status' => $response->status(), 
-            'count' => count($res['data']['orders'] ?? [])
+            'status' => $response->status(),
+            'count' => count($res['data']['orders'] ?? []),
         ]);
 
         return $res;
@@ -310,7 +315,7 @@ class TiktokService
     public function searchReturns($store, $timeFrom, $timeTo, $pageToken = '')
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         $path = '/return_refund/202309/returns/search';
         $timestamp = time();
@@ -321,7 +326,7 @@ class TiktokService
             'shop_cipher' => $shopId,
         ];
 
-        if (!empty($pageToken)) {
+        if (! empty($pageToken)) {
             $queries['page_token'] = $pageToken;
         }
 
@@ -336,7 +341,7 @@ class TiktokService
         $sign = $this->generateSign($path, $queries, $bodyStr);
         $queries['sign'] = $sign;
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->withBody($bodyStr, 'application/json')
@@ -344,17 +349,17 @@ class TiktokService
 
         $res = $response->json();
         Log::info('TikTok - Search Returns', [
-            'status' => $response->status(), 
-            'count' => count($res['data']['returns'] ?? [])
+            'status' => $response->status(),
+            'count' => count($res['data']['returns'] ?? []),
         ]);
 
         return $res;
     }
 
     /**
-     * Fetch Unsettled Transaction (Estimate Escrow)
+     * Fetch all Unsettled Transactions (Estimate Escrow) for a shop.
      */
-    public function getUnsettledTransaction($store, $orderId)
+    public function getUnsettledTransactions($store)
     {
         $accessToken = $this->ensureValidToken($store);
         $shopId = $store->shopee_shop_id;
@@ -364,13 +369,13 @@ class TiktokService
         $seenPageTokens = [];
         $page = 0;
         $lastResponse = [];
+        $allTransactions = [];
 
         do {
             $queries = [
                 'app_key' => $this->appKey,
                 'timestamp' => time(),
                 'shop_cipher' => $shopId,
-                'order_id' => $orderId,
                 'page_size' => 100,
                 'sort_field' => 'order_create_time',
                 'sort_order' => 'DESC',
@@ -381,7 +386,7 @@ class TiktokService
             }
 
             $queries['sign'] = $this->generateSign($path, $queries);
-            $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $url = $this->baseUrl.$path.'?'.http_build_query($queries);
             $response = $this->httpClient()
                 ->withHeaders([
                     'x-tts-access-token' => $accessToken,
@@ -391,32 +396,21 @@ class TiktokService
 
             $lastResponse = $response->json() ?? [];
             $transactions = $lastResponse['data']['transactions'] ?? [];
-            $matchingTransactions = array_values(array_filter(
-                $transactions,
-                fn ($transaction) => is_array($transaction)
-                    && isset($transaction['order_id'])
-                    && (string) $transaction['order_id'] === (string) $orderId
-            ));
+            $transactions = is_array($transactions) ? $transactions : [];
 
             Log::info('TikTok - Fetching Unsettled Transaction', [
                 'status' => $response->status(),
                 'response_code' => $lastResponse['code'] ?? null,
-                'order_id' => $orderId,
+                'store_id' => $store->id,
                 'page' => $page + 1,
                 'transaction_count' => count($transactions),
-                'matched' => count($matchingTransactions),
             ]);
 
-            if (!$response->successful() || ($lastResponse['code'] ?? null) !== 0) {
+            if (! $response->successful() || ($lastResponse['code'] ?? null) !== 0) {
                 return $lastResponse;
             }
 
-            if ($matchingTransactions !== []) {
-                $lastResponse['data']['transactions'] = $matchingTransactions;
-                $lastResponse['data']['total_count'] = count($matchingTransactions);
-
-                return $lastResponse;
-            }
+            array_push($allTransactions, ...array_filter($transactions, 'is_array'));
 
             $nextPageToken = (string) ($lastResponse['data']['next_page_token'] ?? '');
             if ($nextPageToken === '' || isset($seenPageTokens[$nextPageToken])) {
@@ -428,12 +422,38 @@ class TiktokService
             $page++;
         } while (true);
 
-        if (isset($lastResponse['data'])) {
-            $lastResponse['data']['transactions'] = [];
-            $lastResponse['data']['total_count'] = 0;
+        if (! isset($lastResponse['data']) || ! is_array($lastResponse['data'])) {
+            $lastResponse['data'] = [];
         }
 
+        $lastResponse['data']['transactions'] = $allTransactions;
+        $lastResponse['data']['total_count'] = count($allTransactions);
+        $lastResponse['data']['pages_fetched'] = $page + 1;
+
         return $lastResponse;
+    }
+
+    /**
+     * Fetch one order from the shop-wide unsettled transaction list.
+     */
+    public function getUnsettledTransaction($store, $orderId)
+    {
+        $response = $this->getUnsettledTransactions($store);
+        if (($response['code'] ?? null) !== 0 || ! is_array($response['data'] ?? null)) {
+            return $response;
+        }
+
+        $transactions = array_values(array_filter(
+            $response['data']['transactions'] ?? [],
+            fn ($transaction) => is_array($transaction)
+                && isset($transaction['order_id'])
+                && (string) $transaction['order_id'] === (string) $orderId
+        ));
+
+        $response['data']['transactions'] = $transactions;
+        $response['data']['total_count'] = count($transactions);
+
+        return $response;
     }
 
     /**
@@ -442,7 +462,7 @@ class TiktokService
     public function getStatementTransaction($store, $orderId)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         $path = "/finance/202501/orders/{$orderId}/statement_transactions";
         $timestamp = time();
@@ -456,15 +476,15 @@ class TiktokService
         $sign = $this->generateSign($path, $queries);
         $queries['sign'] = $sign;
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
             ->get($url);
 
         $res = $response->json();
         Log::info('TikTok - Fetching Statement Transaction', [
-            'status' => $response->status(), 
-            'order_id' => $orderId
+            'status' => $response->status(),
+            'order_id' => $orderId,
         ]);
 
         return $res;
@@ -476,7 +496,7 @@ class TiktokService
     public function getTrackingInfo($store, $orderId)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
         $paths = [
             "/logistics/202604/orders/{$orderId}/tracking",
             "/fulfillment/202309/orders/{$orderId}/tracking",
@@ -496,7 +516,7 @@ class TiktokService
             ];
 
             $queries['sign'] = $this->generateSign($path, $queries);
-            $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+            $url = $this->baseUrl.$path.'?'.http_build_query($queries);
             $response = $this->httpClient()
                 ->withHeaders(['x-tts-access-token' => $accessToken, 'Content-Type' => 'application/json'])
                 ->get($url);
@@ -511,7 +531,7 @@ class TiktokService
 
             if ($response->successful()
                 && (int) ($lastResponse['code'] ?? -1) === 0
-                && !empty($lastResponse['data'])) {
+                && ! empty($lastResponse['data'])) {
                 return $lastResponse;
             }
         }
@@ -525,7 +545,7 @@ class TiktokService
     public function updateInventory($store, $productId, $skuId, $stock)
     {
         $accessToken = $this->ensureValidToken($store);
-        $shopId = $store->shopee_shop_id; 
+        $shopId = $store->shopee_shop_id;
 
         $path = "/product/202309/products/{$productId}/inventory/update";
         $timestamp = time();
@@ -542,30 +562,30 @@ class TiktokService
                     'id' => $skuId,
                     'inventory' => [
                         [
-                            'quantity' => (int)$stock
-                        ]
-                    ]
-                ]
-            ]
+                            'quantity' => (int) $stock,
+                        ],
+                    ],
+                ],
+            ],
         ];
 
         $sign = $this->generateSign($path, $queries, json_encode($body));
         $queries['sign'] = $sign;
 
-        $url = $this->baseUrl . $path . '?' . http_build_query($queries);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries);
 
         $response = $this->httpClient()->withHeaders([
-            'x-tts-access-token' => $accessToken, 
-            'Content-Type' => 'application/json'
+            'x-tts-access-token' => $accessToken,
+            'Content-Type' => 'application/json',
         ])->post($url, $body);
 
         $res = $response->json();
         Log::info('TikTok - Update Inventory', [
-            'status' => $response->status(), 
+            'status' => $response->status(),
             'product_id' => $productId,
             'sku_id' => $skuId,
             'stock' => $stock,
-            'response' => $res
+            'response' => $res,
         ]);
 
         return $res;

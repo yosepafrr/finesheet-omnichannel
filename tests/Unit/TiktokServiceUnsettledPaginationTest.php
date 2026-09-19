@@ -60,7 +60,54 @@ class TiktokServiceUnsettledPaginationTest extends TestCase
             parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
 
             return ($query['page_size'] ?? null) === '100'
-                && ($query['page_token'] ?? null) === 'PAGE-2';
+                && ($query['page_token'] ?? null) === 'PAGE-2'
+                && ! isset($query['order_id']);
         });
+    }
+
+    public function test_it_combines_every_page_for_store_level_sync(): void
+    {
+        config()->set('services.tiktok.app_key', 'test-key');
+        config()->set('services.tiktok.app_secret', 'test-secret');
+        config()->set('services.tiktok.api_url', 'https://open-api.test');
+
+        Http::fakeSequence()
+            ->push([
+                'code' => 0,
+                'data' => [
+                    'next_page_token' => 'PAGE-2',
+                    'transactions' => [
+                        ['order_id' => 'ORDER-1', 'est_settlement_amount' => '100000'],
+                    ],
+                ],
+            ])
+            ->push([
+                'code' => 0,
+                'data' => [
+                    'next_page_token' => '',
+                    'transactions' => [
+                        ['order_id' => 'ORDER-2', 'est_settlement_amount' => '125078'],
+                    ],
+                ],
+            ]);
+
+        $service = new class extends TiktokService
+        {
+            public function ensureValidToken(Store $store)
+            {
+                return 'test-token';
+            }
+        };
+
+        $store = new Store(['shopee_shop_id' => 'SHOP-CIPHER']);
+        $result = $service->getUnsettledTransactions($store);
+
+        $this->assertSame(0, $result['code']);
+        $this->assertSame(2, $result['data']['total_count']);
+        $this->assertSame(2, $result['data']['pages_fetched']);
+        $this->assertSame(
+            ['ORDER-1', 'ORDER-2'],
+            array_column($result['data']['transactions'], 'order_id')
+        );
     }
 }

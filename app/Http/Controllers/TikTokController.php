@@ -2,18 +2,23 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Services\TiktokService;
-use App\Services\TiktokEscrowAmountResolver;
-use App\Services\LogisticsStatusNormalizer;
-use App\Services\InitialOrderSyncDispatcher;
+use App\Jobs\SyncTiktokEscrowJob;
+use App\Jobs\SyncTiktokProductJob;
+use App\Jobs\SyncTiktokUnsettledJob;
+use App\Models\Order;
+use App\Models\OrderPackage;
+use App\Models\OrderProduct;
 use App\Models\Product;
 use App\Models\VariantProduct;
-use App\Models\Order;
-use App\Models\OrderProduct;
+use App\Services\InitialOrderSyncDispatcher;
+use App\Services\LogisticsStatusNormalizer;
+use App\Services\OrderCancellationMapper;
+use App\Services\TiktokEscrowAmountResolver;
+use App\Services\TiktokService;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class TikTokController extends Controller
 {
@@ -24,7 +29,7 @@ class TikTokController extends Controller
         // In actual implementation, state can be a random string or user id.
         $baseUrl = config('services.tiktok.open_url');
         $url = "{$baseUrl}?app_key={$appKey}&state=connect";
-        
+
         return redirect($url);
     }
 
@@ -32,40 +37,42 @@ class TikTokController extends Controller
         Request $request,
         TiktokService $tiktok,
         InitialOrderSyncDispatcher $initialOrderSync
-    )
-    {
+    ) {
         $code = $request->query('code');
-        
-        if (!$code) {
+
+        if (! $code) {
             Log::error('TikTok Callback error: No authorization code received');
+
             return redirect('/#/stores')->with('error', 'Gagal mendapatkan otorisasi dari TikTok.');
         }
 
         $tokenData = $tiktok->getAccessToken($code);
-        
+
         if (empty($tokenData['data']['access_token'])) {
             Log::error('TikTok - Token fetch failed', ['response' => $tokenData]);
+
             return redirect('/#/stores')->with('error', 'Gagal mendapatkan akses token dari TikTok.');
         }
-        
+
         $data = $tokenData['data'];
         $accessToken = $data['access_token'];
         $refreshToken = $data['refresh_token'];
         $tokenExpiredAt = Carbon::createFromTimestamp($data['access_token_expire_in'])->setTimezone('Asia/Jakarta');
         $shopExpiredAt = Carbon::createFromTimestamp($data['refresh_token_expire_in'])->setTimezone('Asia/Jakarta');
-        
+
         $shopInfo = $tiktok->getAuthorizedShop($accessToken);
         $shopList = $shopInfo['data']['shops'] ?? [];
-        
+
         if (empty($shopList)) {
             Log::warning('TikTok - Authorized shop list is empty', ['response' => $shopInfo]);
+
             return redirect('/#/stores')->with('error', 'Toko TikTok tidak ditemukan (atau tidak ada otorisasi).');
         }
-        
+
         // Take the first authorized shop
         $shopId = $shopList[0]['cipher'] ?? $shopList[0]['id'] ?? 'unknown';
         $shopName = $shopList[0]['name'] ?? 'Toko TikTok';
-        
+
         $store = Auth::user()->stores()->updateOrCreate(
             ['shopee_shop_id' => $shopId], // Reusing shopee_shop_id for tiktok shop_id/cipher to save schema
             [
@@ -77,10 +84,10 @@ class TikTokController extends Controller
                 'shop_expired_at' => $shopExpiredAt,
             ]
         );
-        
+
         Log::info('TikTok - Store saved', ['store' => $store]);
 
-        \App\Jobs\SyncTiktokProductJob::dispatch($store->id)->onQueue('products');
+        SyncTiktokProductJob::dispatch($store->id)->onQueue('products');
         $initialOrderSync->dispatch($store);
 
         return redirect('/#/stores')->with('success', 'Toko TikTok berhasil terhubung. Sinkronisasi awal sedang berjalan di latar belakang.');
@@ -119,15 +126,19 @@ class TikTokController extends Controller
                 );
 
                 // Save Skus as variants
-                if (!empty($item['skus'])) {
+                if (! empty($item['skus'])) {
                     // Build tier map to calculate tier_index correctly
                     $tierMap = [];
                     foreach ($item['skus'] as $s) {
                         foreach ($s['sales_attributes'] ?? [] as $i => $attr) {
                             $attrName = $attr['attribute_name'] ?? $i;
                             $valName = $attr['value_name'] ?? '';
-                            if (!isset($tierMap[$attrName])) $tierMap[$attrName] = [];
-                            if (!in_array($valName, $tierMap[$attrName])) $tierMap[$attrName][] = $valName;
+                            if (! isset($tierMap[$attrName])) {
+                                $tierMap[$attrName] = [];
+                            }
+                            if (! in_array($valName, $tierMap[$attrName])) {
+                                $tierMap[$attrName][] = $valName;
+                            }
                         }
                     }
 
@@ -141,7 +152,7 @@ class TikTokController extends Controller
                             $attrName = $attr['attribute_name'] ?? $i;
                             $variantOptions[] = $valName;
                             $tierIndex[] = array_search($valName, $tierMap[$attrName]);
-                            if (!empty($attr['sku_img']['urls'][0])) {
+                            if (! empty($attr['sku_img']['urls'][0])) {
                                 $variantImage = $attr['sku_img']['urls'][0];
                             }
                         }
@@ -170,7 +181,7 @@ class TikTokController extends Controller
                     }
                 }
             }
-            Log::info("TikTok - Successfully synced " . count($products) . " products.");
+            Log::info('TikTok - Successfully synced '.count($products).' products.');
         } catch (\Exception $e) {
             Log::error('TikTok - Sync Products Failed', ['error' => $e->getMessage()]);
         }
@@ -183,26 +194,27 @@ class TikTokController extends Controller
             $pageToken = '';
             $totalSynced = 0;
             $escrowResolver = app(TiktokEscrowAmountResolver::class);
+            $shouldSyncUnsettled = false;
 
             while ($hasMore) {
                 $response = $tiktok->getOrderList($store, $timeFrom, $timeTo, $pageToken);
                 $orders = $response['data']['orders'] ?? [];
-                
+
                 $pageToken = $response['data']['next_page_token'] ?? '';
-                $hasMore = !empty($pageToken);
+                $hasMore = ! empty($pageToken);
 
                 foreach ($orders as $order) {
                     $cancelSource = $order['cancellation_initiator'] ?? null;
                     $cancelReason = $order['cancel_reason'] ?? null;
                     $normalizedCancelCategory = null;
                     if (in_array($order['status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
-                        if (!empty($cancelSource) || !empty($cancelReason)) {
-                            $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
+                        if (! empty($cancelSource) || ! empty($cancelReason)) {
+                            $normalizedCancelCategory = OrderCancellationMapper::normalize('Tiktokshop', $cancelSource, $cancelReason);
                         }
                     }
 
                     $orderModel = Order::firstOrNew(['order_sn' => $order['id']]);
-                    $wasNew = !$orderModel->exists;
+                    $wasNew = ! $orderModel->exists;
                     $previousStatus = $orderModel->order_status;
                     $incomingStatus = $order['status'] ?? null;
                     $fallbackSalePrice = $escrowResolver->fallbackSalePrice($order);
@@ -236,13 +248,13 @@ class TikTokController extends Controller
 
                     // Insert default package to be picked up by logistics sync
                     // We don't have tracking info here, SyncLogisticsCommand will fetch it
-                    $orderPackage = \App\Models\OrderPackage::firstOrCreate(
+                    $orderPackage = OrderPackage::firstOrCreate(
                         [
                             'order_id' => $orderModel->id,
-                            'package_id' => $orderModel->order_sn
+                            'package_id' => $orderModel->order_sn,
                         ],
                         [
-                            'platform' => 'Tiktokshop'
+                            'platform' => 'Tiktokshop',
                         ]
                     );
 
@@ -257,20 +269,24 @@ class TikTokController extends Controller
 
                     // Fetch actual/estimated escrow in the background
                     if ($needsEscrowRefresh) {
-                        \App\Jobs\SyncTiktokEscrowJob::dispatch(
-                            $store->id,
-                            $order['id'],
-                            $incomingStatus ?? '',
-                            $fallbackSalePrice
-                        )->onQueue('orders-low');
+                        if (strtoupper((string) $incomingStatus) === 'COMPLETED') {
+                            SyncTiktokEscrowJob::dispatch(
+                                $store->id,
+                                $order['id'],
+                                $incomingStatus ?? '',
+                                $fallbackSalePrice
+                            )->onQueue('orders-low');
+                        } else {
+                            $shouldSyncUnsettled = true;
+                        }
                     }
 
-                    if (!empty($order['line_items'])) {
+                    if (! empty($order['line_items'])) {
                         // TikTok lists multiple same items as separate line_item entries. We should group them by product_id and sku_name to get quantity.
                         $groupedItems = [];
                         foreach ($order['line_items'] as $item) {
-                            $key = $item['product_id'] . '_' . ($item['sku_name'] ?? 'without variant');
-                            if (!isset($groupedItems[$key])) {
+                            $key = $item['product_id'].'_'.($item['sku_name'] ?? 'without variant');
+                            if (! isset($groupedItems[$key])) {
                                 $groupedItems[$key] = $item;
                                 $groupedItems[$key]['computed_quantity'] = 1;
                             } else {
@@ -297,6 +313,12 @@ class TikTokController extends Controller
                     $totalSynced++;
                 }
             }
+
+            if ($shouldSyncUnsettled) {
+                SyncTiktokUnsettledJob::dispatch($store->id)
+                    ->onQueue('orders-low');
+            }
+
             Log::info("TikTok - Successfully synced {$totalSynced} orders.");
         } catch (\Exception $e) {
             Log::error('TikTok - Sync Orders Failed', ['error' => $e->getMessage()]);
