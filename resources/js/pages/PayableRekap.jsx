@@ -203,6 +203,8 @@ export default function PayableRekap() {
 
     const selectedPeriodIdRef = useRef(selectedPeriodId);
     const refreshTimeoutRef = useRef(null);
+    const periodsRequestRef = useRef(0);
+    const periodDetailsRequestRef = useRef(0);
 
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -316,6 +318,7 @@ export default function PayableRekap() {
     };
 
     const fetchPeriods = async (silent = false, customSupplierIds = null) => {
+        const requestId = ++periodsRequestRef.current;
         if (!silent) setIsLoading(true);
         try {
             const supIds = customSupplierIds !== null ? customSupplierIds : selectedSupplierIdsRef.current;
@@ -325,6 +328,9 @@ export default function PayableRekap() {
                 params.supplier_ids = supIds.join(',');
             }
             const res = await axios.get('/api/payable/periods', { params });
+            if (requestId !== periodsRequestRef.current) {
+                return { periods: [], selectedPeriodId: selectedPeriodIdRef.current, stale: true };
+            }
             const data = res.data.data || [];
             setPeriods(data);
             
@@ -351,15 +357,18 @@ export default function PayableRekap() {
             }
             return { periods: data, selectedPeriodId: nextSelectedId };
         } catch (error) {
-            if (!silent && error?.response?.status !== 401) toast.error("Gagal mengambil daftar periode");
+            if (requestId === periodsRequestRef.current && !silent && error?.response?.status !== 401) {
+                toast.error("Gagal mengambil daftar periode");
+            }
             return { periods: [], selectedPeriodId: selectedPeriodIdRef.current };
         } finally {
-            if (!silent) setIsLoading(false);
+            if (requestId === periodsRequestRef.current && !silent) setIsLoading(false);
         }
     };
 
     const fetchPeriodDetails = async (id, silent = false, customSupplierIds = null) => {
         if (!id) return;
+        const requestId = ++periodDetailsRequestRef.current;
         if (!silent) setIsDetailLoading(true);
         try {
             const supIds = customSupplierIds !== null ? customSupplierIds : selectedSupplierIdsRef.current;
@@ -368,11 +377,14 @@ export default function PayableRekap() {
                 params.supplier_ids = supIds.join(',');
             }
             const res = await axios.get(`/api/payable/periods/${id}/details`, { params });
+            if (requestId !== periodDetailsRequestRef.current) return;
             setPeriodDetails(res.data.data);
         } catch (error) {
-            if (!silent) toast.error("Gagal mengambil detail periode");
+            if (requestId === periodDetailsRequestRef.current && !silent) {
+                toast.error("Gagal mengambil detail periode");
+            }
         } finally {
-            setIsDetailLoading(false);
+            if (requestId === periodDetailsRequestRef.current) setIsDetailLoading(false);
         }
     };
 
@@ -709,7 +721,17 @@ export default function PayableRekap() {
         pollingRef.current = setInterval(async () => {
             attempts++;
             try {
-                const res = await axios.get('/api/payable/periods');
+                const requestedSupplierIds = [...selectedSupplierIdsRef.current];
+                const requestId = ++periodsRequestRef.current;
+                const params = {};
+                if (requestedSupplierIds.length > 0) {
+                    params.supplier_ids = requestedSupplierIds.join(',');
+                }
+
+                const res = await axios.get('/api/payable/periods', { params });
+                const selectionUnchanged = requestedSupplierIds.join(',') === selectedSupplierIdsRef.current.join(',');
+                if (requestId !== periodsRequestRef.current || !selectionUnchanged) return;
+
                 const updatedPeriods = res.data.data || [];
                 setPeriods(updatedPeriods);
                 // Check if any period now has events
@@ -723,8 +745,9 @@ export default function PayableRekap() {
                         // Reload detail of selected period, using the first available if not passed
                         const targetId = initialPeriodId || (updatedPeriods.length > 0 ? updatedPeriods[0].id : null);
                         if (targetId) {
+                            selectedPeriodIdRef.current = targetId;
                             setSelectedPeriodId(targetId);
-                            fetchPeriodDetails(targetId);
+                            fetchPeriodDetails(targetId, false, requestedSupplierIds);
                         }
                     } else {
                         toast.error("Sinkronisasi selesai, tapi belum ada data. Cek log server.");
