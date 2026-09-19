@@ -12,7 +12,7 @@ const STATUS_CONFIG_SHOPEE = {
     READY_TO_SHIP: { label: "Perlu Dikirim" },
     PROCESSED: { label: "Telah Diproses" },
     SHIPPED: { label: "Dikirim" },
-    TO_CONFIRM_RECEIVE: { label: "Perlu Diproses" },
+    TO_CONFIRM_RECEIVE: { label: "Menunggu Konfirmasi Pembeli" },
     COMPLETED: { label: "Selesai" },
     CANCELLED: { label: "Batal" },
     IN_CANCEL: { label: "Pengajuan Batal" },

@@ -44,7 +44,7 @@ const STATUS_CONFIG_SHOPEE = {
     READY_TO_SHIP: { label: "Perlu Dikirim" },
     PROCESSED: { label: "Telah Diproses" },
     SHIPPED: { label: "Dikirim" },
-    TO_CONFIRM_RECEIVE: { label: "Perlu Diproses" },
+    TO_CONFIRM_RECEIVE: { label: "Menunggu Konfirmasi Pembeli" },
     COMPLETED: { label: "Selesai" },
     CANCELLED: { label: "Batal" },
     IN_CANCEL: { label: "Pengajuan Batal" },
@@ -65,8 +65,8 @@ const STATUS_CONFIG_TIKTOK = {
 
 const FILTER_GROUPS = [
     { id: "semua", label: "Semua", statuses: [] },
-    { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "TO_CONFIRM_RECEIVE", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
-    { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED"] },
+    { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
+    { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED", "TO_CONFIRM_RECEIVE"] },
     { id: "selesai", label: "Selesai", statuses: ["COMPLETED"] },
     { id: "gagal_kirim", label: "Pengantaran Gagal", statuses: [] },
     { id: "return", label: "Pengembalian/Refund", statuses: [] },

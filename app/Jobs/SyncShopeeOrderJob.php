@@ -228,20 +228,39 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 
                                 // Extract packages
                                 if (!empty($detail['package_list'])) {
+                                    $realPackageNumbers = [];
                                     foreach ($detail['package_list'] as $pkg) {
+                                        $packageNumber = $pkg['package_number'] ?? $orderModel->order_sn;
+                                        $logisticsStatus = $pkg['logistics_status'] ?? null;
+                                        $normalizedLogisticsStatus = match ($logisticsStatus) {
+                                            'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
+                                            'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
+                                            default => null,
+                                        };
+
+                                        if ($packageNumber !== $orderModel->order_sn) {
+                                            $realPackageNumbers[] = $packageNumber;
+                                        }
+
                                         \App\Models\OrderPackage::updateOrCreate(
                                             [
                                                 'order_id' => $orderModel->id,
-                                                'package_id' => $pkg['package_number'] ?? $orderModel->order_sn
+                                                'package_id' => $packageNumber
                                             ],
                                             [
                                                 'platform' => 'Shopee',
                                                 'tracking_number' => $pkg['tracking_number'] ?? null,
-                                                'logistics_status' => $pkg['logistics_status'] ?? null,
-                                                'normalized_logistics_status' => ($pkg['logistics_status'] ?? '') === 'LOGISTICS_DELIVERY_FAILED' ? 'DELIVERY_FAILED' : null,
+                                                'logistics_status' => $logisticsStatus,
+                                                'normalized_logistics_status' => $normalizedLogisticsStatus,
                                                 'raw_data' => $pkg,
                                             ]
                                         );
+                                    }
+
+                                    if (!empty($realPackageNumbers)) {
+                                        \App\Models\OrderPackage::where('order_id', $orderModel->id)
+                                            ->where('package_id', $orderModel->order_sn)
+                                            ->delete();
                                     }
                                 } else {
                                     // Default single package if no package_list

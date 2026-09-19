@@ -100,22 +100,39 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue
             );
 
             if (!empty($detail['package_list'])) {
+                $realPackageNumbers = [];
                 foreach ($detail['package_list'] as $package) {
+                    $packageNumber = $package['package_number'] ?? $orderModel->order_sn;
+                    $logisticsStatus = $package['logistics_status'] ?? null;
+                    $normalizedLogisticsStatus = match ($logisticsStatus) {
+                        'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
+                        'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
+                        default => null,
+                    };
+
+                    if ($packageNumber !== $orderModel->order_sn) {
+                        $realPackageNumbers[] = $packageNumber;
+                    }
+
                     \App\Models\OrderPackage::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
-                            'package_id' => $package['package_number'] ?? $orderModel->order_sn,
+                            'package_id' => $packageNumber,
                         ],
                         [
                             'platform' => 'Shopee',
                             'tracking_number' => $package['tracking_number'] ?? null,
-                            'logistics_status' => $package['logistics_status'] ?? null,
-                            'normalized_logistics_status' => ($package['logistics_status'] ?? '') === 'LOGISTICS_DELIVERY_FAILED'
-                                ? 'DELIVERY_FAILED'
-                                : null,
+                            'logistics_status' => $logisticsStatus,
+                            'normalized_logistics_status' => $normalizedLogisticsStatus,
                             'raw_data' => $package,
                         ]
                     );
+                }
+
+                if (!empty($realPackageNumbers)) {
+                    \App\Models\OrderPackage::where('order_id', $orderModel->id)
+                        ->where('package_id', $orderModel->order_sn)
+                        ->delete();
                 }
             } else {
                 \App\Models\OrderPackage::firstOrCreate(

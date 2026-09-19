@@ -33,7 +33,7 @@ class LogisticsSyncService
                     $statusQuery->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
                         ->orWhereNull('normalized_logistics_status');
                 })->whereHas('order', function ($orderQuery) {
-                    $orderQuery->whereIn('order_status', ['SHIPPED', 'IN_TRANSIT']);
+                    $orderQuery->whereIn('order_status', ['SHIPPED', 'IN_TRANSIT', 'TO_CONFIRM_RECEIVE']);
                 });
             })
             ->when(!$orderSn && !$force, function ($query) {
@@ -172,13 +172,12 @@ class LogisticsSyncService
         $trackingNumber = $response['response']['tracking_number'] ?? null;
         $normalized = $package->normalized_logistics_status;
 
-        if ($status === 'LOGISTICS_DELIVERY_FAILED') {
-            $normalized = 'DELIVERY_FAILED';
-        } elseif ($status === 'LOGISTICS_DELIVERED') {
-            $normalized = 'DELIVERED';
-        } elseif (!empty($status)) {
-            $normalized = 'IN_TRANSIT';
-        }
+        $normalized = match ($status) {
+            'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
+            'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
+            null, '' => $normalized,
+            default => 'IN_TRANSIT',
+        };
 
         $package->update([
             'tracking_number' => $trackingNumber ?: $package->tracking_number,

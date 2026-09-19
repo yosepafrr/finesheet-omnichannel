@@ -36,7 +36,7 @@ class DashboardService
             $category = 'OTHER';
             if ($hasActiveReturn || in_array($status, ['IN_CANCEL', 'TO_RETURN'])) {
                 $category = 'RETURN';
-            } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED'])) {
+            } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'TO_CONFIRM_RECEIVE'])) {
                 $category = 'DIKIRIM';
             } elseif (in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'])) {
                 $category = 'PERLU_DIKIRIM';
@@ -112,7 +112,7 @@ class DashboardService
                 $category = 'OTHER';
                 if ($hasActiveReturn || in_array($status, ['IN_CANCEL', 'TO_RETURN'])) {
                     $category = 'RETURN';
-                } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED'])) {
+                } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'TO_CONFIRM_RECEIVE'])) {
                     $category = 'DIKIRIM';
                 } elseif (in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'])) {
                     $category = 'PERLU_DIKIRIM';
