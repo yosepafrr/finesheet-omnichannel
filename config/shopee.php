@@ -2,6 +2,10 @@
 return [
     'partner_id' => env('SHOPEE_PARTNER_ID'),
     'partner_key' => env('SHOPEE_PARTNER_KEY'),
+    'live_push_partner_key' => env(
+        'SHOPEE_LIVE_PUSH_PARTNER_KEY',
+        env('SHOPEE_PARTNER_KEY')
+    ),
     'base_url' => env('APP_ENV') === 'production' 
         ? env('SHOPEE_BASE_URL_PRODUCTION', 'https://partner.shopeemobile.com') 
         : env('SHOPEE_BASE_URL_SANDBOX', 'https://openplatform.sandbox.test-stable.shopee.sg'),

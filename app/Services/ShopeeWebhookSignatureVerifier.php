@@ -10,7 +10,7 @@ class ShopeeWebhookSignatureVerifier
 
     public function __construct(?string $partnerKey = null, ?string $webhookUrl = null)
     {
-        $this->partnerKey = $partnerKey ?? (string) config('shopee.partner_key', '');
+        $this->partnerKey = $partnerKey ?? (string) config('shopee.live_push_partner_key', '');
         $this->webhookUrl = $webhookUrl ?? config('shopee.webhook_url');
     }
 

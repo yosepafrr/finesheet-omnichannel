@@ -16,6 +16,7 @@ class ShopeeWebhookTest extends TestCase
         $body = '{"code":0}';
 
         config()->set('shopee.partner_key', $key);
+        config()->set('shopee.live_push_partner_key', $key);
         config()->set('shopee.webhook_url', $url);
 
         $response = $this->call(
@@ -42,6 +43,7 @@ class ShopeeWebhookTest extends TestCase
     public function test_shopee_webhook_rejects_an_invalid_signature(): void
     {
         config()->set('shopee.partner_key', 'test-partner-key');
+        config()->set('shopee.live_push_partner_key', 'test-partner-key');
         config()->set('shopee.webhook_url', 'https://finesheet.id/webhook/shopee');
 
         $response = $this->call(
@@ -96,6 +98,7 @@ class ShopeeWebhookTest extends TestCase
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
         config()->set('shopee.partner_key', $key);
+        config()->set('shopee.live_push_partner_key', $key);
         config()->set('shopee.webhook_url', $url);
 
         return $this->call(
