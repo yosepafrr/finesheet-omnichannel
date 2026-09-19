@@ -426,8 +426,20 @@ class PayableService
 
         // Fallback: If return items don't have supplier, distribute from CREATE_ORDER events
         if (empty($returnsBySupplier) && $orderSn) {
+            $mappedSupplierIds = collect();
+            if ($order) {
+                $order->loadMissing('orderProducts');
+                $mappedSupplierIds = $order->orderProducts
+                    ->map(fn ($item) => $this->resolveSupplierIdForItem($item, $userId))
+                    ->filter()
+                    ->unique()
+                    ->values();
+            }
+
             $createEvents = PayableEvent::where('source_id', $orderSn)
+                ->where('user_id', $userId)
                 ->where('source_type', 'CREATE_ORDER')
+                ->whereIn('supplier_id', $mappedSupplierIds)
                 ->get();
             if ($createEvents->isNotEmpty()) {
                 foreach ($createEvents as $ce) {
@@ -646,6 +658,29 @@ class PayableService
                 $query->whereColumn('supplier_product_mappings.supplier_id', 'products.supplier_id');
             })
             ->update(['supplier_id' => null]);
+
+        $mappedSupplierIds = SupplierProductMapping::where('user_id', $userId)
+            ->whereNotNull('supplier_id')
+            ->distinct()
+            ->pluck('supplier_id');
+
+        $staleEvents = PayableEvent::where('user_id', $userId)
+            ->whereNotNull('supplier_id');
+
+        if ($mappedSupplierIds->isEmpty()) {
+            $deletedEvents = $staleEvents->delete();
+        } else {
+            $deletedEvents = $staleEvents
+                ->whereNotIn('supplier_id', $mappedSupplierIds)
+                ->delete();
+        }
+
+        if ($deletedEvents > 0) {
+            Log::info('PayableService: Removed events without explicit supplier mapping', [
+                'user_id' => $userId,
+                'deleted_events' => $deletedEvents,
+            ]);
+        }
 
         // Step 1: Pre-create ALL consecutive periods for this user's suppliers
         $suppliers = \App\Models\Supplier::where('user_id', $userId)->get();

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Events\PayableUpdated;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -39,6 +40,15 @@ class SyncPayableHistoryJob implements ShouldQueue
 
         foreach ($userIds as $uid) {
             $payableService->syncPayableForUser($uid, $this->startDate);
+
+            try {
+                broadcast(new PayableUpdated(null, 'history_synced', $uid));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to broadcast payable history sync completion', [
+                    'user_id' => $uid,
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
 
         Log::info("SyncPayableHistoryJob completed from {$this->startDate} for user " . ($this->userId ?? 'ALL'));
