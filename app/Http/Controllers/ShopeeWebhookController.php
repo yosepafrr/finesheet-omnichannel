@@ -57,6 +57,8 @@ class ShopeeWebhookController extends Controller
                 'code' => $code,
                 'shop_id' => $shopId,
                 'signature_present' => (bool) $signature,
+                'signature_length' => $signature ? strlen(trim($signature)) : 0,
+                'signature_format' => $this->signatureFormat($signature),
                 'candidate_urls' => $signatureUrls,
                 'configured_url' => config('shopee.webhook_url'),
                 'forwarded_proto' => $request->header('X-Forwarded-Proto'),
@@ -153,6 +155,25 @@ class ShopeeWebhookController extends Controller
         return $request->header('Authorization')
             ?? $request->server('HTTP_AUTHORIZATION')
             ?? $request->server('REDIRECT_HTTP_AUTHORIZATION');
+    }
+
+    private function signatureFormat(?string $signature): string
+    {
+        if (! $signature) {
+            return 'missing';
+        }
+
+        $signature = trim($signature);
+
+        if (preg_match('/^[a-f0-9]{64}$/i', $signature)) {
+            return 'raw_hex';
+        }
+
+        if (preg_match('/^sha256(?:=|\s+)\s*[a-f0-9]{64}$/i', $signature)) {
+            return 'sha256_prefixed_hex';
+        }
+
+        return 'other';
     }
 
     private function firstHeaderValue(?string $value): ?string

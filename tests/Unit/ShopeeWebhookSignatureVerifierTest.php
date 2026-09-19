@@ -31,6 +31,7 @@ class ShopeeWebhookSignatureVerifierTest extends TestCase
         $verifier = new ShopeeWebhookSignatureVerifier($key, $url);
 
         $this->assertTrue($verifier->verify($body, 'sha256='.$signature));
+        $this->assertTrue($verifier->verify($body, 'SHA256 '.$signature));
     }
 
     public function test_it_rejects_missing_or_invalid_signatures(): void

@@ -21,9 +21,7 @@ class ShopeeWebhookSignatureVerifier
         }
 
         $signature = trim($signature);
-        if (str_starts_with(strtolower($signature), 'sha256=')) {
-            $signature = substr($signature, 7);
-        }
+        $signature = preg_replace('/^sha256(?:=|\s+)\s*/i', '', $signature) ?? $signature;
 
         if (! preg_match('/^[a-f0-9]{64}$/i', $signature)) {
             return false;
