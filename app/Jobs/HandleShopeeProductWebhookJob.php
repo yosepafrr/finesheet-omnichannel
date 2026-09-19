@@ -13,14 +13,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 
-class HandleShopeeProductWebhookJob implements ShouldQueue
+class HandleShopeeProductWebhookJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
     public $timeout = 60;
+    public $uniqueFor = 300;
 
     protected $shopId;
     protected $itemId;
@@ -29,6 +31,11 @@ class HandleShopeeProductWebhookJob implements ShouldQueue
     {
         $this->shopId = $shopId;
         $this->itemId = $itemId;
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->shopId.':'.$this->itemId;
     }
 
     public function handle(ShopeeService $shopee)

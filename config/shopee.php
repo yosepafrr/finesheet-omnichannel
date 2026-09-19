@@ -8,4 +8,8 @@ return [
     'redirect_uri' => env('APP_ENV') === 'production'
         ? env('SHOPEE_REDIRECT_URI_PRODUCTION', 'https://{your-domain}/shopee/callback')
         : env('SHOPEE_REDIRECT_URI_SANDBOX', 'https://groggy-enjoyable-unfair.ngrok-free.dev/shopee/callback'),
+    'webhook_url' => env(
+        'SHOPEE_WEBHOOK_URL',
+        rtrim((string) env('APP_URL', 'http://localhost'), '/').'/webhook/shopee'
+    ),
 ];

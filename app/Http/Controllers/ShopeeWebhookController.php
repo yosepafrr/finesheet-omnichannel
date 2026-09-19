@@ -2,128 +2,267 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
-use App\Jobs\SyncShopeeOrderJob;
+use App\Jobs\HandleShopeeOrderWebhookJob;
+use App\Jobs\HandleShopeeProductWebhookJob;
+use App\Jobs\SyncShopeeReturnJob;
+use App\Jobs\SyncStoreLogisticsJob;
+use App\Models\Store;
+use App\Services\ShopeeWebhookSignatureVerifier;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class ShopeeWebhookController extends Controller
 {
-    public function handleWebhook(Request $request)
-    {
+    private const ORDER_PUSH_CODES = [3, 4, 15, 23, 24, 25, 30, 47];
+
+    private const PACKAGE_PUSH_CODES = [30, 47];
+
+    private const PRODUCT_PUSH_CODES = [6, 8, 16, 17, 22, 27];
+
+    private const AUTHORIZATION_PUSH_CODES = [1, 2, 12];
+
+    private const RETURN_PUSH_CODE = 29;
+
+    public function handleWebhook(
+        Request $request,
+        ShopeeWebhookSignatureVerifier $signatureVerifier
+    ) {
         $rawBody = $request->getContent();
         $payload = json_decode($rawBody, true);
-        $signatureHeader = $request->header('Authorization');
 
-        Log::info('Shopee Webhook Received', [
-            'payload' => $payload,
-            'signature' => $signatureHeader,
+        if (! is_array($payload)) {
+            return response()->json(['message' => 'Invalid JSON payload'], 400);
+        }
+
+        $code = is_numeric($payload['code'] ?? null) ? (int) $payload['code'] : null;
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $shopId = $payload['shop_id'] ?? $data['shop_id'] ?? null;
+        $signatureUrls = $this->signatureUrls($request);
+        $signature = $this->signatureFromRequest($request);
+
+        Log::info('Shopee webhook received', [
+            'code' => $code,
+            'shop_id' => $shopId,
+            'request_url' => $request->url(),
+            'configured_url' => config('shopee.webhook_url'),
         ]);
 
-        $code = $payload['code'] ?? null;
-        $shopId = $payload['shop_id'] ?? null;
-        $data = $payload['data'] ?? [];
-
-        if (!$this->verifySignature($request->url(), $rawBody, $signatureHeader)) {
-            Log::warning('Shopee Webhook Signature Verification Failed!', [
-                'url' => $request->url(),
+        if (! $signatureVerifier->verify(
+            $rawBody,
+            $signature,
+            $signatureUrls
+        )) {
+            Log::warning('Shopee webhook signature verification failed', [
+                'code' => $code,
+                'shop_id' => $shopId,
+                'signature_present' => (bool) $signature,
+                'candidate_urls' => $signatureUrls,
+                'configured_url' => config('shopee.webhook_url'),
+                'forwarded_proto' => $request->header('X-Forwarded-Proto'),
+                'forwarded_host' => $request->header('X-Forwarded-Host'),
             ]);
-            
-            // Di production wajib menolak request invalid
-            if (app()->environment('production')) {
-                return response()->json(['error' => 'Invalid signature'], 401); 
-            }
-            
-            // BYPASS UNTUK TEST PUSH DARI CONSOLE
-            if ($code === 3 && isset($data['ordersn'])) {
-                Log::info('Bypassing signature check for Local Test Push - Firing Dummy Event');
-                
-                $dummyStore = \App\Models\Store::where('shopee_shop_id', $shopId)->first() ?? \App\Models\Store::find($shopId);
-                $dummyOrder = new \App\Models\Order();
-                $dummyOrder->id = rand(1000, 9999);
-                $dummyOrder->order_sn = '(TEST) ' . $data['ordersn'];
-                $dummyOrder->platform = 'Shopee';
-                $dummyOrder->store_id = $dummyStore?->id ?? $shopId;
-                if ($dummyStore) {
-                    $dummyOrder->setRelation('store', $dummyStore);
-                }
-                
-                broadcast(new \App\Events\OrderCreated($dummyOrder));
-                return response()->json(['code' => 0, 'message' => 'success']);
-            }
 
-            // Di lokal/sandbox, kembalikan 200 agar Shopee berhenti me-retry, namun STOP proses sinkronisasi
-            return response()->json(['message' => 'Invalid signature ignored in local'], 200);
-        } else {
-            Log::info('Shopee Webhook Signature Verified!');
+            return response()->json(['error' => 'Invalid signature'], 401);
         }
 
-        // Handle Test Push Verification from Shopee Console
         if ($code === 0) {
-            return response()->json(['code' => 0, 'message' => 'success']);
+            return $this->successResponse();
         }
 
-        if (!$shopId || !$code) {
+        if (! $shopId || ! $code) {
             return response()->json(['message' => 'Invalid payload format'], 400);
         }
 
-        $orderPushCodes = [3, 4, 15, 23, 24, 25, 30]; // Order related pushes
-        $productPushCodes = [6, 8, 16, 17, 22, 27]; // Product related pushes
+        if (in_array($code, self::AUTHORIZATION_PUSH_CODES, true)) {
+            $this->handleAuthorizationPush($code, $this->findStore($shopId), $data, $shopId);
 
-        if (in_array($code, $orderPushCodes)) {
-            $orderSn = $data['ordersn'] ?? null;
+            return $this->successResponse();
+        }
+
+        $orderSn = $this->extractOrderSn($data);
+
+        if ($code === self::RETURN_PUSH_CODE) {
+            $store = $this->findStore($shopId);
+
             if ($orderSn) {
-                Log::info("Dispatching HandleShopeeOrderWebhookJob for Order: {$orderSn} (Code: {$code})");
-                \App\Jobs\HandleShopeeOrderWebhookJob::dispatch($shopId, $orderSn)->onQueue('orders');
+                $this->dispatchOrderSync($shopId, $orderSn, $code);
             }
 
-            // If this is a return push (code 24), also dispatch SyncShopeeReturnJob
-            if ($code === 24) {
-                $store = \App\Models\Store::where('platform', 'Shopee')
-                    ->where('shopee_shop_id', (string)$shopId)
-                    ->first();
+            if ($store) {
+                SyncShopeeReturnJob::dispatch($store)->onQueue('orders');
+            } else {
+                Log::warning('Shopee return push ignored because store was not found', [
+                    'shop_id' => $shopId,
+                ]);
+            }
+
+            return $this->successResponse();
+        }
+
+        if (in_array($code, self::ORDER_PUSH_CODES, true)) {
+            if ($orderSn) {
+                $this->dispatchOrderSync($shopId, $orderSn, $code);
+            }
+
+            if (in_array($code, self::PACKAGE_PUSH_CODES, true)) {
+                $store = $this->findStore($shopId);
                 if ($store) {
-                    Log::info("Dispatching SyncShopeeReturnJob for Store {$store->id} (Code: 24)");
-                    \App\Jobs\SyncShopeeReturnJob::dispatch($store, \Carbon\Carbon::now()->subDays(7)->timestamp, time())->onQueue('orders');
+                    SyncStoreLogisticsJob::dispatch($store->id, false, 'webhook')
+                        ->onQueue('logistics');
                 }
             }
-        } elseif (in_array($code, $productPushCodes)) {
-            $itemId = $data['item_id'] ?? null;
+
+            return $this->successResponse();
+        }
+
+        if (in_array($code, self::PRODUCT_PUSH_CODES, true)) {
+            $itemId = data_get($data, 'item_id') ?? data_get($data, 'item.item_id');
             if ($itemId) {
-                Log::info("Dispatching HandleShopeeProductWebhookJob for Item: {$itemId} (Code: {$code})");
-                \App\Jobs\HandleShopeeProductWebhookJob::dispatch($shopId, $itemId)->onQueue('products');
+                Log::info('Dispatching Shopee product webhook job', [
+                    'shop_id' => $shopId,
+                    'item_id' => $itemId,
+                    'code' => $code,
+                ]);
+                HandleShopeeProductWebhookJob::dispatch($shopId, $itemId)->onQueue('products');
             }
         }
 
-        return response()->json(['code' => 0, 'message' => 'success']);
+        return $this->successResponse();
     }
 
-    private function verifySignature($url, $rawBody, $signatureHeader)
+    private function signatureUrls(Request $request): array
     {
-        if (!$signatureHeader) return false;
+        $path = '/'.ltrim($request->path(), '/');
+        $forwardedProto = $this->firstHeaderValue($request->header('X-Forwarded-Proto'));
+        $forwardedHost = $this->firstHeaderValue($request->header('X-Forwarded-Host'));
 
-        // Jika menggunakan ngrok, $url mungkin terdeteksi sebagai http:// padahal di Shopee diset https://
-        // Ini akan membuat baseString berbeda dan validasi gagal. Kita force ke https jika itu ngrok.
-        if (strpos($url, 'http://') === 0 && strpos($url, 'ngrok') !== false) {
-            $url = str_replace('http://', 'https://', $url);
+        $urls = [$request->url()];
+
+        if ($forwardedProto) {
+            $urls[] = $forwardedProto.'://'.($forwardedHost ?: $request->getHttpHost()).$path;
         }
 
-        $partnerKey = config('shopee.partner_key');
-        
-        // Shopee Docs: HMAC-SHA256(webhook_url + "|" + request_body, partner_key)
-        $baseString = $url . '|' . $rawBody;
-        $calculatedSign = hash_hmac('sha256', $baseString, $partnerKey);
+        $urls[] = 'https://'.$request->getHttpHost().$path;
 
-        if (!hash_equals($calculatedSign, $signatureHeader)) {
-            Log::debug('Signature Debug Info', [
-                'url_used' => $url,
-                'calculated_signature' => $calculatedSign,
-                'received_signature' => $signatureHeader,
-                'partner_key_length' => strlen($partnerKey)
+        return array_values(array_unique(array_filter($urls)));
+    }
+
+    private function signatureFromRequest(Request $request): ?string
+    {
+        return $request->header('Authorization')
+            ?? $request->server('HTTP_AUTHORIZATION')
+            ?? $request->server('REDIRECT_HTTP_AUTHORIZATION');
+    }
+
+    private function firstHeaderValue(?string $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        return trim(explode(',', $value)[0]);
+    }
+
+    private function findStore(string|int $shopId): ?Store
+    {
+        return Store::query()
+            ->where('platform', 'Shopee')
+            ->where('shopee_shop_id', (string) $shopId)
+            ->first();
+    }
+
+    private function extractOrderSn(array $data): ?string
+    {
+        $orderSn = data_get($data, 'ordersn')
+            ?? data_get($data, 'order_sn')
+            ?? data_get($data, 'order.order_sn')
+            ?? data_get($data, 'package.order_sn')
+            ?? data_get($data, 'package_list.0.order_sn');
+
+        return $orderSn ? (string) $orderSn : null;
+    }
+
+    private function dispatchOrderSync(string|int $shopId, string $orderSn, int $code): void
+    {
+        Log::info('Dispatching Shopee order webhook job', [
+            'shop_id' => $shopId,
+            'order_sn' => $orderSn,
+            'code' => $code,
+        ]);
+
+        HandleShopeeOrderWebhookJob::dispatch($shopId, $orderSn)->onQueue('orders');
+    }
+
+    private function handleAuthorizationPush(
+        int $code,
+        ?Store $store,
+        array $data,
+        string|int $shopId
+    ): void {
+        if (! $store) {
+            Log::warning('Shopee authorization push received for an unknown store', [
+                'shop_id' => $shopId,
+                'code' => $code,
             ]);
-            return false;
+
+            return;
         }
-        
-        return true;
+
+        if ($code === 2) {
+            $store->update([
+                'access_token' => null,
+                'refresh_token' => null,
+                'token_expired_at' => now(),
+                'shop_expired_at' => now(),
+            ]);
+
+            Log::warning('Shopee store authorization was canceled', ['store_id' => $store->id]);
+
+            return;
+        }
+
+        if ($code === 12) {
+            $expiration = $this->extractAuthorizationExpiration($data);
+            if ($expiration) {
+                $store->update(['shop_expired_at' => $expiration]);
+            }
+
+            Log::warning('Shopee store authorization is approaching expiry', [
+                'store_id' => $store->id,
+                'shop_expired_at' => $expiration?->toIso8601String(),
+            ]);
+        }
+    }
+
+    private function extractAuthorizationExpiration(array $data): ?Carbon
+    {
+        $value = data_get($data, 'expire_time')
+            ?? data_get($data, 'shop_expire_time')
+            ?? data_get($data, 'authorization_expire_time');
+
+        if (! $value) {
+            return null;
+        }
+
+        try {
+            if (is_numeric($value)) {
+                $timestamp = (int) $value;
+                if ($timestamp > 20_000_000_000) {
+                    $timestamp = (int) floor($timestamp / 1000);
+                }
+
+                return Carbon::createFromTimestamp($timestamp);
+            }
+
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function successResponse()
+    {
+        return response()->json(['code' => 0, 'message' => 'success']);
     }
 }
