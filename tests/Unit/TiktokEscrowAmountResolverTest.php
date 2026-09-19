@@ -12,7 +12,7 @@ class TiktokEscrowAmountResolverTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->resolver = new TiktokEscrowAmountResolver();
+        $this->resolver = new TiktokEscrowAmountResolver;
     }
 
     public function test_fallback_uses_the_sum_of_line_item_sale_prices(): void
@@ -123,6 +123,13 @@ class TiktokEscrowAmountResolverTest extends TestCase
         $this->assertFalse($this->resolver->needsRefresh($unsettled, 'IN_TRANSIT', 125078));
         $this->assertTrue($this->resolver->needsRefresh($unsettled, 'COMPLETED', 125078));
         $this->assertFalse($this->resolver->needsRefresh($settled, 'COMPLETED', 120500));
+    }
+
+    public function test_delivered_and_completed_orders_can_use_statement_data(): void
+    {
+        $this->assertTrue($this->resolver->shouldTryStatement('DELIVERED'));
+        $this->assertTrue($this->resolver->shouldTryStatement('completed'));
+        $this->assertFalse($this->resolver->shouldTryStatement('IN_TRANSIT'));
     }
 
     public function test_shop_aggregate_saved_as_order_escrow_is_invalid(): void

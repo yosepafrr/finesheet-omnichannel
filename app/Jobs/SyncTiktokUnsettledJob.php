@@ -26,6 +26,8 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
 
     public $uniqueFor = 600;
 
+    private const STATEMENT_RECONCILIATION_LIMIT = 25;
+
     public function __construct(public int $storeId) {}
 
     public function uniqueId(): string
@@ -67,14 +69,6 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
         $transactionsByOrder = collect($response['data']['transactions'] ?? [])
             ->filter(fn ($transaction) => is_array($transaction) && ! empty($transaction['order_id']))
             ->groupBy(fn (array $transaction) => (string) $transaction['order_id']);
-
-        if ($transactionsByOrder->isEmpty()) {
-            Log::info('TikTok unsettled sync completed with no transactions', [
-                'store_id' => $store->id,
-            ]);
-
-            return;
-        }
 
         $updated = 0;
         $lastUpdatedOrder = null;
@@ -118,6 +112,12 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
+        $statementQueued = $this->dispatchMissingStatementJobs(
+            $store,
+            $transactionsByOrder->keys()->all(),
+            $resolver
+        );
+
         if ($lastUpdatedOrder) {
             try {
                 broadcast(new OrderUpdated($lastUpdatedOrder));
@@ -134,6 +134,54 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
             'pages_fetched' => $response['data']['pages_fetched'] ?? null,
             'transactions' => $transactionsByOrder->flatten(1)->count(),
             'orders_updated' => $updated,
+            'statement_jobs_queued' => $statementQueued,
         ]);
+    }
+
+    private function dispatchMissingStatementJobs(
+        Store $store,
+        array $unsettledOrderIds,
+        TiktokEscrowAmountResolver $resolver
+    ): int {
+        $query = Order::query()
+            ->where('store_id', $store->id)
+            ->where('platform', 'Tiktokshop')
+            ->whereIn('order_status', ['DELIVERED', 'COMPLETED'])
+            ->where('order_time', '>=', now()->subDays(180))
+            ->where(function ($query) {
+                $query->whereNull('fee_details')
+                    ->orWhereNull('escrow_amount');
+            })
+            ->with('orderProducts')
+            ->orderBy('updated_at')
+            ->limit(self::STATEMENT_RECONCILIATION_LIMIT);
+
+        if ($unsettledOrderIds !== []) {
+            $query->whereNotIn('order_sn', $unsettledOrderIds);
+        }
+
+        $queued = 0;
+        foreach ($query->get() as $order) {
+            if (! $resolver->needsRefresh(
+                $order->fee_details,
+                $order->order_status,
+                $order->escrow_amount
+            )) {
+                continue;
+            }
+
+            SyncTiktokEscrowJob::dispatch(
+                $store->id,
+                $order->order_sn,
+                $order->order_status ?? '',
+                $resolver->fallbackForOrder($order),
+                true
+            )
+                ->onQueue('orders-low')
+                ->delay(now()->addSeconds($queued * 2));
+            $queued++;
+        }
+
+        return $queued;
     }
 }

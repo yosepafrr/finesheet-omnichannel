@@ -6,9 +6,14 @@ use App\Models\Order;
 
 class TiktokEscrowAmountResolver
 {
+    public function shouldTryStatement(?string $status): bool
+    {
+        return in_array(strtoupper((string) $status), ['DELIVERED', 'COMPLETED'], true);
+    }
+
     public function needsRefresh(?array $financeDetails, ?string $status, $storedAmount = null): bool
     {
-        if (!$this->hasValidStoredAmount($financeDetails, $storedAmount)) {
+        if (! $this->hasValidStoredAmount($financeDetails, $storedAmount)) {
             return true;
         }
 
@@ -18,7 +23,7 @@ class TiktokEscrowAmountResolver
 
     public function hasValidStoredAmount(?array $financeDetails, $storedAmount): bool
     {
-        if (empty($financeDetails) || !is_numeric($storedAmount)) {
+        if (empty($financeDetails) || ! is_numeric($storedAmount)) {
             return false;
         }
 
@@ -77,7 +82,7 @@ class TiktokEscrowAmountResolver
 
     public function unsettled(array $response, string $orderId): ?array
     {
-        if (($response['code'] ?? null) !== 0 || !is_array($response['data'] ?? null)) {
+        if (($response['code'] ?? null) !== 0 || ! is_array($response['data'] ?? null)) {
             return null;
         }
 
@@ -94,7 +99,7 @@ class TiktokEscrowAmountResolver
 
         // Some response variants omit order_id when exactly one filtered row is
         // returned. Never use the shop-wide aggregate for a multi-row response.
-        if ($transactions === [] && count($allTransactions) === 1 && !isset($allTransactions[0]['order_id'])) {
+        if ($transactions === [] && count($allTransactions) === 1 && ! isset($allTransactions[0]['order_id'])) {
             $transactions = $allTransactions;
         }
 
@@ -113,7 +118,7 @@ class TiktokEscrowAmountResolver
 
     public function settled(array $response): ?array
     {
-        if (($response['code'] ?? null) !== 0 || !is_array($response['data'] ?? null)) {
+        if (($response['code'] ?? null) !== 0 || ! is_array($response['data'] ?? null)) {
             return null;
         }
 
