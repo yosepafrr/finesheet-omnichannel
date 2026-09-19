@@ -180,13 +180,11 @@ class PayableService
      */
     public function resolveSupplierIdForItem($item, int $userId): ?int
     {
-        // 1. Direct product relation
+        // Supplier assignment must come from an explicit mapping. The direct
+        // relation may contain legacy values created by the old auto-assign.
         $product = \App\Models\Product::where('product_id', $item->product_id)->first();
-        if ($product && $product->supplier_id) {
-            return $product->supplier_id;
-        }
 
-        // 2. Variant model_sku in supplier_product_mappings
+        // 1. Variant model_sku in supplier_product_mappings
         $modelSku = null;
         if ($product) {
             $modelName = $item->model_name ?? '';
@@ -214,7 +212,7 @@ class PayableService
             }
         }
 
-        // 3. Product product_sku in supplier_product_mappings
+        // 2. Product product_sku in supplier_product_mappings
         if ($product && !empty($product->product_sku)) {
             $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
                 ->where('sku', $product->product_sku)
@@ -227,7 +225,7 @@ class PayableService
             }
         }
 
-        // 4. Platform product_id in supplier_product_mappings
+        // 3. Platform product_id in supplier_product_mappings
         $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
             ->where('platform_product_id', (string)$item->product_id)
             ->first();
@@ -236,16 +234,6 @@ class PayableService
                 $product->update(['supplier_id' => $mapping->supplier_id]);
             }
             return $mapping->supplier_id;
-        }
-
-        // 5. If user has only 1 supplier, auto-assign to that 1 supplier
-        $userSuppliers = \App\Models\Supplier::where('user_id', $userId)->pluck('id');
-        if ($userSuppliers->count() === 1) {
-            $singleSupplierId = $userSuppliers->first();
-            if ($product && !$product->supplier_id) {
-                $product->update(['supplier_id' => $singleSupplierId]);
-            }
-            return $singleSupplierId;
         }
 
         return null;
@@ -291,10 +279,7 @@ class PayableService
         $orderProducts = $order->orderProducts;
         $itemsBySupplier = [];
 
-        if ($orderProducts->isEmpty()) {
-            $singleSupplierId = \App\Models\Supplier::where('user_id', $userId)->value('id');
-            $itemsBySupplier[$singleSupplierId] = [];
-        } else {
+        if ($orderProducts->isNotEmpty()) {
             foreach ($orderProducts as $item) {
                 $supplierId = $this->resolveSupplierIdForItem($item, $userId);
                 $itemsBySupplier[$supplierId][] = $item;
@@ -373,6 +358,10 @@ class PayableService
         // Clean up any stale supplier events for this order
         $cleanup = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'CREATE_ORDER');
+        if (empty($recordedSupplierIds)) {
+            $cleanup->delete();
+            return;
+        }
         if (!in_array(null, $recordedSupplierIds, true)) {
             $cleanup->where(function ($q) use ($recordedSupplierIds) {
                 $q->whereNotIn('supplier_id', $recordedSupplierIds)
@@ -409,12 +398,12 @@ class PayableService
                         ->first();
                         
                     $product = $variant ? $variant->product : Product::where('product_id', $item->sku_id)->first();
-                    $supplierId = $product?->supplier_id;
-                    if (!$supplierId && $variant) {
+                    $supplierId = null;
+                    if ($variant && $product) {
                         $supplierId = $this->resolveSupplierIdForItem((object)['product_id' => $product?->product_id, 'model_name' => $variant->model_name], $userId);
                     }
 
-                    if ($variant && $variant->hpp > 0) {
+                    if ($supplierId && $variant && $variant->hpp > 0) {
                         $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($variant->hpp * $item->quantity);
                     }
                 }
@@ -425,9 +414,11 @@ class PayableService
                     ->orWhere('model_sku', $item->sku_id)
                     ->first();
                 $product = $variant ? $variant->product : Product::where('product_id', $item->sku_id)->first();
-                $supplierId = $product?->supplier_id;
-                
-                if ($variant && $variant->hpp > 0) {
+                $supplierId = ($variant && $product)
+                    ? $this->resolveSupplierIdForItem((object)['product_id' => $product->product_id, 'model_name' => $variant->model_name], $userId)
+                    : null;
+
+                if ($supplierId && $variant && $variant->hpp > 0) {
                     $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($variant->hpp * $item->quantity);
                 }
             }
@@ -442,10 +433,15 @@ class PayableService
                 foreach ($createEvents as $ce) {
                     $returnsBySupplier[$ce->supplier_id] = (float)$ce->amount;
                 }
-            } else {
-                $singleSupplierId = \App\Models\Supplier::where('user_id', $userId)->value('id');
-                $returnsBySupplier[$singleSupplierId] = $this->calculateOrderHpp($order);
             }
+        }
+
+        if (empty($returnsBySupplier)) {
+            PayableEvent::where('user_id', $userId)
+                ->whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
+                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->delete();
+            return;
         }
 
         if ($orderSn && !empty($returnsBySupplier)) {
@@ -556,6 +552,9 @@ class PayableService
             ->get();
 
         if ($createEvents->isEmpty()) {
+            PayableEvent::where('source_id', $order->order_sn)
+                ->where('source_type', $type)
+                ->delete();
             return;
         }
 
@@ -638,6 +637,15 @@ class PayableService
         
         $userStores = \App\Models\Store::where('user_id', $userId)->pluck('id');
         if ($userStores->isEmpty()) return;
+
+        // Clear assignments created by the old implicit fallback. Explicit UI
+        // mappings always have a supplier_product_mappings row for the product.
+        Product::whereIn('store_id', $userStores)
+            ->whereNotNull('supplier_id')
+            ->whereDoesntHave('supplierMappings', function ($query) {
+                $query->whereColumn('supplier_product_mappings.supplier_id', 'products.supplier_id');
+            })
+            ->update(['supplier_id' => null]);
 
         // Step 1: Pre-create ALL consecutive periods for this user's suppliers
         $suppliers = \App\Models\Supplier::where('user_id', $userId)->get();
