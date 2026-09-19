@@ -444,9 +444,24 @@ class PayableController extends Controller
     /**
      * Get Payable Configuration for current user
      */
-    public function getConfig()
+    public function getConfig(Request $request)
     {
         $userId = Auth::id();
+
+        if ($request->filled('supplier_id')) {
+            $supplier = Supplier::where('user_id', $userId)
+                ->findOrFail((int) $request->get('supplier_id'));
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $supplier->first_period_start ? [
+                    'supplier_id' => $supplier->id,
+                    'first_period_start' => $supplier->first_period_start->format('Y-m-d H:i:s'),
+                    'length_days' => $supplier->period_length_days ?? 14,
+                ] : null,
+            ]);
+        }
+
         $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
         return response()->json([
             'status' => 'success',
@@ -461,33 +476,47 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
+            'supplier_id' => 'required|integer|exists:suppliers,id',
             'first_period_start' => 'required|date',
             'length_days' => 'required|integer|min:1',
         ]);
 
+        $supplier = Supplier::where('user_id', $userId)
+            ->findOrFail($validated['supplier_id']);
         $startDate = Carbon::parse($validated['first_period_start']);
-        $setting = Setting::updateOrCreate(
-            ['key' => 'recap_period_config', 'user_id' => $userId],
-            ['value' => [
-                'first_period_start' => $startDate->format('Y-m-d H:i:s'),
-                'length_days' => $validated['length_days'],
-            ]]
-        );
 
-        // Update all existing suppliers of this user with the same period config
-        // so that SyncPayableHistoryJob can create periods properly per supplier
-        \App\Models\Supplier::where('user_id', $userId)->update([
+        $supplier->update([
             'period_length_days' => $validated['length_days'],
             'first_period_start' => $startDate,
         ]);
 
+        $earliestSupplier = Supplier::where('user_id', $userId)
+            ->whereNotNull('first_period_start')
+            ->orderBy('first_period_start')
+            ->first();
+
+        Setting::updateOrCreate(
+            ['key' => 'recap_period_config', 'user_id' => $userId],
+            ['value' => [
+                'first_period_start' => $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
+                'length_days' => $earliestSupplier->period_length_days ?? 14,
+            ]]
+        );
+
         // Sync historical orders for this user in background
-        \App\Jobs\SyncPayableHistoryJob::dispatch($startDate->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
+        \App\Jobs\SyncPayableHistoryJob::dispatch(
+            $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
+            $userId
+        )->onQueue('orders');
 
         return response()->json([
             'status' => 'success',
             'message' => 'Konfigurasi periode berhasil disimpan, histori sedang disinkronisasi',
-            'data' => $setting->value
+            'data' => [
+                'supplier_id' => $supplier->id,
+                'first_period_start' => $supplier->first_period_start->format('Y-m-d H:i:s'),
+                'length_days' => $supplier->period_length_days,
+            ]
         ]);
     }
 
@@ -498,39 +527,53 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
+            'supplier_id' => 'required|integer|exists:suppliers,id',
             'length_days' => 'required|integer|min:1',
             'apply_mode'  => 'required|in:future,all',
         ]);
 
-        $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-        if (!$config) {
+        $supplier = Supplier::where('user_id', $userId)
+            ->findOrFail($validated['supplier_id']);
+        if (!$supplier->first_period_start) {
             return response()->json(['status' => 'error', 'message' => 'Belum ada konfigurasi periode'], 422);
         }
 
-        $configData = $config->value;
-        $configData['length_days'] = $validated['length_days'];
-        $config->value = $configData;
-        $config->save();
+        $supplier->update(['period_length_days' => $validated['length_days']]);
+
+        $earliestSupplier = Supplier::where('user_id', $userId)
+            ->whereNotNull('first_period_start')
+            ->orderBy('first_period_start')
+            ->first();
+
+        Setting::updateOrCreate(
+            ['key' => 'recap_period_config', 'user_id' => $userId],
+            ['value' => [
+                'first_period_start' => $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
+                'length_days' => $earliestSupplier->period_length_days ?? 14,
+            ]]
+        );
 
         if ($validated['apply_mode'] === 'all') {
-            // Retrospectively re-create all period boundaries for this user
-            $firstStart = Carbon::parse($configData['first_period_start']);
+            $firstStart = $supplier->first_period_start;
 
-            // Delete all auto-generated periods belonging to this user
-            PayablePeriod::where('user_id', $userId)->where('is_manual', false)->delete();
+            // Only rebuild automatic periods belonging to the active supplier.
+            PayablePeriod::where('user_id', $userId)
+                ->where('supplier_id', $supplier->id)
+                ->where('is_manual', false)
+                ->delete();
 
             // Re-sync from the beginning so events get reassigned to the new periods
             \App\Jobs\SyncPayableHistoryJob::dispatch($firstStart->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
 
             return response()->json([
                 'status' => 'success',
-                'message' => "Durasi periode diubah menjadi {$validated['length_days']} hari dan diterapkan ke semua periode. Sinkronisasi ulang dimulai.",
+                'message' => "Durasi periode {$supplier->name} diubah menjadi {$validated['length_days']} hari dan diterapkan ke semua periodenya. Sinkronisasi ulang dimulai.",
             ]);
         }
 
         return response()->json([
             'status' => 'success',
-            'message' => "Durasi periode diubah menjadi {$validated['length_days']} hari. Perubahan akan diterapkan setelah periode saat ini selesai.",
+            'message' => "Durasi periode {$supplier->name} diubah menjadi {$validated['length_days']} hari. Perubahan akan diterapkan setelah periode saat ini selesai.",
         ]);
     }
 

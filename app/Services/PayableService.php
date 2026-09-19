@@ -685,7 +685,7 @@ class PayableService
         // Step 1: Pre-create ALL consecutive periods for this user's suppliers
         $suppliers = \App\Models\Supplier::where('user_id', $userId)->get();
         foreach ($suppliers as $supplier) {
-            $supplierStart = $start ?? $supplier->first_period_start;
+            $supplierStart = $supplier->first_period_start;
             if ($supplierStart) {
                 $this->ensureAllPeriods($supplierStart, $userId, $supplier);
             }

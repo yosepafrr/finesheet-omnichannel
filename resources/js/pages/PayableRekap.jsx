@@ -385,6 +385,9 @@ export default function PayableRekap() {
         }
         selectedSupplierIdsRef.current = updated;
         setSelectedSupplierIds(updated);
+        if (updated.length === 1) {
+            await fetchConfig(updated[0]);
+        }
         setIsDetailLoading(true);
         const { selectedPeriodId: nextPeriodId } = await fetchPeriods(true, updated);
         if (nextPeriodId) {
@@ -424,30 +427,55 @@ export default function PayableRekap() {
         setIsPaymentModalOpen(true);
     };
 
-    const fetchConfig = async () => {
+    const fetchConfig = async (supplierId = activeSupplierId) => {
+        if (!supplierId) return null;
         try {
-            const res = await axios.get('/api/payable/config');
+            const res = await axios.get('/api/payable/config', {
+                params: { supplier_id: supplierId }
+            });
             if (res.data.data) {
                 setConfigForm({
                     first_period_start: res.data.data.first_period_start.slice(0, 16),
                     length_days: res.data.data.length_days
                 });
                 setSettingsForm(prev => ({ ...prev, length_days: res.data.data.length_days }));
+            } else {
+                setConfigForm({ first_period_start: '', length_days: 14 });
+                setSettingsForm(prev => ({ ...prev, length_days: 14 }));
             }
+            return res.data.data;
         } catch (error) {
             console.error("Failed to fetch config", error);
+            return null;
         }
+    };
+
+    const openConfigModal = async () => {
+        if (!activeSupplierId) {
+            toast.error('Pilih satu supplier untuk mengatur periodenya');
+            return;
+        }
+
+        await fetchConfig(activeSupplierId);
+        setIsConfigModalOpen(true);
     };
 
     // --- Settings: save duration change ---
     const handleSaveDuration = async () => {
+        if (!activeSupplierId) {
+            toast.error('Pilih satu supplier terlebih dahulu');
+            return;
+        }
         setIsSettingsSaving(true);
         try {
-            const res = await axios.post('/api/payable/config/duration', settingsForm);
+            const res = await axios.post('/api/payable/config/duration', {
+                ...settingsForm,
+                supplier_id: activeSupplierId
+            });
             toast.success(res.data.message || 'Durasi periode berhasil diperbarui');
             setIsSettingsModalOpen(false);
             setSettingsDurationConfirm(false);
-            await fetchConfig();
+            await fetchConfig(activeSupplierId);
             if (settingsForm.apply_mode === 'all') startSyncPolling(selectedPeriodId);
             else await fetchPeriods(true);
         } catch (err) {
@@ -568,9 +596,15 @@ export default function PayableRekap() {
     }, []);
 
     useEffect(() => {
-        fetchSuppliers();
-        fetchPeriods();
-        fetchConfig();
+        const initialize = async () => {
+            const supplierData = await fetchSuppliers();
+            await fetchPeriods();
+            if (supplierData.length === 1) {
+                await fetchConfig(supplierData[0].id);
+            }
+        };
+
+        initialize();
         return () => {
             if (pollingRef.current) clearInterval(pollingRef.current);
             if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
@@ -647,8 +681,15 @@ export default function PayableRekap() {
 
     const handleSaveConfig = async (e) => {
         e.preventDefault();
+        if (!activeSupplierId) {
+            toast.error('Pilih satu supplier terlebih dahulu');
+            return;
+        }
         try {
-            await axios.post('/api/payable/config', configForm);
+            await axios.post('/api/payable/config', {
+                ...configForm,
+                supplier_id: activeSupplierId
+            });
             toast.success("Konfigurasi berhasil disimpan, sinkronisasi data dimulai...");
             setIsConfigModalOpen(false);
             // Fetch periods first, then start polling for sync completion
@@ -1870,7 +1911,7 @@ export default function PayableRekap() {
                         <p className="text-slate-500 dark:text-slate-400">Belum ada data periode yang dapat ditampilkan.</p>
                         <button
                             type="button"
-                            onClick={() => setIsConfigModalOpen(true)}
+                            onClick={openConfigModal}
                             className="mt-4 text-indigo-500 hover:text-indigo-600 font-medium text-sm"
                         >
                             Atur Konfigurasi Sekarang &rarr;
@@ -2536,7 +2577,9 @@ export default function PayableRekap() {
                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsConfigModalOpen(false)}></motion.div>
                             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl ring-1 ring-white/10 overflow-hidden">
                                 <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-1">Atur Periode Pertama</h2>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Tentukan tanggal mulai dan durasi. Periode berikutnya akan dibuat otomatis.</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                                    Tentukan tanggal mulai dan durasi untuk {suppliers.find(supplier => supplier.id === activeSupplierId)?.name || 'supplier ini'}. Periode berikutnya akan dibuat otomatis.
+                                </p>
                                 <form onSubmit={handleSaveConfig} className="space-y-4">
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Tgl &amp; Jam Mulai Periode Pertama</label>
