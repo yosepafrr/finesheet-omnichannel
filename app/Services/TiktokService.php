@@ -554,6 +554,7 @@ class TiktokService
 
         $path = "/product/202309/products/{$productId}/inventory/update";
         $timestamp = time();
+        $inventory = $this->resolveInventory($store, $productId, $skuId, (int) $stock);
 
         $queries = [
             'app_key' => $this->appKey,
@@ -565,11 +566,7 @@ class TiktokService
             'skus' => [
                 [
                     'id' => $skuId,
-                    'inventory' => [
-                        [
-                            'quantity' => (int) $stock,
-                        ],
-                    ],
+                    'inventory' => $inventory,
                 ],
             ],
         ];
@@ -590,13 +587,17 @@ class TiktokService
             'product_id' => $productId,
             'sku_id' => $skuId,
             'stock' => $stock,
+            'inventory' => $inventory,
             'response_code' => is_array($res) ? ($res['code'] ?? null) : null,
             'message' => is_array($res) ? ($res['message'] ?? null) : null,
             'request_id' => is_array($res) ? ($res['request_id'] ?? null) : null,
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException("TikTok Shop menolak pembaruan stok dengan HTTP {$response->status()}.");
+            $reason = is_array($res) ? (string) ($res['message'] ?? '') : '';
+            $suffix = $reason !== '' ? ": {$reason}" : '.';
+
+            throw new RuntimeException("TikTok Shop menolak pembaruan stok dengan HTTP {$response->status()}{$suffix}");
         }
 
         if (! is_array($res)) {
@@ -610,5 +611,60 @@ class TiktokService
         }
 
         return $res;
+    }
+
+    /**
+     * Keep TikTok's existing warehouse distribution while matching the master total.
+     */
+    private function resolveInventory(Store $store, string $productId, string $skuId, int $targetStock): array
+    {
+        $detail = $this->getProductDetail($store, $productId);
+        $skus = data_get($detail, 'data.skus', []);
+        $currentInventory = [];
+
+        foreach (is_array($skus) ? $skus : [] as $sku) {
+            if ((string) ($sku['id'] ?? '') === $skuId) {
+                $currentInventory = $sku['inventory'] ?? [];
+                break;
+            }
+        }
+
+        $warehouses = array_values(array_filter(
+            is_array($currentInventory) ? $currentInventory : [],
+            fn ($entry) => is_array($entry) && ! empty($entry['warehouse_id'])
+        ));
+
+        if ($warehouses === []) {
+            return [['quantity' => max(0, $targetStock)]];
+        }
+
+        $targetStock = max(0, $targetStock);
+        $weights = array_map(
+            fn ($entry) => max(0, (int) ($entry['quantity'] ?? 0)),
+            $warehouses
+        );
+        $weightTotal = array_sum($weights);
+        $allocated = array_fill(0, count($warehouses), 0);
+
+        if ($weightTotal > 0) {
+            foreach ($weights as $index => $weight) {
+                $allocated[$index] = (int) floor($targetStock * $weight / $weightTotal);
+            }
+
+            $remainder = $targetStock - array_sum($allocated);
+            $largestIndex = array_keys($weights, max($weights), true)[0];
+            $allocated[$largestIndex] += $remainder;
+        } else {
+            $allocated[0] = $targetStock;
+        }
+
+        return array_map(
+            fn ($entry, $index) => [
+                'warehouse_id' => (string) $entry['warehouse_id'],
+                'quantity' => $allocated[$index],
+            ],
+            $warehouses,
+            array_keys($warehouses)
+        );
     }
 }

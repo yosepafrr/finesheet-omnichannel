@@ -635,6 +635,7 @@ class ShopeeService
     {
         $shopId = $store->shopee_shop_id;
         $accessToken = $this->ensureValidToken($store);
+        $sellerStock = $this->resolveSellerStock($store, $itemId, $modelId, $stock);
 
         $path = '/api/v2/product/update_stock';
         $timestamp = time();
@@ -650,6 +651,7 @@ class ShopeeService
         $stockList = [
             [
                 'normal_stock' => $stock,
+                'seller_stock' => $sellerStock,
             ],
         ];
 
@@ -673,6 +675,7 @@ class ShopeeService
             'item_id' => $itemId,
             'model_id' => $modelId,
             'stock' => $stock,
+            'seller_stock' => $sellerStock,
             'error' => is_array($result) ? ($result['error'] ?? null) : null,
             'message' => is_array($result) ? ($result['message'] ?? null) : null,
             'request_id' => is_array($result) ? ($result['request_id'] ?? null) : null,
@@ -682,7 +685,12 @@ class ShopeeService
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException("Shopee menolak pembaruan stok dengan HTTP {$response->status()}.");
+            $reason = is_array($result)
+                ? (string) ($result['message'] ?? $result['error'] ?? '')
+                : '';
+            $suffix = $reason !== '' ? ": {$reason}" : '.';
+
+            throw new RuntimeException("Shopee menolak pembaruan stok dengan HTTP {$response->status()}{$suffix}");
         }
 
         if (! is_array($result)) {
@@ -707,5 +715,82 @@ class ShopeeService
         }
 
         return $result;
+    }
+
+    /**
+     * Build the stock payload from Shopee's current warehouse structure.
+     */
+    private function resolveSellerStock(
+        Store $store,
+        string $itemId,
+        string $modelId,
+        int $stock
+    ): array {
+        $currentSellerStock = [];
+
+        if ($modelId !== '' && $modelId !== '0') {
+            $variantResponse = $this->getItemsVariant($store, [$itemId]);
+            $models = $variantResponse[$itemId]['model'] ?? [];
+
+            foreach ($models as $model) {
+                if ((string) ($model['model_id'] ?? '') === $modelId) {
+                    $currentSellerStock = data_get($model, 'stock_info_v2.seller_stock', []);
+                    break;
+                }
+            }
+        } else {
+            $items = $this->getItemBaseInfo($store, [(int) $itemId]);
+            $currentSellerStock = data_get($items, '0.stock_info_v2.seller_stock', []);
+        }
+
+        return $this->allocateSellerStock(
+            is_array($currentSellerStock) ? $currentSellerStock : [],
+            max(0, $stock)
+        );
+    }
+
+    /**
+     * Keep the existing warehouse distribution while matching the master total.
+     */
+    private function allocateSellerStock(array $currentSellerStock, int $targetStock): array
+    {
+        $locations = array_values(array_filter(
+            $currentSellerStock,
+            fn ($entry) => is_array($entry)
+                && ! empty($entry['location_id'])
+                && ($entry['if_saleable'] ?? true) !== false
+        ));
+
+        if ($locations === []) {
+            return [['stock' => $targetStock]];
+        }
+
+        $weights = array_map(
+            fn ($entry) => max(0, (int) ($entry['stock'] ?? 0)),
+            $locations
+        );
+        $weightTotal = array_sum($weights);
+        $allocated = array_fill(0, count($locations), 0);
+
+        if ($weightTotal > 0) {
+            foreach ($weights as $index => $weight) {
+                $allocated[$index] = (int) floor($targetStock * $weight / $weightTotal);
+            }
+
+            $remainder = $targetStock - array_sum($allocated);
+            $largestIndex = array_keys($weights, max($weights), true)[0];
+            $allocated[$largestIndex] += $remainder;
+        } else {
+            $allocated[0] = $targetStock;
+        }
+
+        return array_map(
+            fn ($entry, $index) => [
+                'location_id' => (string) $entry['location_id'],
+                'stock' => $allocated[$index],
+            ],
+            $locations,
+            array_keys($locations)
+        );
     }
 }

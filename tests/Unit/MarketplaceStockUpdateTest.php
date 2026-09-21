@@ -27,7 +27,21 @@ class MarketplaceStockUpdateTest extends TestCase
     public function test_shopee_stock_update_sends_the_model_and_stock(): void
     {
         Http::fake([
-            '*' => Http::response([
+            '*get_model_list*' => Http::response([
+                'error' => '',
+                'response' => [
+                    'model' => [[
+                        'model_id' => 789,
+                        'stock_info_v2' => [
+                            'seller_stock' => [
+                                ['location_id' => 'IDZ', 'stock' => 6],
+                                ['location_id' => 'IDJ', 'stock' => 3],
+                            ],
+                        ],
+                    ]],
+                ],
+            ]),
+            '*update_stock*' => Http::response([
                 'error' => '',
                 'message' => '',
                 'response' => [
@@ -54,14 +68,27 @@ class MarketplaceStockUpdateTest extends TestCase
             return str_starts_with($request->url(), 'https://partner.test/api/v2/product/update_stock?')
                 && ($body['item_id'] ?? null) === 456
                 && data_get($body, 'stock_list.0.model_id') === 789
-                && data_get($body, 'stock_list.0.normal_stock') === 12;
+                && data_get($body, 'stock_list.0.normal_stock') === 12
+                && data_get($body, 'stock_list.0.seller_stock') === [
+                    ['location_id' => 'IDZ', 'stock' => 8],
+                    ['location_id' => 'IDJ', 'stock' => 4],
+                ];
         });
     }
 
     public function test_shopee_stock_update_throws_when_api_reports_a_failure(): void
     {
         Http::fake([
-            '*' => Http::response([
+            '*get_model_list*' => Http::response([
+                'error' => '',
+                'response' => [
+                    'model' => [[
+                        'model_id' => 789,
+                        'stock_info_v2' => ['seller_stock' => []],
+                    ]],
+                ],
+            ]),
+            '*update_stock*' => Http::response([
                 'error' => '',
                 'message' => '',
                 'response' => [
@@ -89,7 +116,21 @@ class MarketplaceStockUpdateTest extends TestCase
 
     public function test_tiktok_stock_update_sends_the_sku_inventory(): void
     {
-        Http::fake(['*' => Http::response(['code' => 0, 'message' => 'Success'])]);
+        Http::fake([
+            '*inventory/update*' => Http::response(['code' => 0, 'message' => 'Success']),
+            '*products/PRODUCT-1*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'skus' => [[
+                        'id' => 'SKU-1',
+                        'inventory' => [
+                            ['warehouse_id' => 'WH-1', 'quantity' => 3],
+                            ['warehouse_id' => 'WH-2', 'quantity' => 1],
+                        ],
+                    ]],
+                ],
+            ]),
+        ]);
 
         $service = new class extends TiktokService
         {
@@ -107,16 +148,28 @@ class MarketplaceStockUpdateTest extends TestCase
 
             return str_contains($request->url(), '/product/202309/products/PRODUCT-1/inventory/update')
                 && data_get($body, 'skus.0.id') === 'SKU-1'
-                && data_get($body, 'skus.0.inventory.0.quantity') === 17;
+                && data_get($body, 'skus.0.inventory') === [
+                    ['warehouse_id' => 'WH-1', 'quantity' => 13],
+                    ['warehouse_id' => 'WH-2', 'quantity' => 4],
+                ];
         });
     }
 
     public function test_tiktok_stock_update_throws_when_api_reports_an_error(): void
     {
         Http::fake([
-            '*' => Http::response([
+            '*inventory/update*' => Http::response([
                 'code' => 12052037,
                 'message' => 'Missing warehouse IDs',
+            ]),
+            '*products/PRODUCT-1*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'skus' => [[
+                        'id' => 'SKU-1',
+                        'inventory' => [],
+                    ]],
+                ],
             ]),
         ]);
 
