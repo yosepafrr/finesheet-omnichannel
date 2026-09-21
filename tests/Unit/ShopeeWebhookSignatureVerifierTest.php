@@ -55,8 +55,26 @@ class ShopeeWebhookSignatureVerifierTest extends TestCase
 
         $diagnostics = $verifier->diagnostics($body, $signature);
 
-        $this->assertSame(['hmac_body'], $diagnostics['matches']);
+        $this->assertSame(['current_key:hmac_body'], $diagnostics['matches']);
         $this->assertSame(strlen($body), $diagnostics['body_length']);
+        $this->assertSame(1, $diagnostics['configured_key_slots']);
         $this->assertArrayNotHasKey('signature', $diagnostics);
+    }
+
+    public function test_it_accepts_the_previous_live_push_key_during_rotation(): void
+    {
+        $currentKey = 'current-live-push-key';
+        $previousKey = 'previous-live-push-key';
+        $url = 'https://finesheet.id/webhook/shopee';
+        $body = '{"code":0,"data":{"timestamp":1789876800}}';
+        $signature = hash_hmac('sha256', $url.'|'.$body, $previousKey);
+        $verifier = new ShopeeWebhookSignatureVerifier($currentKey, $url, $previousKey);
+
+        $this->assertTrue($verifier->verify($body, $signature));
+
+        $diagnostics = $verifier->diagnostics($body, $signature);
+
+        $this->assertContains('previous_key:hmac_url_pipe_body:exact_url', $diagnostics['matches']);
+        $this->assertSame(2, $diagnostics['configured_key_slots']);
     }
 }

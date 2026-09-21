@@ -4,13 +4,23 @@ namespace App\Services;
 
 class ShopeeWebhookSignatureVerifier
 {
-    private string $partnerKey;
+    private array $partnerKeys;
 
     private ?string $webhookUrl;
 
-    public function __construct(?string $partnerKey = null, ?string $webhookUrl = null)
-    {
-        $this->partnerKey = $partnerKey ?? (string) config('shopee.live_push_partner_key', '');
+    public function __construct(
+        ?string $partnerKey = null,
+        ?string $webhookUrl = null,
+        ?string $previousPartnerKey = null
+    ) {
+        $previousPartnerKey ??= app()->bound('config')
+            ? (string) config('shopee.live_push_previous_partner_key', '')
+            : '';
+
+        $this->partnerKeys = array_values(array_unique(array_filter([
+            $partnerKey ?? (string) config('shopee.live_push_partner_key', ''),
+            $previousPartnerKey,
+        ], fn (string $key) => $key !== '')));
         $this->webhookUrl = $webhookUrl ?? config('shopee.webhook_url');
     }
 
@@ -18,7 +28,7 @@ class ShopeeWebhookSignatureVerifier
     {
         $signature = $this->normalizeSignature($signature);
 
-        if ($this->partnerKey === '' || ! $signature) {
+        if ($this->partnerKeys === [] || ! $signature) {
             return false;
         }
 
@@ -26,11 +36,13 @@ class ShopeeWebhookSignatureVerifier
             return false;
         }
 
-        foreach ($this->candidateUrls($requestUrls) as $url) {
-            $calculated = hash_hmac('sha256', $url.'|'.$rawBody, $this->partnerKey);
+        foreach ($this->partnerKeys as $key) {
+            foreach ($this->candidateUrls($requestUrls) as $url) {
+                $calculated = hash_hmac('sha256', $url.'|'.$rawBody, $key);
 
-            if (hash_equals(strtolower($calculated), strtolower($signature))) {
-                return true;
+                if (hash_equals(strtolower($calculated), strtolower($signature))) {
+                    return true;
+                }
             }
         }
 
@@ -42,38 +54,45 @@ class ShopeeWebhookSignatureVerifier
         $signature = $this->normalizeSignature($signature);
         $matches = [];
 
-        if ($this->partnerKey === '' || ! $signature || ! preg_match('/^[a-f0-9]{64}$/i', $signature)) {
-            return ['matches' => $matches, 'body_length' => strlen($rawBody)];
+        if ($this->partnerKeys === [] || ! $signature || ! preg_match('/^[a-f0-9]{64}$/i', $signature)) {
+            return [
+                'matches' => $matches,
+                'body_length' => strlen($rawBody),
+                'configured_key_slots' => count($this->partnerKeys),
+            ];
         }
 
-        $candidates = [
-            'hmac_body' => hash_hmac('sha256', $rawBody, $this->partnerKey),
-        ];
+        $candidates = [];
 
-        foreach ($this->candidateUrls($requestUrls) as $url) {
-            $urlVariants = [$url];
-            $urlVariants[] = str_ends_with($url, '/') ? rtrim($url, '/') : $url.'/';
+        foreach ($this->partnerKeys as $keyIndex => $key) {
+            $keySlot = $keyIndex === 0 ? 'current_key' : 'previous_key';
+            $candidates["{$keySlot}:hmac_body"] = hash_hmac('sha256', $rawBody, $key);
 
-            foreach (array_unique($urlVariants) as $urlVariant) {
-                $suffix = $urlVariant === $url ? 'exact_url' : 'alternate_trailing_slash';
-                $candidates["hmac_url_pipe_body:{$suffix}"] = hash_hmac(
-                    'sha256',
-                    $urlVariant.'|'.$rawBody,
-                    $this->partnerKey
-                );
-                $candidates["hmac_url_body:{$suffix}"] = hash_hmac(
-                    'sha256',
-                    $urlVariant.$rawBody,
-                    $this->partnerKey
-                );
-                $candidates["sha256_key_url_pipe_body:{$suffix}"] = hash(
-                    'sha256',
-                    $this->partnerKey.$urlVariant.'|'.$rawBody
-                );
-                $candidates["sha256_url_pipe_body_key:{$suffix}"] = hash(
-                    'sha256',
-                    $urlVariant.'|'.$rawBody.$this->partnerKey
-                );
+            foreach ($this->candidateUrls($requestUrls) as $url) {
+                $urlVariants = [$url];
+                $urlVariants[] = str_ends_with($url, '/') ? rtrim($url, '/') : $url.'/';
+
+                foreach (array_unique($urlVariants) as $urlVariant) {
+                    $suffix = $urlVariant === $url ? 'exact_url' : 'alternate_trailing_slash';
+                    $candidates["{$keySlot}:hmac_url_pipe_body:{$suffix}"] = hash_hmac(
+                        'sha256',
+                        $urlVariant.'|'.$rawBody,
+                        $key
+                    );
+                    $candidates["{$keySlot}:hmac_url_body:{$suffix}"] = hash_hmac(
+                        'sha256',
+                        $urlVariant.$rawBody,
+                        $key
+                    );
+                    $candidates["{$keySlot}:sha256_key_url_pipe_body:{$suffix}"] = hash(
+                        'sha256',
+                        $key.$urlVariant.'|'.$rawBody
+                    );
+                    $candidates["{$keySlot}:sha256_url_pipe_body_key:{$suffix}"] = hash(
+                        'sha256',
+                        $urlVariant.'|'.$rawBody.$key
+                    );
+                }
             }
         }
 
@@ -86,6 +105,7 @@ class ShopeeWebhookSignatureVerifier
         return [
             'matches' => array_values(array_unique($matches)),
             'body_length' => strlen($rawBody),
+            'configured_key_slots' => count($this->partnerKeys),
         ];
     }
 

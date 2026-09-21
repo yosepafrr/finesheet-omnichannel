@@ -34,10 +34,7 @@ class ShopeeWebhookTest extends TestCase
             $body
         );
 
-        $response->assertOk()->assertExactJson([
-            'code' => 0,
-            'message' => 'success',
-        ]);
+        $response->assertNoContent();
     }
 
     public function test_shopee_webhook_rejects_an_invalid_signature(): void
@@ -72,7 +69,7 @@ class ShopeeWebhookTest extends TestCase
             'data' => ['ordersn' => 'ORDER-123'],
         ]);
 
-        $response->assertOk();
+        $response->assertNoContent();
         Queue::assertPushedOn('orders', HandleShopeeOrderWebhookJob::class);
     }
 
@@ -86,7 +83,7 @@ class ShopeeWebhookTest extends TestCase
             'data' => ['ordersn' => 'ORDER-123'],
         ]);
 
-        $response->assertOk();
+        $response->assertNoContent();
         Queue::assertPushedOn('orders', HandleShopeeOrderWebhookJob::class);
         Queue::assertNotPushed(SyncShopeeReturnJob::class);
     }

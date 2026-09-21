@@ -289,6 +289,6 @@ class ShopeeWebhookController extends Controller
 
     private function successResponse()
     {
-        return response()->json(['code' => 0, 'message' => 'success']);
+        return response()->noContent();
     }
 }
