@@ -80,4 +80,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(SupplierProductMapping::class, 'user_id');
     }
+
+    public function masterProducts(): HasMany
+    {
+        return $this->hasMany(MasterProduct::class, 'user_id');
+    }
 }

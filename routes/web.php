@@ -7,6 +7,7 @@ use App\Http\Controllers\TikTokController;
 use App\Http\Controllers\DashboardController;
 
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\MasterProductController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderSyncController;
 use App\Http\Controllers\Api\ProfitController;
@@ -27,6 +28,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/stores', [\App\Http\Controllers\Api\StoreController::class, 'index']);
         Route::delete('/stores/{id}', [\App\Http\Controllers\Api\StoreController::class, 'destroy']);
         Route::get('/products', [ProductController::class, 'index']);
+        Route::get('/master-products', [MasterProductController::class, 'index']);
+        Route::post('/master-products', [MasterProductController::class, 'store']);
+        Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
+        Route::delete('/master-products/{id}', [MasterProductController::class, 'destroy']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);

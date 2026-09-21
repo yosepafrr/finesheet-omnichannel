@@ -11,6 +11,7 @@ class SkuSyncGroup extends Model
 
     protected $fillable = [
         'user_id',
+        'master_product_variant_id',
         'sku',
         'master_stock',
         'is_active',
@@ -30,5 +31,10 @@ class SkuSyncGroup extends Model
     public function members()
     {
         return $this->hasMany(SkuSyncMember::class);
+    }
+
+    public function masterVariant()
+    {
+        return $this->belongsTo(MasterProductVariant::class, 'master_product_variant_id');
     }
 }

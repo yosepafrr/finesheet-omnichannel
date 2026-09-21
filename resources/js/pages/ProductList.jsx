@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
 import SkuSyncPanel from "../components/SkuSyncPanel";
+import MasterProductPanel from "../components/MasterProductPanel";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
 
@@ -158,7 +159,7 @@ export default function ProductList() {
     // Bulk edit modal states
     const [bulkModalProduct, setBulkModalProduct] = useState(null);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState("products"); // 'products' or 'sync'
+    const [activeTab, setActiveTab] = useState("products");
 
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
@@ -275,21 +276,23 @@ export default function ProductList() {
                             </p>
                         </div>
                         <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                            <button
-                                id="tour-sync-btn"
-                                onClick={handleSync}
-                                disabled={syncing || syncingStoreId !== null}
-                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap w-full md:w-auto"
-                            >
-                                <span
-                                    className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
+                            {activeTab !== "master" && (
+                                <button
+                                    id="tour-sync-btn"
+                                    onClick={handleSync}
+                                    disabled={syncing || syncingStoreId !== null}
+                                    className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap w-full md:w-auto"
                                 >
-                                    sync
-                                </span>
-                                {syncing
-                                    ? "Menyelaraskan..."
-                                    : "Sinkronisasi Data"}
-                            </button>
+                                    <span
+                                        className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
+                                    >
+                                        sync
+                                    </span>
+                                    {syncing
+                                        ? "Menyelaraskan..."
+                                        : "Sinkronisasi Data"}
+                                </button>
+                            )}
                             <div className="relative w-full md:w-64">
                                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                                     <span className="material-symbols-rounded text-lg">
@@ -304,7 +307,7 @@ export default function ProductList() {
                                     className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-800 dark:text-white focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 transition"
                                 />
                             </div>
-                            <div
+                            {activeTab !== "master" && <div
                                 className="relative w-full md:w-64"
                                 ref={storeDropdownRef}
                             >
@@ -393,21 +396,28 @@ export default function ProductList() {
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
-                            </div>
+                            </div>}
                         </div>
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex space-x-1 bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
+                    <div className="flex space-x-1 overflow-x-auto bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
                         <button
                             onClick={() => setActiveTab("products")}
-                            className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${activeTab === "products" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${activeTab === "products" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
                         >
                             Daftar Produk
                         </button>
                         <button
+                            onClick={() => setActiveTab("master")}
+                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "master" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                        >
+                            <span className="material-symbols-rounded text-[18px]">inventory_2</span>
+                            Produk Master
+                        </button>
+                        <button
                             onClick={() => setActiveTab("sync")}
-                            className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "sync" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "sync" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
                         >
                             <span className="material-symbols-rounded text-[18px]">sync_alt</span>
                             Sinkronisasi Stok
@@ -415,7 +425,9 @@ export default function ProductList() {
                     </div>
 
                     {/* Main Content Area */}
-                    {activeTab === "sync" ? (
+                    {activeTab === "master" ? (
+                        <MasterProductPanel search={search} />
+                    ) : activeTab === "sync" ? (
                         <SkuSyncPanel search={search} />
                     ) : (
                         <>
