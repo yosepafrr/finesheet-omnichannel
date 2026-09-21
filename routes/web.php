@@ -31,6 +31,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/master-products', [MasterProductController::class, 'index']);
         Route::post('/master-products', [MasterProductController::class, 'store']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
+        Route::put('/master-products/{id}/reference-store', [MasterProductController::class, 'setReferenceStore']);
         Route::delete('/master-products/{id}', [MasterProductController::class, 'destroy']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
@@ -49,7 +50,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/sync/products', function (\Illuminate\Http\Request $request) {
             $storeId = $request->input('store_id');
             if ($storeId) {
-                $store = \App\Models\Store::find($storeId);
+                $store = $request->user()->stores()->find($storeId);
                 if ($store) {
                     if ($store->platform === 'Shopee') {
                         dispatch(new \App\Jobs\SyncShopeeProductJob($storeId))->onQueue('products');
@@ -61,8 +62,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 return response()->json(['message' => 'Store not found'], 404);
             }
 
-            dispatch(new \App\Jobs\SyncShopeeProductJob())->onQueue('products');
-            dispatch(new \App\Jobs\SyncTiktokProductJob())->onQueue('products');
+            $request->user()->stores()->get()->each(function ($store) {
+                if ($store->platform === 'Shopee') {
+                    dispatch(new \App\Jobs\SyncShopeeProductJob($store->id))->onQueue('products');
+                } elseif ($store->platform === 'Tiktokshop') {
+                    dispatch(new \App\Jobs\SyncTiktokProductJob($store->id))->onQueue('products');
+                }
+            });
+
             return response()->json(['message' => 'Product sync started']);
         });
         Route::get('/orders', [OrderController::class, 'index']);

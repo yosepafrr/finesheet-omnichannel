@@ -3,15 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Store;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 class StoreController extends Controller
 {
     public function index()
     {
-        $stores = \Illuminate\Support\Facades\Auth::user()->stores()->get()->map(function ($store) {
+        $stores = Auth::user()->stores()->get()->map(function ($store) {
 
             $logos = [
                 'Shopee' => asset('Marketplace-logo/shopee.png'),
@@ -21,8 +20,8 @@ class StoreController extends Controller
 
             $authorizationValid = $store->shop_expired_at
                 && Carbon::parse($store->shop_expired_at)->isFuture()
-                && !empty($store->refresh_token);
-            $tokenNeedsRefresh = !$store->token_expired_at
+                && ! empty($store->refresh_token);
+            $tokenNeedsRefresh = ! $store->token_expired_at
                 || Carbon::parse($store->token_expired_at)->isPast();
 
             return [
@@ -42,14 +41,16 @@ class StoreController extends Controller
 
     public function destroy($id)
     {
-        $store = \Illuminate\Support\Facades\Auth::user()->stores()->find($id);
+        $store = Auth::user()->stores()->find($id);
 
-        if (!$store) {
+        if (! $store) {
             return response()->json(['message' => 'Store not found or unauthorized'], 404);
         }
 
         $store->delete();
 
-        return response()->json(['message' => 'Store and all related data deleted successfully']);
+        return response()->json([
+            'message' => 'Toko dan data marketplace berhasil dihapus. Produk master tetap dipertahankan.',
+        ]);
     }
 }

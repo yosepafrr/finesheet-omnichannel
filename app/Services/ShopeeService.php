@@ -411,43 +411,59 @@ class ShopeeService
     {
         $shopId = $store->shopee_shop_id;
         $accessToken = $this->ensureValidToken($store);
-
-        $timestamp = time();
         $path = '/api/v2/product/get_item_list';
-        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+        $offset = 0;
+        $items = [];
 
-        // Build URL lengkap dengan query string
-        $url = "{$this->baseUrl}{$path}"
-            ."?partner_id={$this->partnerId}"
-            ."&timestamp={$timestamp}"
-            ."&sign={$sign}"
-            ."&access_token={$accessToken}"
-            ."&shop_id={$shopId}"
-            .'&offset=0'
-            .'&page_size=100'
-            .'&item_status=NORMAL'
-            .'&item_status=BANNED'
-            .'&item_status=UNLIST'
-            .'&item_status=REVIEWING'
-            .'&item_status=SELLER_DELETE'
-            .'&item_status=SHOPEE_DELETE';
+        for ($page = 1; $page <= 100; $page++) {
+            $timestamp = time();
+            $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+            $url = "{$this->baseUrl}{$path}"
+                ."?partner_id={$this->partnerId}"
+                ."&timestamp={$timestamp}"
+                ."&sign={$sign}"
+                ."&access_token={$accessToken}"
+                ."&shop_id={$shopId}"
+                ."&offset={$offset}"
+                .'&page_size=100'
+                .'&item_status=NORMAL'
+                .'&item_status=BANNED'
+                .'&item_status=UNLIST'
+                .'&item_status=REVIEWING'
+                .'&item_status=SELLER_DELETE'
+                .'&item_status=SHOPEE_DELETE';
 
-        // Logging detail untuk debugging
-        Log::info('Shopee - Fetching Item List', ['url' => $url]);
-        Log::info('Shopee - Params', [
-            'shop_id' => $shopId,
-            'timestamp' => $timestamp,
-        ]);
+            $response = $this->httpClient()->get($url);
+            $result = $response->json();
 
-        $response = $this->httpClient()->get($url);
-        $result = $response->json();
+            if (! $response->successful() || ! is_array($result) || ! empty($result['error'])) {
+                $message = is_array($result) ? ($result['message'] ?? $result['error'] ?? null) : null;
+                throw new RuntimeException('Gagal mengambil daftar produk Shopee'.($message ? ": {$message}" : '.'));
+            }
 
-        Log::info('Item List Response Summary', [
-            'status' => $response->status(),
-            'count' => count($result['response']['item'] ?? []),
-        ]);
+            $pageItems = data_get($result, 'response.item', []);
+            $items = array_merge($items, is_array($pageItems) ? $pageItems : []);
+            $hasNextPage = (bool) data_get($result, 'response.has_next_page', false);
 
-        return $result['response']['item'] ?? [];
+            Log::info('Shopee - Item List Page', [
+                'store_id' => $store->id,
+                'page' => $page,
+                'count' => count($pageItems),
+                'has_next_page' => $hasNextPage,
+            ]);
+
+            if (! $hasNextPage) {
+                break;
+            }
+
+            $nextOffset = (int) data_get($result, 'response.next_offset', $offset + count($pageItems));
+            if ($nextOffset <= $offset) {
+                break;
+            }
+            $offset = $nextOffset;
+        }
+
+        return $items;
     }
 
     public function getItemBaseInfo($store, array $itemIds)

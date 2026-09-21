@@ -103,6 +103,7 @@ function MasterProductModal({ product, onClose, onSaved }) {
                 stock: variant.local_stock ?? variant.stock ?? 0,
                 is_active: variant.is_active ?? true,
                 sync_group_id: variant.sync_group_id,
+                stock_locked: product.reference_candidates?.length > 0,
             })),
         };
     });
@@ -298,10 +299,10 @@ function MasterProductModal({ product, onClose, onSaved }) {
                                     <label className="lg:col-span-2">
                                         <span className="mb-1 block text-xs font-semibold text-slate-500">SKU</span>
                                         <input
-                                            required
                                             value={variant.sku}
                                             onChange={(event) => updateVariant(index, "sku", event.target.value)}
                                             className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                                            placeholder="Opsional"
                                         />
                                     </label>
                                     <label className="lg:col-span-2">
@@ -319,7 +320,7 @@ function MasterProductModal({ product, onClose, onSaved }) {
                                             type="number"
                                             min="0"
                                             required
-                                            disabled={Boolean(variant.sync_group_id)}
+                                            disabled={Boolean(variant.stock_locked)}
                                             value={variant.stock}
                                             onChange={(event) => updateVariant(index, "stock", event.target.value)}
                                             className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white dark:disabled:bg-slate-700"
@@ -393,9 +394,10 @@ export default function MasterProductPanel({ search = "" }) {
     const [modalProduct, setModalProduct] = useState(undefined);
     const [modalOpen, setModalOpen] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+    const [updatingReferenceId, setUpdatingReferenceId] = useState(null);
 
-    const fetchProducts = useCallback(async () => {
-        setLoading(true);
+    const fetchProducts = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true);
         setError("");
 
         try {
@@ -418,6 +420,11 @@ export default function MasterProductPanel({ search = "" }) {
     useEffect(() => {
         const timeout = setTimeout(fetchProducts, 250);
         return () => clearTimeout(timeout);
+    }, [fetchProducts]);
+
+    useEffect(() => {
+        const interval = setInterval(() => fetchProducts(true), 10000);
+        return () => clearInterval(interval);
     }, [fetchProducts]);
 
     const openCreate = () => {
@@ -450,13 +457,30 @@ export default function MasterProductPanel({ search = "" }) {
         }
     };
 
+    const setReferenceStore = async (productId, storeId) => {
+        if (!storeId) return;
+
+        setUpdatingReferenceId(productId);
+        setError("");
+        try {
+            await axios.put(`/api/master-products/${productId}/reference-store`, {
+                store_id: Number(storeId),
+            });
+            await fetchProducts();
+        } catch (requestError) {
+            setError(getErrorMessage(requestError));
+        } finally {
+            setUpdatingReferenceId(null);
+        }
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-base font-bold text-slate-900 dark:text-white">Katalog Master</h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {meta.total || 0} produk internal
+                        {meta.total || 0} produk master
                     </p>
                 </div>
                 <button
@@ -472,7 +496,7 @@ export default function MasterProductPanel({ search = "" }) {
             {error && (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
                     <span>{error}</span>
-                    <button type="button" onClick={fetchProducts} className="font-bold hover:underline">Coba lagi</button>
+                    <button type="button" onClick={() => fetchProducts()} className="font-bold hover:underline">Coba lagi</button>
                 </div>
             )}
 
@@ -488,7 +512,7 @@ export default function MasterProductPanel({ search = "" }) {
                             {search ? "Produk master tidak ditemukan" : "Belum ada produk master"}
                         </h3>
                         <p className="mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-                            {search ? "Coba gunakan nama atau SKU lain." : "Tambahkan produk internal pertama untuk mulai menata SKU lintas toko."}
+                            {search ? "Coba gunakan nama atau SKU lain." : "Katalog akan terisi setelah produk toko disinkronkan."}
                         </p>
                         {!search && (
                             <button
@@ -504,14 +528,15 @@ export default function MasterProductPanel({ search = "" }) {
                 ) : (
                     <>
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[900px] table-fixed text-left">
+                            <table className="w-full min-w-[1080px] table-fixed text-left">
                                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                                     <tr>
-                                        <th className="w-[34%] px-5 py-3">Produk</th>
-                                        <th className="w-[16%] px-4 py-3">Brand / Kategori</th>
-                                        <th className="w-[10%] px-4 py-3 text-center">Varian</th>
-                                        <th className="w-[12%] px-4 py-3 text-right">Stok</th>
-                                        <th className="w-[12%] px-4 py-3 text-center">Listing</th>
+                                        <th className="w-[27%] px-5 py-3">Produk</th>
+                                        <th className="w-[13%] px-4 py-3">Brand / Kategori</th>
+                                        <th className="w-[19%] px-4 py-3">Toko Patokan</th>
+                                        <th className="w-[8%] px-4 py-3 text-center">Varian</th>
+                                        <th className="w-[10%] px-4 py-3 text-right">Stok</th>
+                                        <th className="w-[7%] px-4 py-3 text-center">Listing</th>
                                         <th className="w-[10%] px-4 py-3">Status</th>
                                         <th className="w-[6%] px-4 py-3" />
                                     </tr>
@@ -534,7 +559,7 @@ export default function MasterProductPanel({ search = "" }) {
                                                         <div className="min-w-0">
                                                             <p className="truncate font-bold text-slate-900 dark:text-white">{product.name}</p>
                                                             <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
-                                                                {product.variants.map((variant) => variant.sku).slice(0, 2).join(" · ")}
+                                                                {product.variants.map((variant) => variant.sku || "Tanpa SKU").slice(0, 2).join(" / ")}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -543,8 +568,29 @@ export default function MasterProductPanel({ search = "" }) {
                                                     <p className="truncate font-medium text-slate-700 dark:text-slate-200">{product.brand || "-"}</p>
                                                     <p className="truncate text-xs text-slate-500 dark:text-slate-400">{product.category || "Tanpa kategori"}</p>
                                                 </td>
+                                                <td className="px-4 py-4">
+                                                    {product.reference_candidates.length ? (
+                                                        <select
+                                                            value={product.reference_store?.id || ""}
+                                                            disabled={updatingReferenceId === product.id}
+                                                            onChange={(event) => setReferenceStore(product.id, event.target.value)}
+                                                            className={`w-full rounded-lg border text-xs font-semibold focus:border-[#304674] focus:ring-[#304674] dark:bg-slate-900 ${product.reference_required ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300" : "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200"}`}
+                                                        >
+                                                            <option value="" disabled>Pilih toko</option>
+                                                            {product.reference_candidates.map((store) => (
+                                                                <option key={store.id} value={store.id}>
+                                                                    {store.store_name} / {store.platform}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400">Belum ada listing</span>
+                                                    )}
+                                                </td>
                                                 <td className="px-4 py-4 text-center text-sm font-semibold text-slate-700 dark:text-slate-200">{product.variants_count}</td>
-                                                <td className="px-4 py-4 text-right text-sm font-bold text-slate-900 dark:text-white">{product.total_stock.toLocaleString("id-ID")}</td>
+                                                <td className="px-4 py-4 text-right text-sm font-bold text-slate-900 dark:text-white">
+                                                    {product.reference_required ? "-" : product.total_stock.toLocaleString("id-ID")}
+                                                </td>
                                                 <td className="px-4 py-4 text-center">
                                                     <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                                         {product.linked_listings_count}
@@ -575,16 +621,18 @@ export default function MasterProductPanel({ search = "" }) {
                                             </tr>
                                             {expanded[product.id] && (
                                                 <tr className="bg-slate-50/80 dark:bg-slate-900/35">
-                                                    <td colSpan="7" className="px-16 py-3">
+                                                    <td colSpan="8" className="px-16 py-3">
                                                         <div className="divide-y divide-slate-200 dark:divide-slate-700">
                                                             {product.variants.map((variant) => (
                                                                 <div key={variant.id} className="grid grid-cols-[minmax(180px,1.4fr)_minmax(130px,1fr)_110px_110px_minmax(170px,1fr)] items-center gap-4 py-3 text-sm">
                                                                     <div className="min-w-0">
                                                                         <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{variant.variant_name || "Varian utama"}</p>
-                                                                        <p className="truncate font-mono text-xs text-slate-500">{variant.sku}</p>
+                                                                        <p className="truncate font-mono text-xs text-slate-500">{variant.sku || "Tanpa SKU"}</p>
                                                                     </div>
                                                                     <span className="truncate text-slate-600 dark:text-slate-300">{variant.barcode || "Tanpa barcode"}</span>
-                                                                    <span className="text-right font-semibold text-slate-800 dark:text-slate-100">{variant.stock.toLocaleString("id-ID")}</span>
+                                                                    <span className="text-right font-semibold text-slate-800 dark:text-slate-100">
+                                                                        {product.reference_required ? "-" : variant.stock.toLocaleString("id-ID")}
+                                                                    </span>
                                                                     <span className="text-right text-slate-600 dark:text-slate-300">{formatRp(variant.hpp)}</span>
                                                                     <div className="flex flex-wrap justify-end gap-1.5">
                                                                         {variant.channels.length ? variant.channels.map((channel) => (

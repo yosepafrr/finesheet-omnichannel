@@ -36,4 +36,9 @@ class MasterProductVariant extends Model
     {
         return $this->hasOne(SkuSyncGroup::class);
     }
+
+    public function listings()
+    {
+        return $this->hasMany(MasterProductVariantListing::class);
+    }
 }

@@ -11,12 +11,14 @@ class MasterProduct extends Model
 
     protected $fillable = [
         'user_id',
+        'reference_store_id',
         'name',
         'brand',
         'category',
         'description',
         'image',
         'status',
+        'source',
     ];
 
     public function user()
@@ -27,5 +29,10 @@ class MasterProduct extends Model
     public function variants()
     {
         return $this->hasMany(MasterProductVariant::class);
+    }
+
+    public function referenceStore()
+    {
+        return $this->belongsTo(Store::class, 'reference_store_id');
     }
 }

@@ -276,23 +276,21 @@ export default function ProductList() {
                             </p>
                         </div>
                         <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                            {activeTab !== "master" && (
-                                <button
-                                    id="tour-sync-btn"
-                                    onClick={handleSync}
-                                    disabled={syncing || syncingStoreId !== null}
-                                    className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap w-full md:w-auto"
+                            <button
+                                id="tour-sync-btn"
+                                onClick={handleSync}
+                                disabled={syncing || syncingStoreId !== null}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#304674] hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-70 whitespace-nowrap w-full md:w-auto"
+                            >
+                                <span
+                                    className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
                                 >
-                                    <span
-                                        className={`material-symbols-rounded text-[20px] ${syncing ? "animate-spin" : ""}`}
-                                    >
-                                        sync
-                                    </span>
-                                    {syncing
-                                        ? "Menyelaraskan..."
-                                        : "Sinkronisasi Data"}
-                                </button>
-                            )}
+                                    sync
+                                </span>
+                                {syncing
+                                    ? "Menyelaraskan..."
+                                    : "Sinkronisasi Data"}
+                            </button>
                             <div className="relative w-full md:w-64">
                                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                                     <span className="material-symbols-rounded text-lg">

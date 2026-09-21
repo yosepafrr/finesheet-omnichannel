@@ -99,8 +99,22 @@ class TikTokController extends Controller
     public function syncProducts($store, TiktokService $tiktok)
     {
         try {
-            $response = $tiktok->getProductList($store);
-            $products = $response['data']['products'] ?? [];
+            $products = [];
+            $pageToken = '';
+            $seenTokens = [];
+
+            do {
+                $response = $tiktok->getProductList($store, $pageToken);
+                $products = array_merge($products, $response['data']['products'] ?? []);
+                $nextPageToken = (string) ($response['data']['next_page_token'] ?? '');
+
+                if ($nextPageToken === '' || isset($seenTokens[$nextPageToken])) {
+                    break;
+                }
+
+                $seenTokens[$nextPageToken] = true;
+                $pageToken = $nextPageToken;
+            } while (true);
 
             foreach ($products as $listItem) {
                 // Fetch product details for image, name etc.
@@ -130,6 +144,7 @@ class TikTokController extends Controller
 
                 // Save Skus as variants
                 if (! empty($item['skus'])) {
+                    $syncedSkuIds = [];
                     // Build tier map to calculate tier_index correctly
                     $tierMap = [];
                     foreach ($item['skus'] as $s) {
@@ -146,6 +161,7 @@ class TikTokController extends Controller
                     }
 
                     foreach ($item['skus'] as $sku) {
+                        $syncedSkuIds[] = $sku['id'];
                         // Extract variant name from sales attributes
                         $variantOptions = [];
                         $tierIndex = [];
@@ -182,6 +198,12 @@ class TikTokController extends Controller
                             ]
                         );
                     }
+
+                    $savedItem->variantProducts()
+                        ->whereNotIn('model_id', $syncedSkuIds)
+                        ->delete();
+                } else {
+                    $savedItem->variantProducts()->delete();
                 }
             }
             Log::info('TikTok - Successfully synced '.count($products).' products.');

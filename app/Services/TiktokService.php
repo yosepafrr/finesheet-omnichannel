@@ -158,7 +158,7 @@ class TiktokService
     /**
      * Fetch Product List
      */
-    public function getProductList($store)
+    public function getProductList($store, string $pageToken = '')
     {
         $accessToken = $this->ensureValidToken($store);
         $shopId = $store->shopee_shop_id; // Using this column for tiktok shop_id as well for now
@@ -172,6 +172,10 @@ class TiktokService
             'shop_cipher' => $shopId,
             'page_size' => 100,
         ];
+
+        if ($pageToken !== '') {
+            $queries['page_token'] = $pageToken;
+        }
 
         $bodyParams = [];
         $bodyStr = '{}'; // Empty body for product search

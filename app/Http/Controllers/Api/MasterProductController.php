@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\SkuSyncGroup;
+use App\Models\Store;
+use App\Services\MasterCatalogService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +63,7 @@ class MasterProductController extends Controller
             $product = MasterProduct::create([
                 ...$this->productAttributes($data),
                 'user_id' => $user->id,
+                'source' => 'manual',
             ]);
 
             $this->syncVariants($product, $data['variants'], $user->id);
@@ -103,6 +106,28 @@ class MasterProductController extends Controller
         return response()->json(['message' => 'Produk master berhasil dihapus.']);
     }
 
+    public function setReferenceStore(
+        Request $request,
+        int $id,
+        MasterCatalogService $catalog
+    ) {
+        $data = $request->validate([
+            'store_id' => ['required', 'integer'],
+        ]);
+        $product = MasterProduct::query()
+            ->where('user_id', $request->user()->id)
+            ->findOrFail($id);
+        $store = Store::query()
+            ->where('user_id', $request->user()->id)
+            ->findOrFail($data['store_id']);
+
+        $catalog->setReferenceStore($product, $store);
+
+        return response()->json(
+            $this->formatProduct($product->fresh($this->masterProductRelations()))
+        );
+    }
+
     private function validatePayload(Request $request, ?MasterProduct $product = null): array
     {
         $data = $request->validate([
@@ -114,7 +139,7 @@ class MasterProductController extends Controller
             'status' => ['required', 'in:active,draft,archived'],
             'variants' => ['required', 'array', 'min:1'],
             'variants.*.id' => ['nullable', 'integer', 'distinct'],
-            'variants.*.sku' => ['required', 'string', 'max:120', 'distinct:ignore_case'],
+            'variants.*.sku' => ['nullable', 'string', 'max:120', 'distinct:ignore_case'],
             'variants.*.variant_name' => ['nullable', 'string', 'max:255'],
             'variants.*.barcode' => ['nullable', 'string', 'max:120'],
             'variants.*.hpp' => ['required', 'numeric', 'min:0'],
@@ -141,13 +166,16 @@ class MasterProductController extends Controller
         $normalizedSkus = collect($data['variants'])
             ->pluck('sku')
             ->map(fn ($sku) => mb_strtolower(trim((string) $sku)))
+            ->filter()
             ->values();
 
-        $duplicateSku = MasterProductVariant::query()
-            ->where('user_id', $request->user()->id)
-            ->when($variantIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $variantIds))
-            ->whereIn(DB::raw('LOWER(sku)'), $normalizedSkus)
-            ->value('sku');
+        $duplicateSku = $normalizedSkus->isEmpty()
+            ? null
+            : MasterProductVariant::query()
+                ->where('user_id', $request->user()->id)
+                ->when($variantIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $variantIds))
+                ->whereIn(DB::raw('LOWER(sku)'), $normalizedSkus)
+                ->value('sku');
 
         if ($duplicateSku) {
             throw ValidationException::withMessages([
@@ -156,7 +184,7 @@ class MasterProductController extends Controller
         }
 
         $data['variants'] = collect($data['variants'])->map(function (array $variant) {
-            $variant['sku'] = trim($variant['sku']);
+            $variant['sku'] = ($sku = trim((string) ($variant['sku'] ?? ''))) !== '' ? $sku : null;
 
             return $variant;
         })->all();
@@ -204,10 +232,12 @@ class MasterProductController extends Controller
                 ->where('master_product_variant_id', $variant->id)
                 ->update(['master_product_variant_id' => null]);
 
-            SkuSyncGroup::query()
-                ->where('user_id', $userId)
-                ->whereRaw('LOWER(sku) = ?', [mb_strtolower($variant->sku)])
-                ->update(['master_product_variant_id' => $variant->id]);
+            if ($variant->sku) {
+                SkuSyncGroup::query()
+                    ->where('user_id', $userId)
+                    ->whereRaw('LOWER(sku) = ?', [mb_strtolower($variant->sku)])
+                    ->update(['master_product_variant_id' => $variant->id]);
+            }
         }
 
         $product->variants()->whereNotIn('id', $keptIds)->delete();
@@ -216,10 +246,11 @@ class MasterProductController extends Controller
     private function masterProductRelations(): array
     {
         return [
+            'referenceStore',
             'variants' => fn ($query) => $query
                 ->orderByDesc('is_active')
                 ->orderBy('variant_name')
-                ->with(['syncGroup.members.store']),
+                ->with(['syncGroup', 'listings.store']),
         ];
     }
 
@@ -227,14 +258,14 @@ class MasterProductController extends Controller
     {
         $variants = $product->variants->map(function (MasterProductVariant $variant) {
             $group = $variant->syncGroup;
-            $channels = $group?->members
-                ->map(fn ($member) => [
-                    'store_id' => $member->store_id,
-                    'store_name' => $member->store?->store_name,
-                    'platform' => $member->store?->platform,
+            $channels = $variant->listings
+                ->map(fn ($listing) => [
+                    'store_id' => $listing->store_id,
+                    'store_name' => $listing->store?->store_name,
+                    'platform' => $listing->store?->platform,
                 ])
                 ->unique('store_id')
-                ->values() ?? collect();
+                ->values();
 
             return [
                 'id' => $variant->id,
@@ -242,14 +273,25 @@ class MasterProductController extends Controller
                 'variant_name' => $variant->variant_name,
                 'barcode' => $variant->barcode,
                 'hpp' => (float) $variant->hpp,
-                'stock' => (int) ($group?->master_stock ?? $variant->stock),
+                'stock' => (int) $variant->stock,
                 'local_stock' => (int) $variant->stock,
                 'is_active' => $variant->is_active,
                 'sync_group_id' => $group?->id,
-                'linked_listings_count' => $group?->members->count() ?? 0,
+                'linked_listings_count' => $variant->listings->count(),
                 'channels' => $channels,
             ];
         });
+
+        $referenceCandidates = $product->variants
+            ->flatMap->listings
+            ->filter(fn ($listing) => $listing->store)
+            ->map(fn ($listing) => [
+                'id' => $listing->store_id,
+                'store_name' => $listing->store->store_name,
+                'platform' => $listing->store->platform,
+            ])
+            ->unique('id')
+            ->values();
 
         return [
             'id' => $product->id,
@@ -259,6 +301,14 @@ class MasterProductController extends Controller
             'description' => $product->description,
             'image' => $product->image,
             'status' => $product->status,
+            'source' => $product->source,
+            'reference_store' => $product->referenceStore ? [
+                'id' => $product->referenceStore->id,
+                'store_name' => $product->referenceStore->store_name,
+                'platform' => $product->referenceStore->platform,
+            ] : null,
+            'reference_candidates' => $referenceCandidates,
+            'reference_required' => $referenceCandidates->isNotEmpty() && ! $product->reference_store_id,
             'variants_count' => $variants->count(),
             'total_stock' => $variants->sum('stock'),
             'linked_listings_count' => $variants->sum('linked_listings_count'),

@@ -4,59 +4,78 @@ namespace App\Jobs;
 
 use App\Models\Store;
 use App\Services\TiktokService;
-use App\Http\Controllers\TikTokController;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
-class SyncTiktokProductJob implements ShouldQueue, ShouldBeUnique
+class SyncTiktokProductJob implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
-    public $tries = 3;
-    public $timeout = 300;
-    public $uniqueFor = 1800;
-    public $storeId;
+    public int $tries = 3;
 
-    public function __construct($storeId = null)
-    {
-        $this->storeId = $storeId;
-    }
+    public int $timeout = 300;
+
+    public int $uniqueFor = 1800;
+
+    public function __construct(public ?int $storeId = null) {}
 
     public function uniqueId(): string
     {
         return (string) ($this->storeId ?? 'all');
     }
 
-    public function handle(): void
+    public function handle(TiktokService $tiktok): void
     {
-        Log::info('SyncTiktokProductJob started', ['time' => now()]);
+        $stores = Store::query()
+            ->where('platform', 'Tiktokshop')
+            ->when($this->storeId, fn ($query) => $query->where('id', $this->storeId))
+            ->get();
 
-        $query = Store::where('platform', 'Tiktokshop');
-        if ($this->storeId) {
-            $query->where('id', $this->storeId);
-        }
-        $stores = $query->get();
-        if ($stores->isEmpty()) {
-            Log::info('No Tiktok stores found');
-            return;
-        }
-
-        $tiktokService = new TiktokService();
-        $controller = new TikTokController();
-        
         foreach ($stores as $store) {
             try {
-                $controller->syncProducts($store, $tiktokService);
-            } catch (\Exception $e) {
-                Log::error('Failed to sync Tiktok store products', [
+                $pageToken = '';
+                $seenTokens = [];
+                $queued = 0;
+
+                do {
+                    $response = $tiktok->getProductList($store, $pageToken);
+
+                    foreach ($response['data']['products'] ?? [] as $product) {
+                        if (! empty($product['id'])) {
+                            HandleTiktokProductWebhookJob::dispatch(
+                                $store->shopee_shop_id,
+                                $product['id']
+                            )->onQueue('products');
+                            $queued++;
+                        }
+                    }
+
+                    $nextPageToken = (string) ($response['data']['next_page_token'] ?? '');
+                    if ($nextPageToken === '' || isset($seenTokens[$nextPageToken])) {
+                        break;
+                    }
+
+                    $seenTokens[$nextPageToken] = true;
+                    $pageToken = $nextPageToken;
+                } while (true);
+
+                Log::info('TikTok product detail jobs queued', [
+                    'store_id' => $store->id,
+                    'count' => $queued,
+                ]);
+            } catch (Throwable $e) {
+                Log::error('TikTok product list sync failed', [
                     'store_id' => $store->id,
                     'error' => $e->getMessage(),
                 ]);
+
+                if ($this->storeId) {
+                    throw $e;
+                }
             }
         }
-        
-        Log::info('SyncTiktokProductJob finished');
     }
 }
