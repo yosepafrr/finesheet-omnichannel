@@ -16,6 +16,15 @@ class SkuSyncMember extends Model
         'variant_product_id',
         'platform_product_id',
         'platform_variant_id',
+        'sync_status',
+        'sync_requested_at',
+        'last_synced_at',
+        'last_sync_error',
+    ];
+
+    protected $casts = [
+        'sync_requested_at' => 'datetime',
+        'last_synced_at' => 'datetime',
     ];
 
     public function group()

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Events\OrderStockSyncRequested;
 use App\Models\Order;
 use App\Models\OrderPackage;
 use App\Models\OrderProduct;
@@ -176,7 +177,7 @@ class HandleTiktokOrderWebhookJob implements ShouldBeUnique, ShouldQueue
                 }
             }
 
-            // OrderCreated notification moved to Order::saved model event
+            event(new OrderStockSyncRequested($orderModel));
 
             Log::info("HandleTiktokOrderWebhookJob completed for Order: {$this->orderId}");
         } catch (\Throwable $e) {

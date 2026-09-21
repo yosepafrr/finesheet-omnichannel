@@ -6,7 +6,7 @@ use Carbon\Carbon;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\OrderProduct;
-use App\Events\OrderCreated;
+use App\Events\OrderStockSyncRequested;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
 use Illuminate\Support\Facades\Log;
@@ -174,6 +174,8 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                     );
                 }
             }
+
+            event(new OrderStockSyncRequested($orderModel));
 
             try {
                 $escrowResponse = $shopee->getEscrowDetail($store, $this->orderSn);

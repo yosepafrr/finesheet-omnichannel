@@ -3,14 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\SkuSyncMember;
-use App\Models\Product;
 use App\Models\VariantProduct;
 use App\Services\StockSyncService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SkuSyncController extends Controller
 {
@@ -24,7 +25,7 @@ class SkuSyncController extends Controller
             ->where('user_id', $user->id)
             ->latest()
             ->get();
-            
+
         return response()->json($groups);
     }
 
@@ -47,19 +48,19 @@ class SkuSyncController extends Controller
 
         // Group by SKU
         $grouped = $variants->groupBy('model_sku');
-        
+
         $detected = [];
         foreach ($grouped as $sku => $items) {
             // Only suggest if SKU exists in more than 1 distinct store
             $uniqueStoreIds = $items->pluck('product.store_id')->unique();
             if ($uniqueStoreIds->count() > 1) {
-                
+
                 // Check if this SKU is already in a group
                 $existingGroup = SkuSyncGroup::where('user_id', $user->id)
                     ->where('sku', $sku)
                     ->first();
-                    
-                if (!$existingGroup) {
+
+                if (! $existingGroup) {
                     $detected[] = [
                         'sku' => $sku,
                         'stores_count' => $uniqueStoreIds->count(),
@@ -73,7 +74,7 @@ class SkuSyncController extends Controller
                                 'variant_name' => $item->variant_name ?? $item->model_name,
                                 'stock' => $item->stock,
                             ];
-                        })
+                        }),
                     ];
                 }
             }
@@ -96,7 +97,7 @@ class SkuSyncController extends Controller
         ]);
 
         $user = Auth::user();
-        
+
         // Prevent duplicate SKU group for same user
         if (SkuSyncGroup::where('user_id', $user->id)->where('sku', $request->sku)->exists()) {
             return response()->json(['error' => 'Sync group for this SKU already exists.'], 400);
@@ -104,10 +105,12 @@ class SkuSyncController extends Controller
 
         try {
             $group = $this->createGroup($user, $request->sku, $request->master_stock, $request->members);
+
             return response()->json($group->load('members.store', 'members.product', 'members.variant'), 201);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Failed to create SKU sync group', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            return response()->json(['error' => 'Failed to create group: ' . $e->getMessage()], 500);
+            Log::error('Failed to create SKU sync group', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
+            return response()->json(['error' => 'Failed to create group: '.$e->getMessage()], 500);
         }
     }
 
@@ -134,15 +137,16 @@ class SkuSyncController extends Controller
                 if (SkuSyncGroup::where('user_id', $user->id)->where('sku', $groupData['sku'])->exists()) {
                     continue;
                 }
-                
+
                 $group = $this->createGroup($user, $groupData['sku'], $groupData['master_stock'], $groupData['members']);
                 $createdGroups[] = $group;
             }
 
-            return response()->json(['message' => 'Successfully created ' . count($createdGroups) . ' groups', 'created_count' => count($createdGroups)], 201);
+            return response()->json(['message' => 'Successfully created '.count($createdGroups).' groups', 'created_count' => count($createdGroups)], 201);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Failed to bulk create SKU sync groups', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            return response()->json(['error' => 'Failed to bulk create groups: ' . $e->getMessage()], 500);
+            Log::error('Failed to bulk create SKU sync groups', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
+            return response()->json(['error' => 'Failed to bulk create groups: '.$e->getMessage()], 500);
         }
     }
 
@@ -162,13 +166,13 @@ class SkuSyncController extends Controller
 
             foreach ($membersData as $memberData) {
                 $product = Product::with('store')->find($memberData['product_id']);
-                
-                if (!$product || $product->store->user_id != $user->id) {
+
+                if (! $product || $product->store->user_id != $user->id) {
                     continue; // Skip invalid or unauthorized products
                 }
 
                 $platformVariantId = null;
-                if (!empty($memberData['variant_product_id'])) {
+                if (! empty($memberData['variant_product_id'])) {
                     $variant = VariantProduct::find($memberData['variant_product_id']);
                     if ($variant) {
                         $platformVariantId = $variant->model_id;
@@ -184,12 +188,12 @@ class SkuSyncController extends Controller
                     'platform_variant_id' => $platformVariantId,
                 ]);
             }
-            
+
             DB::commit();
 
             // Push initial stock
             $group->refresh();
-            $syncService = new StockSyncService();
+            $syncService = new StockSyncService;
             $syncService->setMasterStock($group, $masterStock);
 
             return $group;
@@ -211,7 +215,7 @@ class SkuSyncController extends Controller
         $user = Auth::user();
         $group = SkuSyncGroup::where('id', $id)->where('user_id', $user->id)->firstOrFail();
 
-        $syncService = new StockSyncService();
+        $syncService = new StockSyncService;
         $syncService->setMasterStock($group, $request->master_stock);
 
         return response()->json($group->fresh(['members.store', 'members.product', 'members.variant']));
@@ -236,24 +240,31 @@ class SkuSyncController extends Controller
     {
         $user = Auth::user();
         $group = SkuSyncGroup::where('id', $id)->where('user_id', $user->id)->firstOrFail();
-        
-        $syncService = new StockSyncService();
-        $syncService->setMasterStock($group, $group->master_stock); // This will trigger the push logic
 
-        return response()->json(['message' => 'Stock push triggered.']);
+        $syncService = new StockSyncService;
+        $queuedCount = $syncService->setMasterStock($group, $group->master_stock);
+
+        return response()->json([
+            'message' => 'Stock synchronization queued.',
+            'queued_count' => $queuedCount,
+        ], 202);
     }
-    
+
     /**
      * Toggle group active status
      */
-     public function toggleActive(Request $request, $id)
-     {
-         $user = Auth::user();
-         $group = SkuSyncGroup::where('id', $id)->where('user_id', $user->id)->firstOrFail();
-         
-         $group->is_active = !$group->is_active;
-         $group->save();
-         
-         return response()->json($group->fresh(['members.store', 'members.product', 'members.variant']));
-     }
+    public function toggleActive(Request $request, $id)
+    {
+        $user = Auth::user();
+        $group = SkuSyncGroup::where('id', $id)->where('user_id', $user->id)->firstOrFail();
+
+        $group->is_active = ! $group->is_active;
+        $group->save();
+
+        if ($group->is_active) {
+            (new StockSyncService)->setMasterStock($group, $group->master_stock);
+        }
+
+        return response()->json($group->fresh(['members.store', 'members.product', 'members.variant']));
+    }
 }

@@ -85,6 +85,7 @@ class Order extends Model
         'cancel_reason',
         'buyer_cancel_reason',
         'normalized_cancel_category',
+        'stock_sync_processed_at',
         'created_at',
         'updated_at',
     ];
@@ -98,6 +99,7 @@ class Order extends Model
         'total_amount' => 'float',
         'order_selling_price' => 'float',
         'escrow_amount_after_adjustment' => 'float',
+        'stock_sync_processed_at' => 'datetime',
     ];
 
     public function product()

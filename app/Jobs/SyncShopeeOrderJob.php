@@ -5,7 +5,7 @@ namespace App\Jobs;
 use Carbon\Carbon;
 use App\Models\Order;
 use App\Models\Store;
-use App\Events\OrderCreated;
+use App\Events\OrderStockSyncRequested;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
 use Illuminate\Support\Facades\Log;
@@ -298,6 +298,8 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                         );
                                     }
                                 }
+
+                                event(new OrderStockSyncRequested($orderModel));
 
                                 $escrowOrderSns[$detail['order_sn']] = true;
 

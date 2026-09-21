@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\OrderStockSyncRequested;
 use App\Jobs\SyncTiktokEscrowJob;
 use App\Jobs\SyncTiktokProductJob;
 use App\Jobs\SyncTiktokUnsettledJob;
@@ -312,6 +313,8 @@ class TikTokController extends Controller
                             );
                         }
                     }
+
+                    event(new OrderStockSyncRequested($orderModel));
                     $totalSynced++;
                 }
             }

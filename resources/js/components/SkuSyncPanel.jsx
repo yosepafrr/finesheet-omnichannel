@@ -3,6 +3,33 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 
+const syncStatusMeta = {
+    pending: {
+        label: "Mengirim",
+        icon: "sync",
+        className: "text-blue-600 dark:text-blue-400",
+        iconClassName: "animate-spin",
+    },
+    synced: {
+        label: "Tersinkron",
+        icon: "check_circle",
+        className: "text-green-600 dark:text-green-400",
+        iconClassName: "",
+    },
+    failed: {
+        label: "Gagal",
+        icon: "error",
+        className: "text-red-600 dark:text-red-400",
+        iconClassName: "",
+    },
+    idle: {
+        label: "Belum dikirim",
+        icon: "schedule",
+        className: "text-gray-500 dark:text-slate-400",
+        iconClassName: "",
+    },
+};
+
 export default function SkuSyncPanel({ search = "" }) {
     const [groups, setGroups] = useState([]);
     const [detected, setDetected] = useState([]);
@@ -31,8 +58,19 @@ export default function SkuSyncPanel({ search = "" }) {
         fetchGroups();
     }, []);
 
-    const fetchGroups = async () => {
-        setLoading(true);
+    useEffect(() => {
+        const hasPendingSync = groups.some(group =>
+            group.members?.some(member => member.sync_status === "pending")
+        );
+
+        if (!hasPendingSync) return undefined;
+
+        const interval = window.setInterval(() => fetchGroups({ silent: true }), 3000);
+        return () => window.clearInterval(interval);
+    }, [groups]);
+
+    const fetchGroups = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const res = await axios.get("/api/sku-sync/groups");
             setGroups(res.data);
@@ -40,7 +78,7 @@ export default function SkuSyncPanel({ search = "" }) {
             setError("Gagal memuat grup sinkronisasi.");
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
@@ -84,7 +122,7 @@ export default function SkuSyncPanel({ search = "" }) {
             });
             
             setModalOpen(false);
-            setSuccessModal({ open: true, message: `Berhasil membuat grup untuk SKU ${selectedDetection.sku}!` });
+            setSuccessModal({ open: true, message: `Grup ${selectedDetection.sku} dibuat. Stok sedang dikirim ke marketplace.` });
             setDetected(prev => prev.filter(d => d.sku !== selectedDetection.sku));
             fetchGroups();
         } catch (err) {
@@ -112,7 +150,7 @@ export default function SkuSyncPanel({ search = "" }) {
 
             await axios.post("/api/sku-sync/groups/bulk", { groups: groupsToCreate });
             
-            setSuccessModal({ open: true, message: `Berhasil membuat ${groupsToCreate.length} grup sinkronisasi sekaligus!` });
+            setSuccessModal({ open: true, message: `${groupsToCreate.length} grup dibuat. Stok sedang dikirim ke marketplace.` });
             setDetected(prev => prev.filter(d => !selectedSkus.includes(d.sku)));
             setSelectedSkus([]);
             fetchGroups();
@@ -144,8 +182,8 @@ export default function SkuSyncPanel({ search = "" }) {
         setPushModal({ open: false, id: null });
         try {
             await axios.post(`/api/sku-sync/groups/${id}/push`);
-            setSuccessModal({ open: true, message: "Berhasil push stok ke marketplace!" });
-            fetchGroups();
+            setSuccessModal({ open: true, message: "Pengiriman stok dijadwalkan. Status setiap toko akan diperbarui otomatis." });
+            await fetchGroups({ silent: true });
         } catch (err) {
             alert("Gagal push stok.");
             console.error(err);
@@ -158,8 +196,8 @@ export default function SkuSyncPanel({ search = "" }) {
         try {
             await axios.put(`/api/sku-sync/groups/${id}`, { master_stock: stock });
             setEditStockModal({ open: false, id: null, stock: 0 });
-            setSuccessModal({ open: true, message: "Berhasil mengubah master stock!" });
-            fetchGroups();
+            setSuccessModal({ open: true, message: "Master stok diperbarui. Stok sedang dikirim ke marketplace." });
+            await fetchGroups({ silent: true });
         } catch (err) {
             alert("Gagal mengubah master stock.");
             console.error(err);
@@ -335,18 +373,37 @@ export default function SkuSyncPanel({ search = "" }) {
                                 </div>
                                 <div className="space-y-2 mt-4 pt-4 border-t border-gray-100 dark:border-slate-700">
                                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Toko Terhubung</div>
-                                    {group.members.map(member => (
-                                        <div key={member.id} className="flex justify-between items-center text-sm">
-                                            <div className="flex items-center gap-2">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                                                <span className="text-gray-700 dark:text-gray-300">{member.store?.store_name}</span>
-                                                <span className="text-xs text-gray-400">({member.store?.platform})</span>
+                                    {group.members.map(member => {
+                                        const status = syncStatusMeta[member.sync_status] || syncStatusMeta.idle;
+
+                                        return (
+                                            <div key={member.id} className="flex justify-between items-center gap-3 text-sm">
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="text-gray-700 dark:text-gray-300 truncate">{member.store?.store_name}</span>
+                                                        <span className="text-xs text-gray-400 shrink-0">({member.store?.platform})</span>
+                                                    </div>
+                                                    <div
+                                                        className={`mt-0.5 flex items-center gap-1 text-xs ${status.className}`}
+                                                        title={member.last_sync_error || status.label}
+                                                    >
+                                                        <span className={`material-symbols-rounded text-[14px] ${status.iconClassName}`}>
+                                                            {status.icon}
+                                                        </span>
+                                                        <span className={member.sync_status === "failed" ? "line-clamp-2" : ""}>
+                                                            {status.label}
+                                                            {member.sync_status === "failed" && member.last_sync_error
+                                                                ? `: ${member.last_sync_error}`
+                                                                : ""}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs text-gray-500 truncate max-w-[120px] shrink-0">
+                                                    {member.variant ? member.variant.variant_name : member.product?.product_name}
+                                                </div>
                                             </div>
-                                            <div className="text-xs text-gray-500 truncate max-w-[120px]">
-                                                {member.variant ? member.variant.variant_name : member.product?.product_name}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ))}
@@ -513,7 +570,7 @@ export default function SkuSyncPanel({ search = "" }) {
                                 <div className="w-16 h-16 bg-green-50 dark:bg-green-900/20 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <span className="material-symbols-rounded text-3xl">check</span>
                                 </div>
-                                <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">Berhasil!</h3>
+                                <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">Permintaan diterima</h3>
                                 <p className="text-sm text-gray-500 dark:text-slate-400 mb-6">
                                     {successModal.message}
                                 </p>

@@ -6,6 +6,7 @@ use App\Models\Store;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 class TiktokService
 {
@@ -544,6 +545,10 @@ class TiktokService
      */
     public function updateInventory($store, $productId, $skuId, $stock)
     {
+        if ($skuId === null || $skuId === '') {
+            throw new RuntimeException('TikTok SKU ID tidak tersedia untuk pembaruan stok.');
+        }
+
         $accessToken = $this->ensureValidToken($store);
         $shopId = $store->shopee_shop_id;
 
@@ -585,8 +590,24 @@ class TiktokService
             'product_id' => $productId,
             'sku_id' => $skuId,
             'stock' => $stock,
-            'response' => $res,
+            'response_code' => is_array($res) ? ($res['code'] ?? null) : null,
+            'message' => is_array($res) ? ($res['message'] ?? null) : null,
+            'request_id' => is_array($res) ? ($res['request_id'] ?? null) : null,
         ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException("TikTok Shop menolak pembaruan stok dengan HTTP {$response->status()}.");
+        }
+
+        if (! is_array($res)) {
+            throw new RuntimeException('TikTok Shop mengembalikan respons pembaruan stok yang tidak valid.');
+        }
+
+        if ((int) ($res['code'] ?? -1) !== 0) {
+            $reason = (string) ($res['message'] ?? 'Alasan tidak diberikan');
+
+            throw new RuntimeException("TikTok Shop menolak pembaruan stok: {$reason}");
+        }
 
         return $res;
     }

@@ -2,10 +2,9 @@
 
 namespace App\Services;
 
-use App\Models\SkuSyncGroup;
-use App\Models\SkuSyncMember;
-use App\Models\VariantProduct;
 use App\Jobs\SyncStockToMarketplaceJob;
+use App\Models\SkuSyncGroup;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class StockSyncService
@@ -13,80 +12,61 @@ class StockSyncService
     /**
      * Deduct stock from the master stock of a group, and dispatch jobs to update marketplaces.
      */
-    public function deductStock(SkuSyncGroup $group, int $qty)
+    public function deductStock(SkuSyncGroup $group, int $qty): int
     {
-        if (!$group->is_active) {
-            return;
-        }
+        return DB::transaction(function () use ($group, $qty) {
+            $lockedGroup = SkuSyncGroup::query()->lockForUpdate()->findOrFail($group->id);
 
-        // Deduct the master stock
-        $newStock = $group->master_stock - $qty;
-        if ($newStock < 0) {
-            $newStock = 0;
-        }
-
-        $group->master_stock = $newStock;
-        $group->save();
-
-        Log::info("StockSyncService: Deducted stock for group {$group->id} (SKU: {$group->sku}). New stock: {$newStock}");
-
-        // Update all members locally and dispatch jobs
-        foreach ($group->members as $member) {
-            // Update local DB
-            if ($member->variant_product_id) {
-                $variant = $member->variant;
-                if ($variant) {
-                    $variant->stock = $newStock;
-                    $variant->save();
-                }
-            } else {
-                $product = $member->product;
-                if ($product) {
-                    $product->stock = $newStock;
-                    $product->save();
-                }
+            if (! $lockedGroup->is_active) {
+                return 0;
             }
 
-            // Dispatch job to update marketplace
-            dispatch(new SyncStockToMarketplaceJob($member->id, $newStock))->onQueue('products');
-        }
+            $newStock = max(0, $lockedGroup->master_stock - $qty);
+            $lockedGroup->update(['master_stock' => $newStock]);
+
+            Log::info("StockSyncService: Deducted stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}). New stock: {$newStock}");
+
+            return $this->dispatchMemberUpdates($lockedGroup, $newStock);
+        });
     }
 
     /**
      * Set master stock manually (e.g. from UI) and push to all marketplaces.
      */
-    public function setMasterStock(SkuSyncGroup $group, int $stock)
+    public function setMasterStock(SkuSyncGroup $group, int $stock): int
     {
-        if ($stock < 0) $stock = 0;
+        $stock = max(0, $stock);
 
-        $group->master_stock = $stock;
-        $group->save();
+        return DB::transaction(function () use ($group, $stock) {
+            $lockedGroup = SkuSyncGroup::query()->lockForUpdate()->findOrFail($group->id);
+            $lockedGroup->update(['master_stock' => $stock]);
 
-        Log::info("StockSyncService: Set master stock for group {$group->id} (SKU: {$group->sku}) to {$stock}");
+            Log::info("StockSyncService: Set master stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}) to {$stock}");
 
-        if (!$group->is_active) {
-            return;
-        }
-
-        // Update all members locally and dispatch jobs
-        foreach ($group->members as $member) {
-            // Update local DB
-            if ($member->variant_product_id) {
-                $variant = $member->variant;
-                if ($variant) {
-                    $variant->stock = $stock;
-                    $variant->save();
-                }
-            } else {
-                $product = $member->product;
-                if ($product) {
-                    $product->stock = $stock;
-                    $product->save();
-                }
+            if (! $lockedGroup->is_active) {
+                return 0;
             }
 
-            // Dispatch job to update marketplace
-            dispatch(new SyncStockToMarketplaceJob($member->id, $stock))->onQueue('products');
+            return $this->dispatchMemberUpdates($lockedGroup, $stock);
+        });
+    }
+
+    private function dispatchMemberUpdates(SkuSyncGroup $group, int $stock): int
+    {
+        $members = $group->members()->get();
+
+        foreach ($members as $member) {
+            $member->update([
+                'sync_status' => 'pending',
+                'sync_requested_at' => now(),
+                'last_sync_error' => null,
+            ]);
+
+            SyncStockToMarketplaceJob::dispatch($member->id, $stock)
+                ->onQueue('products')
+                ->afterCommit();
         }
+
+        return $members->count();
     }
 }

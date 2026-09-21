@@ -2,12 +2,12 @@
 
 namespace App\Listeners;
 
-use App\Events\OrderCreated;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\OrderStockSyncRequested;
+use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\VariantProduct;
 use App\Services\StockSyncService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class StockSyncListener
@@ -23,61 +23,96 @@ class StockSyncListener
     /**
      * Handle the event.
      */
-    public function handle(OrderCreated $event): void
+    public function handle(OrderStockSyncRequested $event): void
     {
-        $order = $event->order;
-        $order->load('orderProducts');
-        
-        $userId = $event->resolveUserId();
-        
-        if (!$userId) {
+        $status = strtoupper(trim((string) $event->order->order_status));
+        if (! in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'], true)) {
             return;
         }
 
-        $stockSyncService = new StockSyncService();
+        DB::transaction(function () use ($event) {
+            $order = $event->order->newQuery()
+                ->with(['orderProducts', 'store'])
+                ->lockForUpdate()
+                ->find($event->order->id);
 
-        foreach ($order->orderProducts as $item) {
-            $skuToSync = null;
+            if (! $order || $order->stock_sync_processed_at || $order->orderProducts->isEmpty()) {
+                return;
+            }
 
-            // Find variant product to get model_sku as requested by user
-            if ($item->product_id && $item->model_name) {
-                // Usually we can query VariantProduct by product_id and model_name
-                $product = \App\Models\Product::where('product_id', $item->product_id)->first();
-                if ($product) {
-                    $variant = VariantProduct::where('product_id', $product->id)
-                        ->where('model_name', $item->model_name)
+            $userId = $order->store?->user_id;
+            if (! $userId) {
+                return;
+            }
+
+            $stockSyncService = app(StockSyncService::class);
+            $stockChanges = [];
+
+            foreach ($order->orderProducts as $item) {
+                $product = Product::query()
+                    ->where('store_id', $order->store_id)
+                    ->where('product_id', $item->product_id)
+                    ->first();
+
+                if (! $product) {
+                    Log::info('StockSyncListener: Waiting for product synchronization', [
+                        'order_sn' => $order->order_sn,
+                        'platform_product_id' => $item->product_id,
+                    ]);
+
+                    return;
+                }
+
+                $variant = null;
+                if ($item->model_name) {
+                    $variant = VariantProduct::query()
+                        ->where('product_id', $product->id)
+                        ->where(function ($query) use ($item) {
+                            $query->where('model_name', $item->model_name)
+                                ->orWhere('variant_name', $item->model_name);
+                        })
                         ->first();
-                    
-                    if ($variant && !empty($variant->model_sku)) {
-                        $skuToSync = $variant->model_sku;
-                    }
                 }
-            }
 
-            // Fallback: If we can't find model_sku, we could fallback to product_sku but user specified model_sku.
-            // If they want only model_sku, we continue. If they also want product_sku fallback for single variant products:
-            if (empty($skuToSync)) {
-                $product = \App\Models\Product::where('product_id', $item->product_id)->first();
-                if ($product && !empty($product->product_sku)) {
-                    $skuToSync = $product->product_sku;
+                $skuToSync = $variant?->model_sku ?: $product->product_sku;
+                if (! $skuToSync) {
+                    continue;
                 }
-            }
 
-            if ($skuToSync) {
-                // Find active group for this SKU and user
-                $group = SkuSyncGroup::where('user_id', $userId)
+                $group = SkuSyncGroup::query()
+                    ->where('user_id', $userId)
                     ->where('sku', $skuToSync)
                     ->where('is_active', true)
                     ->first();
 
-                if ($group) {
-                    $qty = (int)$item->quantity_purchased;
-                    if ($qty > 0) {
-                        Log::info("StockSyncListener: Deducting {$qty} for SKU {$skuToSync} (Group ID: {$group->id}) due to Order {$order->order_sn}");
-                        $stockSyncService->deductStock($group, $qty);
+                $quantity = (int) $item->quantity_purchased;
+                if ($group && $quantity > 0) {
+                    if (! isset($stockChanges[$group->id])) {
+                        $stockChanges[$group->id] = [
+                            'group' => $group,
+                            'sku' => $skuToSync,
+                            'quantity' => 0,
+                        ];
                     }
+
+                    $stockChanges[$group->id]['quantity'] += $quantity;
                 }
             }
-        }
+
+            ksort($stockChanges);
+
+            foreach ($stockChanges as $change) {
+                Log::info('StockSyncListener: Deducting stock for order', [
+                    'order_sn' => $order->order_sn,
+                    'group_id' => $change['group']->id,
+                    'sku' => $change['sku'],
+                    'quantity' => $change['quantity'],
+                ]);
+
+                $stockSyncService->deductStock($change['group'], $change['quantity']);
+            }
+
+            $order->updateQuietly(['stock_sync_processed_at' => now()]);
+        });
     }
 }
