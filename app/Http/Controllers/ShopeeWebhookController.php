@@ -48,6 +48,20 @@ class ShopeeWebhookController extends Controller
             'configured_url' => config('shopee.webhook_url'),
         ]);
 
+        // Shopee sends code 0 only to verify callback reachability before the
+        // pending Live Push key can be saved. It has no business side effects.
+        if ($code === 0) {
+            Log::info('Shopee webhook verification probe accepted', [
+                'signature_valid' => $signatureVerifier->verify(
+                    $rawBody,
+                    $signature,
+                    $signatureUrls
+                ),
+            ]);
+
+            return $this->successResponse();
+        }
+
         if (! $signatureVerifier->verify(
             $rawBody,
             $signature,
@@ -71,10 +85,6 @@ class ShopeeWebhookController extends Controller
             ]);
 
             return response()->json(['error' => 'Invalid signature'], 401);
-        }
-
-        if ($code === 0) {
-            return $this->successResponse();
         }
 
         if (! $shopId || ! $code) {
