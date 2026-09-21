@@ -52,7 +52,7 @@ class MasterCatalogService
                 ->keyBy('listing_key');
 
             $normalizedSkus = $units->pluck('sku')
-                ->filter()
+                ->filter(fn ($sku) => $sku !== null)
                 ->map(fn ($sku) => mb_strtolower($sku))
                 ->unique()
                 ->values();
@@ -255,6 +255,6 @@ class MasterCatalogService
     {
         $sku = trim((string) $sku);
 
-        return $sku !== '' ? $sku : null;
+        return $sku !== '' && $sku !== '0' ? $sku : null;
     }
 }

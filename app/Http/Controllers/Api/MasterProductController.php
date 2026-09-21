@@ -166,7 +166,7 @@ class MasterProductController extends Controller
         $normalizedSkus = collect($data['variants'])
             ->pluck('sku')
             ->map(fn ($sku) => mb_strtolower(trim((string) $sku)))
-            ->filter()
+            ->filter(fn ($sku) => $sku !== '')
             ->values();
 
         $duplicateSku = $normalizedSkus->isEmpty()

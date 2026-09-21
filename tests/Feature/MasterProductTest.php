@@ -196,6 +196,31 @@ class MasterProductTest extends TestCase
         ]);
     }
 
+    public function test_zero_placeholder_skus_are_not_merged(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'Toko TikTok', 'SHOP-ZERO-SKU');
+        $catalog = app(MasterCatalogService::class);
+
+        foreach ([7001, 7002] as $productId) {
+            $product = Product::create([
+                'store_id' => $store->id,
+                'platform' => 'Tiktokshop',
+                'product_id' => $productId,
+                'product_name' => "Produk {$productId}",
+                'product_sku' => '0',
+                'stock' => 10,
+                'price' => 50000,
+            ]);
+
+            $catalog->syncProduct($product);
+        }
+
+        $this->assertDatabaseCount('master_products', 2);
+        $this->assertDatabaseCount('master_product_variants', 2);
+        $this->assertSame(2, MasterProduct::query()->whereHas('variants', fn ($query) => $query->whereNull('sku'))->count());
+    }
+
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
     {
         return Store::create([
