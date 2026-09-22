@@ -2,223 +2,208 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncStockToMarketplaceJob;
 use App\Models\MasterProduct;
+use App\Models\MasterProductVariant;
 use App\Models\Product;
-use App\Models\SkuSyncGroup;
 use App\Models\Store;
 use App\Models\User;
-use App\Services\MasterCatalogService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Tests\TestCase;
 
 class MasterProductTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_user_can_create_a_master_product_and_link_an_existing_sync_group(): void
+    public function test_manual_master_sku_links_matching_marketplace_products_without_pushing_stock(): void
     {
+        Bus::fake();
         $user = User::factory()->create();
-        $group = SkuSyncGroup::create([
-            'user_id' => $user->id,
-            'sku' => 'KMO-HITAM-XXXL',
-            'master_stock' => 17,
-            'is_active' => true,
-        ]);
 
-        $response = $this->actingAs($user)->postJson('/api/master-products', [
-            'name' => 'Kemeja Oxford Pria',
-            'brand' => 'Vilion',
-            'category' => 'Kemeja',
-            'status' => 'active',
-            'variants' => [[
-                'sku' => 'KMO-HITAM-XXXL',
-                'variant_name' => 'Hitam / XXXL',
-                'barcode' => '899000000001',
-                'hpp' => 45000,
-                'stock' => 4,
-                'is_active' => true,
-            ]],
-        ]);
+        foreach ([
+            $this->createStore($user, 'Shopee', 'Toko Shopee', 'SHOP-1'),
+            $this->createStore($user, 'Tiktokshop', 'Toko TikTok', 'SHOP-2'),
+        ] as $index => $store) {
+            Product::create([
+                'store_id' => $store->id,
+                'platform' => $store->platform,
+                'product_id' => 1000 + $index,
+                'product_name' => "Kemeja {$index}",
+                'product_sku' => 'SKU-GABUNG',
+                'stock' => 12,
+                'price' => 100000,
+            ]);
+        }
+
+        $response = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
 
         $response->assertCreated()
-            ->assertJsonPath('name', 'Kemeja Oxford Pria')
-            ->assertJsonPath('variants.0.stock', 4)
-            ->assertJsonPath('variants.0.sync_group_id', $group->id);
-
-        $variantId = $response->json('variants.0.id');
-        $this->assertDatabaseHas('master_product_variants', [
-            'id' => $variantId,
-            'user_id' => $user->id,
-            'sku' => 'KMO-HITAM-XXXL',
-        ]);
-        $this->assertSame($variantId, $group->fresh()->master_product_variant_id);
+            ->assertJsonPath('name', 'Kemeja Oxford')
+            ->assertJsonPath('variants.0.sku', 'SKU-GABUNG')
+            ->assertJsonPath('variants.0.stores_count', 2)
+            ->assertJsonPath('variants.0.same_sku_across_stores', true);
+        $this->assertDatabaseCount('master_products', 1);
+        $this->assertDatabaseCount('sku_sync_groups', 1);
+        $this->assertDatabaseCount('sku_sync_members', 2);
+        Bus::assertNotDispatched(SyncStockToMarketplaceJob::class);
     }
 
-    public function test_master_product_list_is_isolated_per_user(): void
+    public function test_master_list_is_paginated_per_variant_sku(): void
+    {
+        $user = User::factory()->create();
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Kemeja Oxford',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        foreach (['SKU-HITAM', 'SKU-PUTIH'] as $sku) {
+            MasterProductVariant::create([
+                'master_product_id' => $product->id,
+                'user_id' => $user->id,
+                'sku' => $sku,
+                'stock' => 10,
+                'hpp' => 50000,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_updating_master_stock_pushes_to_every_matching_listing(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Toko Shopee', 'SHOP-STOCK');
+        Product::create([
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'product_id' => 2001,
+            'product_name' => 'Kemeja Marketplace',
+            'product_sku' => 'SKU-GABUNG',
+            'stock' => 12,
+            'price' => 100000,
+        ]);
+
+        $created = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
+        $productId = $created->json('id');
+        $variantId = $created->json('variants.0.id');
+        $payload = [
+            'name' => 'Kemeja Oxford',
+            'image' => null,
+            'brand' => null,
+            'category' => null,
+            'description' => null,
+            'status' => 'active',
+            'sku' => 'SKU-GABUNG',
+            'variant_name' => 'Hitam / L',
+            'barcode' => '899000000001',
+            'stock' => 25,
+            'hpp' => 50000,
+            'is_active' => true,
+        ];
+
+        $this->actingAs($user)
+            ->putJson("/api/master-products/{$productId}/variants/{$variantId}", $payload)
+            ->assertOk()
+            ->assertJsonPath('stock', 25);
+
+        $this->assertDatabaseHas('sku_sync_groups', ['master_stock' => 25]);
+        Bus::assertDispatchedTimes(SyncStockToMarketplaceJob::class, 1);
+    }
+
+    public function test_deleting_master_sku_does_not_delete_marketplace_product(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Toko Shopee', 'SHOP-DELETE');
+        $marketplaceProduct = Product::create([
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'product_id' => 3001,
+            'product_name' => 'Produk Marketplace',
+            'product_sku' => 'SKU-GABUNG',
+            'stock' => 7,
+            'price' => 80000,
+        ]);
+        $created = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
+
+        $this->actingAs($user)
+            ->deleteJson('/api/master-products/'.$created->json('id').'/variants/'.$created->json('variants.0.id'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('products', ['id' => $marketplaceProduct->id]);
+        $this->assertDatabaseCount('master_products', 0);
+        $this->assertDatabaseCount('sku_sync_groups', 0);
+    }
+
+    public function test_duplicate_marketplace_sku_is_suggested_until_master_is_created(): void
+    {
+        $user = User::factory()->create();
+        foreach ([
+            $this->createStore($user, 'Shopee', 'Toko A', 'SHOP-A'),
+            $this->createStore($user, 'Tiktokshop', 'Toko B', 'SHOP-B'),
+        ] as $index => $store) {
+            Product::create([
+                'store_id' => $store->id,
+                'platform' => $store->platform,
+                'product_id' => 4000 + $index,
+                'product_name' => "Produk {$index}",
+                'product_sku' => 'SKU-DETEKSI',
+                'stock' => 5,
+                'price' => 60000,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/sku-sync/detect')
+            ->assertOk()
+            ->assertJsonPath('0.sku', 'SKU-DETEKSI')
+            ->assertJsonPath('0.stores_count', 2);
+    }
+
+    public function test_master_list_is_isolated_per_user(): void
     {
         $owner = User::factory()->create();
-        $otherUser = User::factory()->create();
-
-        MasterProduct::create([
+        $other = User::factory()->create();
+        $product = MasterProduct::create([
             'user_id' => $owner->id,
             'name' => 'Produk Rahasia',
             'status' => 'active',
+            'source' => 'manual',
+        ]);
+        MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $owner->id,
+            'sku' => 'SKU-RAHASIA',
+            'stock' => 1,
+            'hpp' => 1000,
         ]);
 
-        $this->actingAs($otherUser)
+        $this->actingAs($other)
             ->getJson('/api/master-products')
             ->assertOk()
             ->assertJsonPath('meta.total', 0);
     }
 
-    public function test_sku_must_be_unique_for_each_user(): void
+    private function payload(): array
     {
-        $user = User::factory()->create();
-        $payload = [
-            'name' => 'Produk Pertama',
+        return [
+            'name' => 'Kemeja Oxford',
             'status' => 'active',
             'variants' => [[
-                'sku' => 'SKU-SAMA',
-                'hpp' => 10000,
-                'stock' => 5,
+                'sku' => 'SKU-GABUNG',
+                'variant_name' => 'Hitam / L',
+                'barcode' => '899000000001',
+                'hpp' => 50000,
+                'stock' => 12,
                 'is_active' => true,
             ]],
         ];
-
-        $this->actingAs($user)->postJson('/api/master-products', $payload)->assertCreated();
-
-        $payload['name'] = 'Produk Kedua';
-        $this->actingAs($user)
-            ->postJson('/api/master-products', $payload)
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('variants');
-    }
-
-    public function test_same_sku_from_three_stores_is_merged_and_uses_reference_store_stock(): void
-    {
-        $user = User::factory()->create();
-        $stores = collect([
-            $this->createStore($user, 'Shopee', 'Toko Shopee', 'SHOP-1'),
-            $this->createStore($user, 'Tiktokshop', 'Toko TikTok', 'SHOP-2'),
-            $this->createStore($user, 'Shopee', 'Toko Kedua', 'SHOP-3'),
-        ]);
-        $stocks = [5, 12, 20];
-        $catalog = app(MasterCatalogService::class);
-
-        foreach ($stores as $index => $store) {
-            $product = Product::create([
-                'store_id' => $store->id,
-                'platform' => $store->platform,
-                'product_id' => 1000 + $index,
-                'product_name' => "Kemeja Toko {$index}",
-                'product_sku' => 'SKU-GABUNG',
-                'stock' => $stocks[$index],
-                'price' => 100000,
-            ]);
-
-            $catalog->syncProduct($product);
-        }
-
-        $this->assertDatabaseCount('master_products', 1);
-        $this->assertDatabaseCount('master_product_variants', 1);
-        $this->assertDatabaseCount('master_product_variant_listings', 3);
-
-        $master = MasterProduct::firstOrFail();
-        $this->assertNull($master->reference_store_id);
-
-        $this->actingAs($user)
-            ->putJson("/api/master-products/{$master->id}/reference-store", [
-                'store_id' => $stores[1]->id,
-            ])
-            ->assertOk()
-            ->assertJsonPath('reference_store.id', $stores[1]->id)
-            ->assertJsonPath('variants.0.stock', 12)
-            ->assertJsonPath('linked_listings_count', 3);
-    }
-
-    public function test_deleting_a_store_keeps_the_master_product_snapshot(): void
-    {
-        $user = User::factory()->create();
-        $store = $this->createStore($user, 'Shopee', 'Toko Utama', 'SHOP-DELETE');
-        $product = Product::create([
-            'store_id' => $store->id,
-            'platform' => 'Shopee',
-            'product_id' => 9999,
-            'product_name' => 'Produk Bertahan',
-            'product_sku' => 'SKU-BERTAHAN',
-            'stock' => 33,
-            'price' => 120000,
-        ]);
-        $catalog = app(MasterCatalogService::class);
-        $catalog->syncProduct($product);
-        $master = MasterProduct::firstOrFail();
-        $catalog->setReferenceStore($master, $store);
-
-        $store->delete();
-
-        $this->assertDatabaseHas('master_products', [
-            'id' => $master->id,
-            'name' => 'Produk Bertahan',
-            'reference_store_id' => null,
-        ]);
-        $this->assertDatabaseHas('master_product_variants', [
-            'master_product_id' => $master->id,
-            'sku' => 'SKU-BERTAHAN',
-            'stock' => 33,
-        ]);
-        $this->assertDatabaseCount('master_product_variant_listings', 0);
-    }
-
-    public function test_changed_store_sku_reuses_its_unshared_master_variant(): void
-    {
-        $user = User::factory()->create();
-        $store = $this->createStore($user, 'Shopee', 'Toko Utama', 'SHOP-SKU-CHANGE');
-        $product = Product::create([
-            'store_id' => $store->id,
-            'platform' => 'Shopee',
-            'product_id' => 8888,
-            'product_name' => 'Produk Ganti SKU',
-            'product_sku' => 'SKU-LAMA',
-            'stock' => 8,
-            'price' => 90000,
-        ]);
-        $catalog = app(MasterCatalogService::class);
-        $catalog->syncProduct($product);
-        $variantId = MasterProduct::firstOrFail()->variants()->value('id');
-
-        $product->update(['product_sku' => 'SKU-BARU']);
-        $catalog->syncProduct($product->fresh());
-
-        $this->assertDatabaseCount('master_product_variants', 1);
-        $this->assertDatabaseHas('master_product_variants', [
-            'id' => $variantId,
-            'sku' => 'SKU-BARU',
-        ]);
-    }
-
-    public function test_zero_placeholder_skus_are_not_merged(): void
-    {
-        $user = User::factory()->create();
-        $store = $this->createStore($user, 'Tiktokshop', 'Toko TikTok', 'SHOP-ZERO-SKU');
-        $catalog = app(MasterCatalogService::class);
-
-        foreach ([7001, 7002] as $productId) {
-            $product = Product::create([
-                'store_id' => $store->id,
-                'platform' => 'Tiktokshop',
-                'product_id' => $productId,
-                'product_name' => "Produk {$productId}",
-                'product_sku' => '0',
-                'stock' => 10,
-                'price' => 50000,
-            ]);
-
-            $catalog->syncProduct($product);
-        }
-
-        $this->assertDatabaseCount('master_products', 2);
-        $this->assertDatabaseCount('master_product_variants', 2);
-        $this->assertSame(2, MasterProduct::query()->whereHas('variants', fn ($query) => $query->whereNull('sku'))->count());
     }
 
     private function createStore(User $user, string $platform, string $name, string $shopId): Store

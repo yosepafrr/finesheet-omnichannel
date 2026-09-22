@@ -11,10 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-/**
- * Compatibility shim for jobs queued before the manual master catalog migration.
- */
-class SyncMasterCatalogProductJob implements ShouldBeUnique, ShouldQueue
+class RefreshMasterSkuLinksForProductJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 

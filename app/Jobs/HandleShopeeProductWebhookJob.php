@@ -127,7 +127,7 @@ class HandleShopeeProductWebhookJob implements ShouldBeUnique, ShouldQueue
                 ->delete();
 
             event(new ProductCreated($product));
-            SyncMasterCatalogProductJob::dispatch($product->id)->onQueue('products');
+            RefreshMasterSkuLinksForProductJob::dispatch($product->id)->onQueue('products');
             Log::info("HandleShopeeProductWebhookJob successfully completed for {$this->itemId}");
 
         } catch (\Throwable $e) {

@@ -144,7 +144,7 @@ class HandleTiktokProductWebhookJob implements ShouldBeUnique, ShouldQueue
                 $savedItem->variantProducts()->delete();
             }
 
-            SyncMasterCatalogProductJob::dispatch($savedItem->id)->onQueue('products');
+            RefreshMasterSkuLinksForProductJob::dispatch($savedItem->id)->onQueue('products');
             Log::info("HandleTiktokProductWebhookJob completed for Product: {$this->productId}");
         } catch (\Throwable $e) {
             Log::error("Error processing HandleTiktokProductWebhookJob for {$this->productId}", [

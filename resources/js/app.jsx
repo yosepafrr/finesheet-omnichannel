@@ -32,6 +32,7 @@ const Cashflow = lazy(() => import('./pages/Cashflow'));
 const MeetCreators = lazy(() => import('./pages/MeetCreators'));
 const Profile = lazy(() => import('./pages/Profile'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
+const MasterProductDetail = lazy(() => import('./pages/MasterProductDetail'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
 
@@ -363,6 +364,12 @@ function App() {
         if (orderMatch) {
             PageComponent = OrderDetail;
             routeParams = { id: orderMatch[1] };
+        }
+
+        const masterProductMatch = currentRoute.match(/^\/products\/master\/(\d+)$/);
+        if (masterProductMatch) {
+            PageComponent = MasterProductDetail;
+            routeParams = { id: masterProductMatch[1] };
         }
     }
 

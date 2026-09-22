@@ -23,6 +23,7 @@ class StockSyncService
 
             $newStock = max(0, $lockedGroup->master_stock - $qty);
             $lockedGroup->update(['master_stock' => $newStock]);
+            $lockedGroup->masterVariant?->update(['stock' => $newStock]);
 
             Log::info("StockSyncService: Deducted stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}). New stock: {$newStock}");
 
@@ -40,6 +41,7 @@ class StockSyncService
         return DB::transaction(function () use ($group, $stock) {
             $lockedGroup = SkuSyncGroup::query()->lockForUpdate()->findOrFail($group->id);
             $lockedGroup->update(['master_stock' => $stock]);
+            $lockedGroup->masterVariant?->update(['stock' => $stock]);
 
             Log::info("StockSyncService: Set master stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}) to {$stock}");
 

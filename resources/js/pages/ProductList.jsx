@@ -10,7 +10,6 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
-import SkuSyncPanel from "../components/SkuSyncPanel";
 import MasterProductPanel from "../components/MasterProductPanel";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -24,7 +23,7 @@ const PRODUCT_TOUR_STEPS = [
     },
     {
         selector: "#tour-product-table",
-        title: "Daftar Produk",
+        title: "Daftar Produk Marketplace",
         description: "Lihat daftar lengkap produk Anda. Anda bisa memantau stok, mengatur HPP (Harga Pokok Penjualan), dan menyamakan SKU antar toko.",
         position: "top",
     },
@@ -159,7 +158,7 @@ export default function ProductList() {
     // Bulk edit modal states
     const [bulkModalProduct, setBulkModalProduct] = useState(null);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState("products");
+    const [activeTab, setActiveTab] = useState("master");
 
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
@@ -242,16 +241,20 @@ export default function ProductList() {
     }, [search]);
 
     useEffect(() => {
+        if (activeTab !== "products") return undefined;
+
         setLoading(true);
         const timeout = setTimeout(() => fetchData(), 300);
         return () => clearTimeout(timeout);
-    }, [fetchData]);
+    }, [activeTab, fetchData]);
 
     // Polling
     useEffect(() => {
+        if (activeTab !== "products") return undefined;
+
         const interval = setInterval(() => fetchData(), POLLING_INTERVAL);
         return () => clearInterval(interval);
-    }, [fetchData]);
+    }, [activeTab, fetchData]);
 
     const toggleExpand = (productId) => {
         setExpandedProducts((prev) => ({
@@ -401,12 +404,6 @@ export default function ProductList() {
                     {/* Tabs */}
                     <div className="flex space-x-1 overflow-x-auto bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
                         <button
-                            onClick={() => setActiveTab("products")}
-                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${activeTab === "products" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
-                        >
-                            Daftar Produk
-                        </button>
-                        <button
                             onClick={() => setActiveTab("master")}
                             className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "master" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
                         >
@@ -414,19 +411,16 @@ export default function ProductList() {
                             Produk Master
                         </button>
                         <button
-                            onClick={() => setActiveTab("sync")}
-                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "sync" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
+                            onClick={() => setActiveTab("products")}
+                            className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${activeTab === "products" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
                         >
-                            <span className="material-symbols-rounded text-[18px]">sync_alt</span>
-                            Sinkronisasi Stok
+                            Daftar Produk Marketplace
                         </button>
                     </div>
 
                     {/* Main Content Area */}
                     {activeTab === "master" ? (
                         <MasterProductPanel search={search} />
-                    ) : activeTab === "sync" ? (
-                        <SkuSyncPanel search={search} />
                     ) : (
                         <>
                             {/* Store Groups */}

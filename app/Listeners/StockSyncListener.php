@@ -81,7 +81,7 @@ class StockSyncListener
 
                 $group = SkuSyncGroup::query()
                     ->where('user_id', $userId)
-                    ->where('sku', $skuToSync)
+                    ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim($skuToSync))])
                     ->where('is_active', true)
                     ->first();
 

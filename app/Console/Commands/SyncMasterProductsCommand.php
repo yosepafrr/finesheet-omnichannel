@@ -2,32 +2,36 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Store;
-use App\Services\MasterCatalogService;
+use App\Models\MasterProductVariant;
+use App\Services\MasterSkuSyncService;
 use Illuminate\Console\Command;
 
 class SyncMasterProductsCommand extends Command
 {
     protected $signature = 'master-products:sync {--user= : Batasi sinkronisasi ke satu user ID}';
 
-    protected $description = 'Bangun ulang katalog master dari seluruh produk toko terotorisasi';
+    protected $description = 'Tautkan ulang SKU master manual dengan listing marketplace';
 
-    public function handle(MasterCatalogService $catalog): int
+    public function handle(MasterSkuSyncService $syncService): int
     {
-        $query = Store::query()->orderBy('id');
-        if ($userId = $this->option('user')) {
-            $query->where('user_id', $userId);
-        }
+        $query = MasterProductVariant::query()
+            ->whereHas('masterProduct', fn ($productQuery) => $productQuery->where('source', 'manual'))
+            ->when($this->option('user'), fn ($variantQuery, $userId) => $variantQuery->where('user_id', $userId))
+            ->orderBy('id');
+        $total = $query->count();
+        $this->info("Memproses {$total} SKU master manual.");
 
-        $stores = $query->get();
-        $this->info("Memproses {$stores->count()} toko.");
+        $processed = 0;
+        $query->chunkById(100, function ($variants) use ($syncService, $total, &$processed) {
+            foreach ($variants as $variant) {
+                $syncService->syncVariant($variant);
+                $processed++;
+                $this->output->write("\rTertaut: {$processed}/{$total}");
+            }
+        });
 
-        foreach ($stores as $store) {
-            $count = $catalog->syncStore($store);
-            $this->line("{$store->store_name}: {$count} produk");
-        }
-
-        $this->info('Katalog master selesai diselaraskan.');
+        $this->newLine();
+        $this->info('Relasi SKU master selesai diperbarui.');
 
         return self::SUCCESS;
     }

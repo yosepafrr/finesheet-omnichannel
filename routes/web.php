@@ -30,22 +30,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/products', [ProductController::class, 'index']);
         Route::get('/master-products', [MasterProductController::class, 'index']);
         Route::post('/master-products', [MasterProductController::class, 'store']);
+        Route::get('/master-products/{id}', [MasterProductController::class, 'show']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
-        Route::put('/master-products/{id}/reference-store', [MasterProductController::class, 'setReferenceStore']);
+        Route::put('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'updateVariant']);
+        Route::delete('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'destroyVariant']);
+        Route::post('/master-products/{productId}/variants/{variantId}/push', [MasterProductController::class, 'pushVariant']);
         Route::delete('/master-products/{id}', [MasterProductController::class, 'destroy']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
         
         // SKU Sync Routes
-        Route::get('/sku-sync/groups', [\App\Http\Controllers\Api\SkuSyncController::class, 'index']);
         Route::get('/sku-sync/detect', [\App\Http\Controllers\Api\SkuSyncController::class, 'detect']);
-        Route::post('/sku-sync/groups', [\App\Http\Controllers\Api\SkuSyncController::class, 'store']);
-        Route::post('/sku-sync/groups/bulk', [\App\Http\Controllers\Api\SkuSyncController::class, 'storeBulk']);
-        Route::put('/sku-sync/groups/{id}', [\App\Http\Controllers\Api\SkuSyncController::class, 'update']);
-        Route::delete('/sku-sync/groups/{id}', [\App\Http\Controllers\Api\SkuSyncController::class, 'destroy']);
-        Route::post('/sku-sync/groups/{id}/push', [\App\Http\Controllers\Api\SkuSyncController::class, 'push']);
-        Route::put('/sku-sync/groups/{id}/toggle', [\App\Http\Controllers\Api\SkuSyncController::class, 'toggleActive']);
 
         Route::post('/sync/products', function (\Illuminate\Http\Request $request) {
             $storeId = $request->input('store_id');

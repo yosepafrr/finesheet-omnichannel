@@ -1,143 +1,128 @@
-import { test, expect } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 test.use({ storageState: 'playwright/.auth/userA.json' });
 
-test.describe('SKU Sync Module', () => {
+const masterRow = {
+  id: 21,
+  master_product_id: 7,
+  name: 'Kemeja Oxford',
+  image: null,
+  brand: 'Finesheet',
+  category: 'Kemeja',
+  description: null,
+  product_status: 'active',
+  variant_name: 'Hitam / L',
+  sku: 'SKU-OXFORD-L',
+  barcode: '899000000001',
+  hpp: 50000,
+  stock: 12,
+  is_active: true,
+  stores_count: 2,
+  listings_count: 2,
+  same_sku_across_stores: true,
+  stores: [
+    { id: 1, name: 'Shopee Utama', platform: 'Shopee', status: 'synced', listings_count: 1 },
+    { id: 2, name: 'TikTok Utama', platform: 'Tiktokshop', status: 'synced', listings_count: 1 },
+  ],
+};
 
-  test.beforeEach(async ({ page }) => {
-    // Navigate to Product Management page
-    await page.goto('/#/products');
-    
-    // Wait for the Products header to be visible
-    await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
-    
-    // Switch to SKU Sync tab
-    const syncTab = page.getByRole('button', { name: /Sinkronisasi Stok/i });
-    await expect(syncTab).toBeVisible();
-    await syncTab.click();
-    
-    // Wait for the sync panel to load
-    await expect(page.getByRole('heading', { name: 'Sinkronisasi Stok' })).toBeVisible();
-  });
+async function mockMasterApis(page: Page, initialRows = [masterRow]) {
+  let rows = structuredClone(initialRows);
 
-  test('SKU Sync Panel displays correctly', async ({ page }) => {
-    // Check if the detection button exists
-    const detectButton = page.getByRole('button', { name: /Deteksi SKU Sama/i });
-    await expect(detectButton).toBeVisible();
-    
-    // Check if Active Sync Groups section exists
-    await expect(page.getByRole('heading', { name: 'Grup Sinkronisasi Aktif' })).toBeVisible();
-  });
+  await page.route('**/api/sku-sync/detect', route => route.fulfill({ json: [] }));
+  await page.route('**/api/master-products**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
 
-  test('Detect SKU and Bulk Create functionality works', async ({ page }) => {
-    const detectButton = page.getByRole('button', { name: /Deteksi SKU Sama/i });
-    
-    // Click the detect button
-    await detectButton.click();
-    
-    // It should either show the empty state "Semua SKU Tersinkronisasi!" or a list of detected SKUs
-    const emptyState = page.locator('text=Semua SKU Tersinkronisasi!');
-    const selectAllCheckbox = page.getByLabel('Pilih Semua');
-    const createBulkButton = page.getByRole('button', { name: /Buat Massal/i });
-    const createSingleButton = page.getByRole('button', { name: 'Buat (1)' }).first();
-    
-    // Wait for one of them to be visible
-    await Promise.any([
-        expect(emptyState).toBeVisible(),
-        expect(createSingleButton).toBeVisible()
-    ]);
-    
-    if (await createSingleButton.isVisible()) {
-        // Test single create modal
-        await createSingleButton.click();
-        
-        // Wait for modal to appear
-        const saveButton = page.getByRole('button', { name: 'Simpan & Push Stok' });
-        await expect(saveButton).toBeVisible();
-        
-        // Cancel single create
-        await page.getByRole('button', { name: 'Batal' }).click();
-
-        // Test bulk create
-        await selectAllCheckbox.check();
-        await expect(createBulkButton).toBeEnabled();
-        
-        // Intercept bulk creation network request
-        const [response] = await Promise.all([
-            page.waitForResponse(res => res.url().includes('/api/sku-sync/groups/bulk') && res.request().method() === 'POST'),
-            createBulkButton.click()
-        ]);
-        
-        expect(response.status()).toBe(201);
+    if (request.method() === 'GET' && url.pathname === '/api/master-products') {
+      return route.fulfill({
+        json: {
+          data: rows,
+          meta: { current_page: 1, last_page: 1, per_page: 20, total: rows.length, from: rows.length ? 1 : null, to: rows.length || null },
+        },
+      });
     }
+
+    if (request.method() === 'POST' && url.pathname === '/api/master-products') {
+      const payload = request.postDataJSON();
+      rows = [{
+        ...masterRow,
+        id: 22,
+        master_product_id: 8,
+        name: payload.name,
+        sku: payload.variants[0].sku,
+        stock: payload.variants[0].stock,
+        hpp: payload.variants[0].hpp,
+        stores_count: 0,
+        listings_count: 0,
+        same_sku_across_stores: false,
+        stores: [],
+      }];
+
+      return route.fulfill({ status: 201, json: { id: 8, name: payload.name, variants: rows } });
+    }
+
+    if (request.method() === 'PUT' && url.pathname.endsWith('/variants/21')) {
+      const payload = request.postDataJSON();
+      rows = rows.map(row => row.id === 21 ? { ...row, ...payload, hpp: Number(payload.hpp), stock: Number(payload.stock) } : row);
+
+      return route.fulfill({ json: rows.find(row => row.id === 21) });
+    }
+
+    if (request.method() === 'POST' && url.pathname.endsWith('/variants/21/push')) {
+      return route.fulfill({ status: 202, json: { message: 'Sinkronisasi stok dijadwalkan.', queued_count: 2 } });
+    }
+
+    return route.fallback();
+  });
+}
+
+test.describe('Master product and stock synchronization', () => {
+  test('shows the merged per-SKU list and marketplace status', async ({ page }) => {
+    await mockMasterApis(page);
+    await page.goto('/#/products');
+
+    await expect(page.getByRole('heading', { name: 'Product Management' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Master Produk', exact: true })).toBeVisible();
+    await expect(page.getByText('SKU-OXFORD-L').first()).toBeVisible();
+    await expect(page.getByText('2 toko').first()).toBeVisible();
+    await expect(page.getByText('Sama di 2 toko').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sinkronisasi Stok' })).toHaveCount(0);
   });
 
-  test('Edit Master Stock functionality works', async ({ page }) => {
-     // Check if there are active groups, wait for list to load
-     const editButton = page.getByTitle('Edit Master Stock').first();
-     
-     if (await editButton.isVisible()) {
-         await editButton.click();
-         
-         const newStockInput = page.getByLabel('Master Stock Baru');
-         await expect(newStockInput).toBeVisible();
-         await newStockInput.fill('150');
-         
-         const saveButton = page.getByRole('button', { name: 'Simpan & Push' });
-         
-         const [response] = await Promise.all([
-             page.waitForResponse(res => res.url().includes('/api/sku-sync/groups/') && res.request().method() === 'PUT'),
-             saveButton.click()
-         ]);
-         
-         expect(response.status()).toBe(200);
-     }
-  });
-  
-  test('Store Authorization safeguards real marketplace stock (PULL initially)', async ({ page }) => {
-      // Skema test: Ketika user pertama kali otorisasi toko
-      // Pastikan backend tidak melakukan PUSH (sinkronisasi UPDATE) secara otomatis ke marketplace.
-      // Sebaliknya, sistem HANYA melakukan PULL (mengambil stok dari marketplace ke database lokal).
-      // Test ini untuk memvalidasi bahwa "tidak ada overwrite dari stock kosong sistem ke marketplace" saat pertama auth.
-      
-      let pushedToMarketplace = false;
-      
-      page.on('request', request => {
-          // Monitor external marketplace API calls for Push/Update
-          if (request.url().includes('open-api.tiktok.com/product/stocks') && (request.method() === 'POST' || request.method() === 'PUT')) {
-              pushedToMarketplace = true;
-          }
-          if (request.url().includes('partner.shopeemobile.com/api/v2/product/update_stock')) {
-              pushedToMarketplace = true;
-          }
-      });
-      
-      // Simulate store connection process (Mocking the authorization callback)
-      await page.route('/tiktok/callback*', async route => {
-          await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ message: "Store connected successfully. Pulling initial products in background." })
-          });
-      });
-      
-      await page.route('/shopee/callback*', async route => {
-          await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ message: "Store connected successfully. Pulling initial products in background." })
-          });
-      });
-      
-      // Attempt to hit the mock endpoints as an authorized user
-      await page.request.get('/tiktok/callback?code=mock_code&state=mock_state');
-      await page.request.get('/shopee/callback?shop_id=123&code=mock_code');
-      
-      // Wait a bit to ensure no background pushes occur
-      await page.waitForTimeout(2000);
-      
-      // Assert that no push occurred to overwrite marketplace stock
-      expect(pushedToMarketplace).toBeFalsy();
+  test('creates a user-owned master SKU without pushing stock automatically', async ({ page }) => {
+    await mockMasterApis(page, []);
+    await page.goto('/#/products');
+    await page.getByRole('button', { name: 'Tambah Master Produk' }).click();
+
+    await page.getByLabel('Nama master produk').fill('Blazer Formal');
+    await page.getByLabel('SKU', { exact: true }).fill('SKU-BLAZER-M');
+    await page.getByLabel('Stok tersedia').fill('25');
+    await page.getByLabel('HPP', { exact: true }).fill('75000');
+
+    const requestPromise = page.waitForRequest(request => request.url().endsWith('/api/master-products') && request.method() === 'POST');
+    await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+    const request = await requestPromise;
+
+    expect(request.postDataJSON().variants[0]).toMatchObject({ sku: 'SKU-BLAZER-M', stock: 25, hpp: 75000 });
+    await expect(page.getByText('SKU-BLAZER-M').first()).toBeVisible();
   });
 
+  test('edits stock and can explicitly queue marketplace synchronization', async ({ page }) => {
+    await mockMasterApis(page);
+    await page.goto('/#/products');
+    await page.getByRole('button', { name: 'Pengaturan SKU master' }).first().click();
+    await page.getByRole('button', { name: 'Edit data' }).click();
+
+    await page.getByLabel('Stok tersedia').fill('30');
+    await page.getByLabel('HPP', { exact: true }).fill('55000');
+    const updatePromise = page.waitForRequest(request => request.url().endsWith('/variants/21') && request.method() === 'PUT');
+    await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+    expect((await updatePromise).postDataJSON()).toMatchObject({ stock: 30, hpp: 55000 });
+
+    await page.getByRole('button', { name: 'Pengaturan SKU master' }).first().click();
+    const pushPromise = page.waitForRequest(request => request.url().endsWith('/variants/21/push') && request.method() === 'POST');
+    await page.getByRole('button', { name: 'Sinkronkan stok' }).click();
+    await pushPromise;
+  });
 });
