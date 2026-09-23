@@ -703,8 +703,9 @@ export default function OrderList() {
             <div className="min-h-screen min-w-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 py-2 px-1 sm:px-2">
                 <div className="space-y-6 pb-20 animate-fade-in-up">
                     {/* Header */}
-                    <div className="flex flex-col gap-6 sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 pt-2 pb-2">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="contents md:sticky md:top-0 md:z-20 md:flex md:flex-col md:gap-6 md:bg-slate-50 md:pb-2 md:pt-2 dark:md:bg-slate-900">
+                        <div className="flex flex-col gap-6 bg-slate-50 pb-2 pt-2 dark:bg-slate-900 md:contents">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div>
                                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-tight">
                                     Order Management
@@ -852,15 +853,16 @@ export default function OrderList() {
                                     </AnimatePresence>
                                 </div>
                             </div>
+                            </div>
+
+                            <OrderSyncStatus
+                                syncs={syncs}
+                                recentlyCompleted={recentlyCompleted}
+                            />
                         </div>
 
-                        <OrderSyncStatus
-                            syncs={syncs}
-                            recentlyCompleted={recentlyCompleted}
-                        />
-
                         {/* Status Tabs */}
-                        <div id="tour-filter-group" className="border-b border-gray-200 dark:border-slate-700">
+                        <div id="tour-filter-group" className="sticky top-0 z-20 mt-4 border-b border-gray-200 bg-slate-50 pt-2 dark:border-slate-700 dark:bg-slate-900 md:static md:z-auto md:mt-0 md:bg-transparent md:pt-0 dark:md:bg-transparent">
                             <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar">
                                 {FILTER_GROUPS.map((group) => {
                                     const isActive = selectedFilterId === group.id;
