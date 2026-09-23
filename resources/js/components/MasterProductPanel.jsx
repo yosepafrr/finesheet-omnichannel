@@ -439,11 +439,48 @@ export default function MasterProductPanel({ search = "" }) {
                             </table>
                         </div>
 
-                        <div className="divide-y divide-slate-200 md:hidden dark:divide-slate-700">
+                        <div className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
                             {rows.map((row) => (
-                                <article key={row.id} className="p-4">
-                                    <div className="flex items-start gap-3"><a href={`#/products/master/${row.master_product_id}`}><ProductImage row={row} size="lg" /></a><div className="min-w-0 flex-1"><a href={`#/products/master/${row.master_product_id}`} className="line-clamp-2 font-bold text-slate-900 dark:text-white">{row.name}</a><p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500">{row.sku}</p></div><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onDelete={remove} onPush={push} /></div>
-                                    <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-3 dark:border-slate-700"><div><p className="text-xs text-slate-400">Stok</p><p className="font-bold text-slate-900 dark:text-white">{row.stock.toLocaleString("id-ID")}</p></div><div><p className="text-xs text-slate-400">HPP</p><button type="button" onClick={() => setModal({ open: true, row, preset: null })} className="font-semibold text-slate-900 dark:text-white">{formatRp(row.hpp)}</button></div><div className="col-span-2 flex flex-wrap items-center gap-2"><SyncStatus row={row} /><MatchStatus row={row} /></div></div>
+                                <article
+                                    key={row.id}
+                                    className={`relative rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800 ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                                >
+                                    <div className="flex items-start gap-4">
+                                        <a href={`#/products/master/${row.master_product_id}`} className="shrink-0">
+                                            <ProductImage row={row} size="lg" />
+                                        </a>
+                                        <div className="min-w-0 flex-1">
+                                            <a href={`#/products/master/${row.master_product_id}`} className="line-clamp-2 text-sm font-bold leading-tight text-slate-900 dark:text-white">
+                                                {row.name}
+                                            </a>
+                                            <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                                {row.sku}
+                                            </p>
+                                            <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">
+                                                {row.variant_name || row.category || "Produk utama"}
+                                            </p>
+                                        </div>
+                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onDelete={remove} onPush={push} />
+                                    </div>
+
+                                    <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">Stok tersedia</p>
+                                            <p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">{row.stock.toLocaleString("id-ID")}</p>
+                                        </div>
+                                        <div className="min-w-0 text-right">
+                                            <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">HPP</p>
+                                            <button type="button" onClick={() => setModal({ open: true, row, preset: null })} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 dark:text-white">
+                                                <span className="truncate">{formatRp(row.hpp)}</span>
+                                                <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">edit</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-700/70">
+                                        <SyncStatus row={row} />
+                                        <MatchStatus row={row} />
+                                    </div>
                                 </article>
                             ))}
                         </div>

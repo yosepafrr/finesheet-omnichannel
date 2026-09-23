@@ -952,7 +952,7 @@ export default function ProductList() {
                                                 </div>
 
                                                 {/* Mobile Cards */}
-                                                <div className="md:hidden p-4 space-y-4 bg-gray-50/50 dark:bg-slate-900/30">
+                                                <div className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
                                                     {paginatedProducts.map(
                                                         (product) => {
                                                             const variants =
@@ -1071,7 +1071,7 @@ export default function ProductList() {
                                                                     key={
                                                                         product.id
                                                                     }
-                                                                    className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden"
+                                                                    className="relative overflow-hidden rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800"
                                                                 >
                                                                     <div className="flex gap-4">
                                                                         {product.image ? (
