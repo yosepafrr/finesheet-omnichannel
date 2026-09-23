@@ -151,7 +151,8 @@ class HandleTiktokOrderWebhookJob implements ShouldBeUnique, ShouldQueue
             if (! empty($order['line_items'])) {
                 $groupedItems = [];
                 foreach ($order['line_items'] as $item) {
-                    $key = $item['product_id'].'_'.($item['sku_name'] ?? 'without variant');
+                    $variantIdentity = $item['sku_id'] ?? $item['seller_sku'] ?? $item['sku_name'] ?? 'without variant';
+                    $key = $item['product_id'].'_'.$variantIdentity;
                     if (! isset($groupedItems[$key])) {
                         $groupedItems[$key] = $item;
                         $groupedItems[$key]['computed_quantity'] = 1;
@@ -169,6 +170,8 @@ class HandleTiktokOrderWebhookJob implements ShouldBeUnique, ShouldQueue
                         ],
                         [
                             'product_name' => $item['product_name'] ?? null,
+                            'platform_variant_id' => isset($item['sku_id']) ? (string) $item['sku_id'] : null,
+                            'sku' => $item['seller_sku'] ?? null,
                             'quantity_purchased' => $item['computed_quantity'],
                             'price' => $item['sale_price'] ?? 0,
                             'image' => $item['sku_image'] ?? null,

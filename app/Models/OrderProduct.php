@@ -21,6 +21,8 @@ class OrderProduct extends Model
         'product_id',
         'product_name',
         'model_name',
+        'platform_variant_id',
+        'sku',
         'quantity_purchased',
         'price',
         'image',

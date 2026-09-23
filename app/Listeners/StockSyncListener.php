@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\OrderStockSyncRequested;
+use App\Models\OrderProduct;
 use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\VariantProduct;
@@ -63,18 +64,19 @@ class StockSyncListener
                     return;
                 }
 
-                $variant = null;
-                if ($item->model_name) {
-                    $variant = VariantProduct::query()
-                        ->where('product_id', $product->id)
-                        ->where(function ($query) use ($item) {
-                            $query->where('model_name', $item->model_name)
-                                ->orWhere('variant_name', $item->model_name);
-                        })
-                        ->first();
+                [$skuToSync, $shouldRetry] = $this->resolveSku($product, $item);
+                if ($shouldRetry) {
+                    Log::warning('StockSyncListener: Variant identity has not been synchronized', [
+                        'order_sn' => $order->order_sn,
+                        'platform_product_id' => $item->product_id,
+                        'platform_variant_id' => $item->platform_variant_id,
+                        'seller_sku' => $item->sku,
+                        'model_name' => $item->model_name,
+                    ]);
+
+                    return;
                 }
 
-                $skuToSync = $variant?->model_sku ?: $product->product_sku;
                 if (! $skuToSync) {
                     continue;
                 }
@@ -114,5 +116,58 @@ class StockSyncListener
 
             $order->updateQuietly(['stock_sync_processed_at' => now()]);
         });
+    }
+
+    /**
+     * Resolve a marketplace order item to the SKU used by a master stock group.
+     * Stable platform identifiers are preferred; names only support legacy rows.
+     */
+    private function resolveSku(Product $product, OrderProduct $item): array
+    {
+        $variantQuery = VariantProduct::query()->where('product_id', $product->id);
+        $variant = null;
+
+        if ($item->platform_variant_id) {
+            $variant = (clone $variantQuery)
+                ->where('model_id', $item->platform_variant_id)
+                ->first();
+        }
+
+        if (! $variant && $this->normalizeSku($item->sku)) {
+            $variant = (clone $variantQuery)
+                ->whereRaw('LOWER(model_sku) = ?', [mb_strtolower(trim($item->sku))])
+                ->first();
+        }
+
+        $modelName = trim((string) $item->model_name);
+        if (! $variant && $modelName !== '' && strcasecmp($modelName, 'without variant') !== 0) {
+            $variant = (clone $variantQuery)
+                ->where(function ($query) use ($modelName) {
+                    $query->where('model_name', $modelName)
+                        ->orWhere('variant_name', $modelName);
+                })
+                ->first();
+        }
+
+        $sku = $this->normalizeSku($variant?->model_sku)
+            ?? $this->normalizeSku($item->sku);
+        if ($sku) {
+            return [$sku, false];
+        }
+
+        $hasVariantIdentity = $item->platform_variant_id
+            || ($modelName !== '' && strcasecmp($modelName, 'without variant') !== 0);
+        if ($hasVariantIdentity && $product->variantProducts()->exists()) {
+            return [null, true];
+        }
+
+        return [$this->normalizeSku($product->product_sku), false];
+    }
+
+    private function normalizeSku(mixed $sku): ?string
+    {
+        $sku = trim((string) $sku);
+
+        return $sku !== '' && $sku !== '0' ? $sku : null;
     }
 }

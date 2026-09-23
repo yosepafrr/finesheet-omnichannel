@@ -412,6 +412,8 @@ class ShopeeController extends Controller
                                         ],
                                         [
                                             'product_name' => $shopeeItem['item_name'] ?? null,
+                                            'platform_variant_id' => isset($shopeeItem['model_id']) ? (string) $shopeeItem['model_id'] : null,
+                                            'sku' => $shopeeItem['model_sku'] ?? $shopeeItem['item_sku'] ?? null,
                                             'quantity_purchased' => $shopeeItem['model_quantity_purchased'] ?? 0,
                                             'price' => $price,
                                             'image' => $imageUrl,
