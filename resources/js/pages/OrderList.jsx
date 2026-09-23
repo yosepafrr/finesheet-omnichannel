@@ -863,7 +863,7 @@ export default function OrderList() {
                         </div>
 
                         {/* Status Tabs */}
-                        <div id="tour-filter-group" className="sticky top-0 z-20 mt-4 border-b border-gray-200 bg-slate-50 pt-2 dark:border-slate-700 dark:bg-slate-900 md:static md:z-auto md:mt-0 md:bg-transparent md:pt-0 dark:md:bg-transparent">
+                        <div id="tour-filter-group" className="sticky top-0 z-20 mt-4 border-b border-gray-200 bg-slate-50 pt-4 dark:border-slate-700 dark:bg-slate-900 md:static md:z-auto md:mt-0 md:bg-transparent md:pt-0 dark:md:bg-transparent">
                             <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar">
                                 {FILTER_GROUPS.map((group) => {
                                     const isActive = selectedFilterId === group.id;
