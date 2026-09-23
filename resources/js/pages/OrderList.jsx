@@ -1225,7 +1225,7 @@ export default function OrderList() {
                                                                                 </span>
                                                                             </div>
                                                                         )}
-                                                                        <div>
+                                                                        <div className="min-w-0">
                                                                             <p className="font-medium text-gray-700 dark:text-slate-300 truncate w-48">
                                                                                 {
                                                                                     order
@@ -1233,14 +1233,17 @@ export default function OrderList() {
                                                                                         ?.product_name
                                                                                 }
                                                                             </p>
-                                                                            {order.product_count >
-                                                                                1 ? (
+                                                                            <p className="w-48 truncate text-xs text-gray-400 dark:text-slate-500">
+                                                                                Varian: {order.first_product?.model_name || "Tanpa varian"}
+                                                                            </p>
+                                                                            {order.product_count > 1 && (
                                                                                 <button
-                                                                                    onClick={() =>
+                                                                                    onClick={(event) => {
+                                                                                        event.stopPropagation();
                                                                                         toggleExpand(
                                                                                             order.id,
-                                                                                        )
-                                                                                    }
+                                                                                        );
+                                                                                    }}
                                                                                 >
                                                                                     <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
                                                                                         +
@@ -1250,15 +1253,6 @@ export default function OrderList() {
                                                                                         lainnya
                                                                                     </span>
                                                                                 </button>
-                                                                            ) : (
-                                                                                <span className="text-xs text-gray-400 dark:text-slate-500">
-                                                                                    Variant:{" "}
-                                                                                    {
-                                                                                        order
-                                                                                            .first_product
-                                                                                            ?.model_name
-                                                                                    }
-                                                                                </span>
                                                                             )}
                                                                         </div>
                                                                     </div>
@@ -1395,14 +1389,14 @@ export default function OrderList() {
                                                                                                             </span>
                                                                                                         </div>
                                                                                                     )}
-                                                                                                    <div>
-                                                                                                        <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">
+                                                                                                    <div className="min-w-0 max-w-xs">
+                                                                                                        <p className="truncate text-sm font-semibold text-gray-700 dark:text-slate-200" title={product.product_name}>
                                                                                                             {
                                                                                                                 product.product_name
                                                                                                             }
                                                                                                         </p>
-                                                                                                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                                                                                                            Var:{" "}
+                                                                                                        <p className="truncate text-xs text-gray-500 dark:text-slate-400" title={product.model_name || "Tanpa varian"}>
+                                                                                                            Varian:{" "}
                                                                                                             {
                                                                                                                 product.model_name
                                                                                                             }{" "}
@@ -1613,23 +1607,16 @@ export default function OrderList() {
                                                                         ?.product_name
                                                                 }
                                                             </p>
-                                                            {order.product_count >
-                                                                1 ? (
+                                                            <p className="truncate text-xs text-gray-400 dark:text-slate-500">
+                                                                Varian: {order.first_product?.model_name || "Tanpa varian"}
+                                                            </p>
+                                                            {order.product_count > 1 && (
                                                                 <p className="text-xs text-blue-600 dark:text-blue-400">
                                                                     +
                                                                     {order.product_count -
                                                                         1}{" "}
                                                                     produk
                                                                     lainnya
-                                                                </p>
-                                                            ) : (
-                                                                <p className="text-xs text-gray-400 dark:text-slate-500">
-                                                                    Qty:{" "}
-                                                                    {
-                                                                        order
-                                                                            .first_product
-                                                                            ?.quantity
-                                                                    }
                                                                 </p>
                                                             )}
                                                         </div>
@@ -1650,20 +1637,18 @@ export default function OrderList() {
                                                                             key={
                                                                                 idx
                                                                             }
-                                                                            className="flex items-start justify-between text-xs"
+                                                                            className="flex min-w-0 items-start justify-between gap-3 text-xs"
                                                                         >
-                                                                            <span className="text-gray-600 dark:text-slate-300 w-2/3">
-                                                                                {
-                                                                                    product.product_name
-                                                                                }{" "}
-                                                                                <span className="text-gray-400 dark:text-slate-500">
-                                                                                    (x
-                                                                                    {
-                                                                                        product.quantity_purchased
-                                                                                    }
-
-                                                                                    )
-                                                                                </span>
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className="truncate font-medium text-gray-700 dark:text-slate-200" title={product.product_name}>
+                                                                                    {product.product_name}
+                                                                                </p>
+                                                                                <p className="mt-0.5 truncate text-gray-400 dark:text-slate-500" title={product.model_name || "Tanpa varian"}>
+                                                                                    Varian: {product.model_name || "Tanpa varian"}
+                                                                                </p>
+                                                                            </div>
+                                                                            <span className="shrink-0 font-semibold text-gray-500 dark:text-slate-400">
+                                                                                x{product.quantity_purchased}
                                                                             </span>
                                                                         </div>
                                                                     ),
