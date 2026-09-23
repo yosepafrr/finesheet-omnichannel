@@ -1,6 +1,7 @@
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 const EMPTY_FORM = {
     name: "",
@@ -26,6 +27,46 @@ function errorMessage(error) {
     return (errors && Object.values(errors).flat()[0])
         || error.response?.data?.message
         || "Terjadi kesalahan. Silakan coba lagi.";
+}
+
+function rowPayload(row, overrides = {}) {
+    return {
+        name: row.name || "",
+        image: row.image || null,
+        brand: row.brand || null,
+        category: row.category || null,
+        description: row.description || null,
+        status: row.product_status || "active",
+        sku: row.sku || "",
+        variant_name: row.variant_name || null,
+        barcode: row.barcode || null,
+        stock: Number(row.stock || 0),
+        hpp: Number(row.hpp || 0),
+        is_active: row.is_active ?? true,
+        ...overrides,
+    };
+}
+
+function useModalScrollLock(onClose) {
+    useEffect(() => {
+        const mainContainer = document.getElementById("main-scroll-container");
+        const previousMainOverflow = mainContainer?.style.overflowY || "";
+        const previousBodyOverflow = document.body.style.overflow;
+
+        if (mainContainer) mainContainer.style.overflowY = "hidden";
+        document.body.style.overflow = "hidden";
+
+        const closeOnEscape = (event) => {
+            if (event.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", closeOnEscape);
+
+        return () => {
+            if (mainContainer) mainContainer.style.overflowY = previousMainOverflow;
+            document.body.style.overflow = previousBodyOverflow;
+            document.removeEventListener("keydown", closeOnEscape);
+        };
+    }, [onClose]);
 }
 
 function ProductImage({ row, size = "md" }) {
@@ -88,7 +129,7 @@ function MatchStatus({ row }) {
     );
 }
 
-function ActionMenu({ row, onEdit, onDelete, onPush }) {
+function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
     const [open, setOpen] = useState(false);
     const ref = useRef(null);
 
@@ -122,6 +163,14 @@ function ActionMenu({ row, onEdit, onDelete, onPush }) {
                             <span className="material-symbols-rounded text-lg">edit</span>
                             Edit data
                         </button>
+                        <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <span className="material-symbols-rounded text-lg">inventory</span>
+                            Edit stok
+                        </button>
+                        <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <span className="material-symbols-rounded text-lg">payments</span>
+                            Edit HPP
+                        </button>
                         <button type="button" onClick={() => { setOpen(false); onPush(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">sync</span>
                             Sinkronkan stok
@@ -154,6 +203,8 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
     } : { ...EMPTY_FORM, ...preset });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+
+    useModalScrollLock(onClose);
 
     const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
@@ -204,8 +255,8 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
         }
     };
 
-    return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overscroll-contain bg-black/50 p-3 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
             <motion.form
                 initial={{ opacity: 0, y: 14, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -222,7 +273,7 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
                     </button>
                 </div>
 
-                <div className="overflow-y-auto px-5 py-5">
+                <div className="overflow-y-auto overscroll-contain px-5 py-5">
                     {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <label className="sm:col-span-2">
@@ -272,7 +323,109 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
                     </button>
                 </div>
             </motion.form>
-        </div>
+        </div>,
+        document.body,
+    );
+}
+
+function MasterValueModal({ row, field, onClose, onSaved }) {
+    const isStock = field === "stock";
+    const step = isStock ? 1 : 1000;
+    const [value, setValue] = useState(Number(row[field] || 0));
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+
+    useModalScrollLock(onClose);
+
+    const updateValue = (nextValue) => {
+        const normalized = Math.max(0, Number(nextValue) || 0);
+        setValue(isStock ? Math.floor(normalized) : normalized);
+    };
+
+    const submit = async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+
+        try {
+            await axios.put(
+                `/api/master-products/${row.master_product_id}/variants/${row.id}`,
+                rowPayload(row, { [field]: value }),
+            );
+            await onSaved();
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overscroll-contain bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+            <motion.form
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                transition={{ duration: 0.18 }}
+                onSubmit={submit}
+                className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+            >
+                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-400">
+                            <span className="material-symbols-rounded">{isStock ? "inventory" : "payments"}</span>
+                        </div>
+                        <div className="min-w-0">
+                            <h2 className="font-bold text-slate-900 dark:text-white">{isStock ? "Edit Stok" : "Edit HPP"}</h2>
+                            <p className="truncate text-xs text-slate-500 dark:text-slate-400">{row.name}</p>
+                        </div>
+                    </div>
+                    <button type="button" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup">
+                        <span className="material-symbols-rounded">close</span>
+                    </button>
+                </div>
+
+                <div className="p-5">
+                    {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Nilai baru</p>
+                        <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2">
+                            <button type="button" onClick={() => updateValue(value - step)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Kurangi ${isStock ? "stok" : "HPP"}`}>
+                                <span className="material-symbols-rounded">remove</span>
+                            </button>
+                            <div className="relative min-w-0">
+                                {!isStock && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">Rp</span>}
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step={step}
+                                    required
+                                    autoFocus
+                                    value={value}
+                                    onChange={(event) => updateValue(event.target.value)}
+                                    className={`h-11 w-full rounded-lg border-slate-300 bg-white text-center text-lg font-bold text-slate-900 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-white ${isStock ? "px-3" : "pl-9 pr-3"}`}
+                                />
+                            </div>
+                            <button type="button" onClick={() => updateValue(value + step)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Tambah ${isStock ? "stok" : "HPP"}`}>
+                                <span className="material-symbols-rounded">add</span>
+                            </button>
+                        </div>
+                        <p className="mt-3 text-center text-sm text-slate-500 dark:text-slate-400">
+                            {isStock ? `${value.toLocaleString("id-ID")} unit tersedia` : formatRp(value)}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800">
+                    <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Batal</button>
+                    <button type="submit" disabled={saving} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] disabled:opacity-60 dark:bg-blue-600">
+                        <span className={`material-symbols-rounded text-lg ${saving ? "animate-spin" : ""}`}>{saving ? "progress_activity" : "save"}</span>
+                        {saving ? "Menyimpan" : "Simpan"}
+                    </button>
+                </div>
+            </motion.form>
+        </div>,
+        document.body,
     );
 }
 
@@ -292,6 +445,7 @@ export default function MasterProductPanel({ search = "" }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modal, setModal] = useState({ open: false, row: null, preset: null });
+    const [valueModal, setValueModal] = useState({ open: false, row: null, field: null });
     const [busyId, setBusyId] = useState(null);
 
     const fetchRows = useCallback(async (silent = false) => {
@@ -330,7 +484,12 @@ export default function MasterProductPanel({ search = "" }) {
 
     const refresh = async () => {
         setModal({ open: false, row: null, preset: null });
+        setValueModal({ open: false, row: null, field: null });
         await Promise.all([fetchRows(), fetchDetected()]);
+    };
+
+    const openValueModal = (row, field) => {
+        setValueModal({ open: true, row, field });
     };
 
     const remove = async (row) => {
@@ -428,11 +587,11 @@ export default function MasterProductPanel({ search = "" }) {
                                         <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
                                             <td className="px-5 py-4"><a href={`#/products/master/${row.master_product_id}`} className="flex min-w-0 items-center gap-3"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></a></td>
                                             <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{row.sku}</span>{row.barcode && <span className="block truncate text-xs text-slate-400">{row.barcode}</span>}</td>
-                                            <td className="px-4 py-4 text-right text-sm font-bold text-slate-900 dark:text-white">{row.stock.toLocaleString("id-ID")}</td>
-                                            <td className="px-4 py-4 text-right"><button type="button" onClick={() => setModal({ open: true, row, preset: null })} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
+                                            <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "stock")} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] dark:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
+                                            <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
-                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onDelete={remove} onPush={push} /></div></td>
+                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} /></div></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -456,21 +615,21 @@ export default function MasterProductPanel({ search = "" }) {
                                             <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
                                                 {row.sku}
                                             </p>
-                                            <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">
-                                                {row.variant_name || row.category || "Produk utama"}
-                                            </p>
                                         </div>
-                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onDelete={remove} onPush={push} />
+                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} />
                                     </div>
 
                                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
                                         <div className="min-w-0">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">Stok tersedia</p>
-                                            <p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">{row.stock.toLocaleString("id-ID")}</p>
+                                            <button type="button" onClick={() => openValueModal(row, "stock")} className="mt-1 inline-flex items-center gap-1 text-lg font-extrabold text-[#304674] dark:text-blue-400">
+                                                <span>{row.stock.toLocaleString("id-ID")}</span>
+                                                <span className="material-symbols-rounded text-[16px] text-slate-400">edit</span>
+                                            </button>
                                         </div>
                                         <div className="min-w-0 text-right">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">HPP</p>
-                                            <button type="button" onClick={() => setModal({ open: true, row, preset: null })} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 dark:text-white">
+                                            <button type="button" onClick={() => openValueModal(row, "hpp")} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 dark:text-white">
                                                 <span className="truncate">{formatRp(row.hpp)}</span>
                                                 <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">edit</span>
                                             </button>
@@ -491,6 +650,7 @@ export default function MasterProductPanel({ search = "" }) {
             </div>
 
             <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
+            <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
         </div>
     );
 }

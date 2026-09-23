@@ -9,6 +9,7 @@ import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import OnboardingTour from "@/components/OnboardingTour";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OrderSyncStatus } from "@/components/OrderSyncStatus";
 import { useOrderSyncStatus } from "@/hooks/useOrderSyncStatus";
@@ -704,7 +705,7 @@ export default function OrderList() {
                 <div className="space-y-6 pb-20 animate-fade-in-up">
                     {/* Header */}
                     <div className="contents md:sticky md:top-0 md:z-20 md:flex md:flex-col md:gap-6 md:bg-slate-50 md:pb-2 md:pt-2 dark:md:bg-slate-900">
-                        <div className="flex flex-col gap-6 bg-slate-50 pb-2 pt-2 dark:bg-slate-900 md:contents">
+                        <div id="order-scroll-top-marker" className="flex flex-col gap-6 bg-slate-50 pb-2 pt-2 dark:bg-slate-900 md:contents">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div>
                                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-tight">
@@ -1787,6 +1788,7 @@ export default function OrderList() {
                 onFinish={tour.finish}
                 onStart={tour.start}
             />
+            <ScrollToTopButton markerId="order-scroll-top-marker" />
         </AppLayout>
     );
 }

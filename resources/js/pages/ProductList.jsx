@@ -12,6 +12,7 @@ import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
 import MasterProductPanel from "../components/MasterProductPanel";
 import OnboardingTour from "@/components/OnboardingTour";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
 
 const PRODUCT_TOUR_STEPS = [
@@ -402,7 +403,7 @@ export default function ProductList() {
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex space-x-1 overflow-x-auto bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
+                    <div id="product-scroll-top-marker" className="flex space-x-1 overflow-x-auto bg-gray-200/50 dark:bg-slate-800/50 p-1 rounded-xl w-full md:w-fit">
                         <button
                             onClick={() => setActiveTab("master")}
                             className={`shrink-0 px-4 md:px-6 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${activeTab === "master" ? "bg-white dark:bg-slate-700 text-[#304674] dark:text-blue-400 shadow-sm" : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"}`}
@@ -1411,6 +1412,7 @@ export default function ProductList() {
                 onFinish={tour.finish}
                 onStart={tour.start}
             />
+            <ScrollToTopButton markerId="product-scroll-top-marker" />
         </AppLayout>
     );
 }
