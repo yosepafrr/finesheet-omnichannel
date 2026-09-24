@@ -18,13 +18,13 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 
 const DASHBOARD_TOUR_STEPS = [
     {
-        selector: "#tour-metrics",
+        selector: "#tour-metrics > :first-child",
         title: "Metrik Bisnis",
         description: "Pantau estimasi profit bersih, pesanan aktif, hutang supplier, dan jumlah toko yang terhubung dalam satu tampilan.",
         position: "bottom",
     },
     {
-        selector: "#tour-chart",
+        selector: "#tour-chart > :first-child",
         title: "Grafik Tren",
         description: "Lihat tren pesanan dan profit harian. Gunakan filter hari di atas untuk menyesuaikan rentang waktu.",
         position: "top",

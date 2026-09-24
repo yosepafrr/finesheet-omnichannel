@@ -12,13 +12,13 @@ const PROFIT_TOUR_STEPS = [
         position: "bottom",
     },
     {
-        selector: "#tour-profit-summary",
+        selector: "#tour-profit-summary > :first-child",
         title: "Ringkasan Profit",
         description: "Lihat total dana escrow (pemasukan yang masih tertahan di marketplace), dikurangi dengan estimasi HPP/tagihan supplier untuk mendapatkan perkiraan profit bersih.",
         position: "bottom",
     },
     {
-        selector: "#tour-store-profit",
+        selector: "#tour-store-profit > :nth-child(2) > :first-child, #tour-store-profit",
         title: "Rincian Per Toko",
         description: "Pantau kontribusi pemasukan dan margin profit dari masing-masing toko secara terpisah.",
         position: "top",

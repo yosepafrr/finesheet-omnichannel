@@ -22,7 +22,7 @@ const ORDER_TOUR_STEPS = [
         position: "bottom",
     },
     {
-        selector: "#tour-order-table",
+        selector: "#tour-order-table tbody tr:first-child, #tour-order-table .tour-order-mobile-card:first-child, #tour-order-table",
         title: "Daftar Pesanan",
         description: "Ini adalah daftar pesanan dari semua toko Anda. Anda bisa melihat status, produk, informasi logistik, dan nilai estimasi profit per pesanan.",
         position: "top",
@@ -1657,7 +1657,7 @@ export default function OrderList() {
                                                 <div
                                                     key={order.id}
                                                     onClick={() => handleNavigateToDetail(order.id)}
-                                                    className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative cursor-pointer"
+                                                    className="tour-order-mobile-card bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative cursor-pointer"
                                                 >
                                                     <div className="flex justify-between items-start mb-3 gap-2">
                                                         <div className="flex-1 min-w-0">

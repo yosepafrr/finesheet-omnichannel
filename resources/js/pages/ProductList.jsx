@@ -23,7 +23,7 @@ const PRODUCT_TOUR_STEPS = [
         position: "bottom",
     },
     {
-        selector: "#tour-product-table",
+        selector: "#tour-product-table tbody tr:first-child, #tour-product-cards > :first-child, #tour-product-table",
         title: "Daftar Produk Marketplace",
         description: "Lihat daftar lengkap produk Anda. Anda bisa memantau stok, mengatur HPP (Harga Pokok Penjualan), dan menyamakan SKU antar toko.",
         position: "top",
@@ -955,7 +955,7 @@ export default function ProductList() {
                                                 </div>
 
                                                 {/* Mobile Cards */}
-                                                <div className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
+                                                <div id={store.id === data.stores[0]?.id ? "tour-product-cards" : undefined} className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
                                                     {paginatedProducts.map(
                                                         (product) => {
                                                             const variants =

@@ -46,13 +46,13 @@ const PAYABLE_TOUR_STEPS = [
         position: "bottom",
     },
     {
-        selector: "#tour-supplier-summary",
+        selector: "#tour-supplier-summary > :first-child",
         title: "Ringkasan Tagihan",
         description: "Lihat total tagihan berjalan, produk terjual, dan catat nominal pembayaran untuk supplier yang dipilih.",
         position: "bottom",
     },
     {
-        selector: "#tour-supplier-history",
+        selector: "#tour-supplier-history > :first-child",
         title: "Riwayat Order",
         description: "Pantau daftar lengkap pesanan yang masuk untuk periode ini beserta rincian estimasi Harga Pokok Penjualan (HPP).",
         position: "top",

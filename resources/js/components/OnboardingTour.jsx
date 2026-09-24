@@ -3,6 +3,29 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, HelpCircle } from "lucide-react";
 
+const VIEWPORT_PADDING = 16;
+const TARGET_GAP = 16;
+
+function findVisibleTarget(selector) {
+    if (!selector) return null;
+
+    return Array.from(document.querySelectorAll(selector)).find((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+
+        return rect.width > 0
+            && rect.height > 0
+            && style.display !== "none"
+            && style.visibility !== "hidden";
+    }) || null;
+}
+
+function overlapArea(first, second) {
+    const width = Math.max(0, Math.min(first.right, second.right) - Math.max(first.left, second.left));
+    const height = Math.max(0, Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top));
+    return width * height;
+}
+
 /**
  * OnboardingTour — spotlight-style guided tour component.
  *
@@ -38,86 +61,177 @@ export default function OnboardingTour({
     useEffect(() => {
         if (!isOpen || !step) return;
 
+        let animationFrame = null;
+        let observedElement = null;
+        const resizeObserver = new ResizeObserver(() => scheduleMeasure());
+
         const measure = () => {
-            const el = step.selector ? document.querySelector(step.selector) : null;
+            animationFrame = null;
+            const el = findVisibleTarget(step.selector);
+
             if (el) {
+                if (el !== observedElement) {
+                    resizeObserver.disconnect();
+                    resizeObserver.observe(el);
+                    observedElement = el;
+                }
+
                 const rect = el.getBoundingClientRect();
-                setTargetRect({
+                const nextRect = {
                     top: rect.top,
                     left: rect.left,
                     width: rect.width,
                     height: rect.height,
+                };
+
+                setTargetRect((current) => {
+                    if (current
+                        && Math.abs(current.top - nextRect.top) < 0.5
+                        && Math.abs(current.left - nextRect.left) < 0.5
+                        && Math.abs(current.width - nextRect.width) < 0.5
+                        && Math.abs(current.height - nextRect.height) < 0.5) {
+                        return current;
+                    }
+                    return nextRect;
                 });
             } else {
-                // No selector or element not found — center on screen
+                resizeObserver.disconnect();
+                observedElement = null;
                 setTargetRect(null);
             }
         };
 
+        const scheduleMeasure = () => {
+            if (animationFrame !== null) return;
+            animationFrame = window.requestAnimationFrame(measure);
+        };
+
         const revealTarget = () => {
-            const el = step.selector ? document.querySelector(step.selector) : null;
+            const el = findVisibleTarget(step.selector);
             if (el) {
                 el.scrollIntoView({
                     behavior: window.innerWidth < 768 ? "auto" : "smooth",
                     block: "center",
+                    inline: "nearest",
                 });
             }
-            measure();
+            scheduleMeasure();
         };
 
         const initialTimer = setTimeout(revealTarget, 120);
-        const settledTimer = setTimeout(measure, 420);
-        window.addEventListener("resize", measure);
-        window.addEventListener("scroll", measure, true);
+        const settledTimer = setTimeout(scheduleMeasure, 450);
+        const targetPoller = setInterval(scheduleMeasure, 300);
+        window.addEventListener("resize", scheduleMeasure);
+        window.addEventListener("scroll", scheduleMeasure, true);
 
         return () => {
             clearTimeout(initialTimer);
             clearTimeout(settledTimer);
-            window.removeEventListener("resize", measure);
-            window.removeEventListener("scroll", measure, true);
+            clearInterval(targetPoller);
+            resizeObserver.disconnect();
+            if (animationFrame !== null) {
+                window.cancelAnimationFrame(animationFrame);
+            }
+            window.removeEventListener("resize", scheduleMeasure);
+            window.removeEventListener("scroll", scheduleMeasure, true);
         };
     }, [isOpen, currentStep, step]);
 
     // Position tooltip relative to target rect
     useEffect(() => {
-        if (!targetRect || !tooltipRef.current) {
-            // Center of viewport if no target
-            setTooltipPos({
-                top: Math.max(16, window.innerHeight / 2 - 100),
-                left: Math.max(16, window.innerWidth / 2 - Math.min(320, window.innerWidth - 32) / 2),
+        const positionTooltip = () => {
+            const tooltip = tooltipRef.current;
+            const tooltipWidth = Math.min(320, window.innerWidth - (VIEWPORT_PADDING * 2));
+            const tooltipHeight = tooltip?.offsetHeight || 190;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            if (!targetRect || !tooltip) {
+                setTooltipPos({
+                    top: Math.max(VIEWPORT_PADDING, (viewportHeight - tooltipHeight) / 2),
+                    left: Math.max(VIEWPORT_PADDING, (viewportWidth - tooltipWidth) / 2),
+                });
+                return;
+            }
+
+            const target = {
+                top: targetRect.top,
+                left: targetRect.left,
+                right: targetRect.left + targetRect.width,
+                bottom: targetRect.top + targetRect.height,
+            };
+            const preferred = step?.position || "bottom";
+            const placements = [preferred, "bottom", "top", "right", "left"]
+                .filter((placement, index, all) => all.indexOf(placement) === index);
+
+            const rawPosition = (placement) => {
+                if (placement === "top") {
+                    return {
+                        top: target.top - tooltipHeight - TARGET_GAP,
+                        left: target.left + (targetRect.width - tooltipWidth) / 2,
+                    };
+                }
+                if (placement === "right") {
+                    return {
+                        top: target.top + (targetRect.height - tooltipHeight) / 2,
+                        left: target.right + TARGET_GAP,
+                    };
+                }
+                if (placement === "left") {
+                    return {
+                        top: target.top + (targetRect.height - tooltipHeight) / 2,
+                        left: target.left - tooltipWidth - TARGET_GAP,
+                    };
+                }
+                return {
+                    top: target.bottom + TARGET_GAP,
+                    left: target.left + (targetRect.width - tooltipWidth) / 2,
+                };
+            };
+
+            const toRect = (position) => ({
+                ...position,
+                right: position.left + tooltipWidth,
+                bottom: position.top + tooltipHeight,
             });
-            return;
-        }
+            const fitsViewport = (position) => position.top >= VIEWPORT_PADDING
+                && position.left >= VIEWPORT_PADDING
+                && position.left + tooltipWidth <= viewportWidth - VIEWPORT_PADDING
+                && position.top + tooltipHeight <= viewportHeight - VIEWPORT_PADDING;
 
-        const TOOLTIP_WIDTH = Math.min(320, window.innerWidth - 32);
-        const TOOLTIP_HEIGHT = tooltipRef.current?.offsetHeight || 160;
-        const PADDING = 16;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const pos = step?.position || "bottom";
+            for (const placement of placements) {
+                const candidate = rawPosition(placement);
+                if (fitsViewport(candidate) && overlapArea(toRect(candidate), target) === 0) {
+                    setTooltipPos(candidate);
+                    return;
+                }
+            }
 
-        let top, left;
+            const candidates = placements.map((placement) => {
+                const raw = rawPosition(placement);
+                const clamped = {
+                    top: Math.max(VIEWPORT_PADDING, Math.min(raw.top, viewportHeight - tooltipHeight - VIEWPORT_PADDING)),
+                    left: Math.max(VIEWPORT_PADDING, Math.min(raw.left, viewportWidth - tooltipWidth - VIEWPORT_PADDING)),
+                };
 
-        if (pos === "bottom") {
-            top = targetRect.top + targetRect.height + PADDING;
-            left = targetRect.left + targetRect.width / 2 - TOOLTIP_WIDTH / 2;
-        } else if (pos === "top") {
-            top = targetRect.top - TOOLTIP_HEIGHT - PADDING;
-            left = targetRect.left + targetRect.width / 2 - TOOLTIP_WIDTH / 2;
-        } else if (pos === "right") {
-            top = targetRect.top + targetRect.height / 2 - TOOLTIP_HEIGHT / 2;
-            left = targetRect.left + targetRect.width + PADDING;
-        } else {
-            // left
-            top = targetRect.top + targetRect.height / 2 - TOOLTIP_HEIGHT / 2;
-            left = targetRect.left - TOOLTIP_WIDTH - PADDING;
-        }
+                return {
+                    ...clamped,
+                    overlap: overlapArea(toRect(clamped), target),
+                };
+            }).sort((first, second) => first.overlap - second.overlap);
 
-        // Clamp to viewport
-        left = Math.max(PADDING, Math.min(left, vw - TOOLTIP_WIDTH - PADDING));
-        top = Math.max(PADDING, Math.min(top, vh - TOOLTIP_HEIGHT - PADDING));
+            setTooltipPos({ top: candidates[0].top, left: candidates[0].left });
+        };
 
-        setTooltipPos({ top, left });
+        positionTooltip();
+        const tooltipObserver = new ResizeObserver(positionTooltip);
+        if (tooltipRef.current) tooltipObserver.observe(tooltipRef.current);
+        window.addEventListener("resize", positionTooltip);
+
+        return () => {
+            tooltipObserver.disconnect();
+            window.removeEventListener("resize", positionTooltip);
+        };
     }, [targetRect, step]);
 
     if (typeof document === "undefined") return null;
@@ -134,7 +248,7 @@ export default function OnboardingTour({
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.25 }}
                         className="fixed inset-0 z-[9000] pointer-events-auto"
-                        style={{ background: "rgba(10, 12, 30, 0.60)" }}
+                        style={{ background: targetRect ? "transparent" : "rgba(10, 12, 30, 0.60)" }}
                         onClick={onSkip}
                     >
                         {/* Spotlight cutout via SVG clip-path */}
@@ -159,7 +273,7 @@ export default function OnboardingTour({
                                 <rect
                                     width="100%"
                                     height="100%"
-                                    fill="rgba(10, 12, 30, 0.0)"
+                                    fill="rgba(10, 12, 30, 0.60)"
                                     mask="url(#spotlight-mask)"
                                 />
                             </svg>
@@ -173,6 +287,7 @@ export default function OnboardingTour({
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: 0.2 }}
+                                data-tour-highlight="true"
                                 className="absolute pointer-events-none"
                                 style={{
                                     position: "fixed",
@@ -191,15 +306,15 @@ export default function OnboardingTour({
             </AnimatePresence>
 
             {/* ── Tooltip Card ── */}
-            <AnimatePresence>
+            <AnimatePresence mode="wait">
                 {isOpen && step && (
                     <motion.div
                         ref={tooltipRef}
-                        key={`tooltip-${currentStep}`}
                         initial={{ opacity: 0, y: 10, scale: 0.97 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.96 }}
                         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                        data-tour-tooltip="true"
                         className="fixed z-[9100] pointer-events-auto"
                         style={{
                             top: tooltipPos.top,

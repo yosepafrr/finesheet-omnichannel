@@ -15,7 +15,7 @@ const STORE_TOUR_STEPS = [
         position: "bottom",
     },
     {
-        selector: "#tour-store-list",
+        selector: "#tour-store-list > :first-child, #tour-store-list",
         title: "Daftar Toko",
         description: "Semua toko yang terhubung tampil di sini. Indikator hijau berarti koneksi aktif. Anda bisa disconnect atau hapus toko dari menu di setiap kartu.",
         position: "top",
@@ -326,7 +326,7 @@ export default function StoreList() {
                     </div>
 
                     {/* --- LIST DATA (Responsive Cards) --- */}
-                    <div className="space-y-4">
+                    <div id="tour-store-list" className="space-y-4">
                         {loading ? (
                             <>
                                 <SkeletonCard />
