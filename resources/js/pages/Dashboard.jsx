@@ -69,7 +69,9 @@ export default function Dashboard() {
         recent_orders: [],
         order_trend: [],
         profit_trend: [],
-        platform_distribution: []
+        platform_distribution: [],
+        store_count: 0,
+        active_store_count: 0,
     });
 
     useEffect(() => {
@@ -206,8 +208,12 @@ export default function Dashboard() {
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Status Toko</p>
-                                <h3 className="text-lg font-bold text-gray-800 dark:text-white mt-2">
-                                    Terkoneksi Baik
+                                <h3 className={`mt-2 font-bold ${stats.store_count === 0 ? 'max-w-[190px] text-sm leading-snug text-[#304674] dark:text-blue-300' : stats.active_store_count < stats.store_count ? 'text-base text-amber-700 dark:text-amber-300' : 'text-lg text-gray-800 dark:text-white'}`}>
+                                    {stats.store_count === 0
+                                        ? 'Kamu belum menautkan toko, tautkan sekarang!'
+                                        : stats.active_store_count < stats.store_count
+                                            ? `${stats.store_count - stats.active_store_count} toko perlu otorisasi ulang`
+                                            : 'Terkoneksi dengan baik'}
                                 </h3>
                             </div>
                             <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">

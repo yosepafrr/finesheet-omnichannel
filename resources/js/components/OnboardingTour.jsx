@@ -43,23 +43,39 @@ export default function OnboardingTour({
             if (el) {
                 const rect = el.getBoundingClientRect();
                 setTargetRect({
-                    top: rect.top + window.scrollY,
-                    left: rect.left + window.scrollX,
+                    top: rect.top,
+                    left: rect.left,
                     width: rect.width,
                     height: rect.height,
                 });
-
-                // Auto-scroll element into view with padding
-                el.scrollIntoView({ behavior: "smooth", block: "center" });
             } else {
                 // No selector or element not found — center on screen
                 setTargetRect(null);
             }
         };
 
-        // Slight delay so scroll & render settle
-        const t = setTimeout(measure, 120);
-        return () => clearTimeout(t);
+        const revealTarget = () => {
+            const el = step.selector ? document.querySelector(step.selector) : null;
+            if (el) {
+                el.scrollIntoView({
+                    behavior: window.innerWidth < 768 ? "auto" : "smooth",
+                    block: "center",
+                });
+            }
+            measure();
+        };
+
+        const initialTimer = setTimeout(revealTarget, 120);
+        const settledTimer = setTimeout(measure, 420);
+        window.addEventListener("resize", measure);
+        window.addEventListener("scroll", measure, true);
+
+        return () => {
+            clearTimeout(initialTimer);
+            clearTimeout(settledTimer);
+            window.removeEventListener("resize", measure);
+            window.removeEventListener("scroll", measure, true);
+        };
     }, [isOpen, currentStep, step]);
 
     // Position tooltip relative to target rect
@@ -67,16 +83,17 @@ export default function OnboardingTour({
         if (!targetRect || !tooltipRef.current) {
             // Center of viewport if no target
             setTooltipPos({
-                top: window.innerHeight / 2 - 100 + window.scrollY,
-                left: window.innerWidth / 2 - 180,
+                top: Math.max(16, window.innerHeight / 2 - 100),
+                left: Math.max(16, window.innerWidth / 2 - Math.min(320, window.innerWidth - 32) / 2),
             });
             return;
         }
 
-        const TOOLTIP_WIDTH = 320;
+        const TOOLTIP_WIDTH = Math.min(320, window.innerWidth - 32);
         const TOOLTIP_HEIGHT = tooltipRef.current?.offsetHeight || 160;
         const PADDING = 16;
         const vw = window.innerWidth;
+        const vh = window.innerHeight;
         const pos = step?.position || "bottom";
 
         let top, left;
@@ -98,7 +115,7 @@ export default function OnboardingTour({
 
         // Clamp to viewport
         left = Math.max(PADDING, Math.min(left, vw - TOOLTIP_WIDTH - PADDING));
-        top = Math.max(PADDING + window.scrollY, top);
+        top = Math.max(PADDING, Math.min(top, vh - TOOLTIP_HEIGHT - PADDING));
 
         setTooltipPos({ top, left });
     }, [targetRect, step]);
@@ -130,8 +147,8 @@ export default function OnboardingTour({
                                     <mask id="spotlight-mask">
                                         <rect width="100%" height="100%" fill="white" />
                                         <rect
-                                            x={targetRect.left - window.scrollX - 8}
-                                            y={targetRect.top - window.scrollY - 8}
+                                            x={targetRect.left - 8}
+                                            y={targetRect.top - 8}
                                             width={targetRect.width + 16}
                                             height={targetRect.height + 16}
                                             rx="12"
@@ -159,8 +176,8 @@ export default function OnboardingTour({
                                 className="absolute pointer-events-none"
                                 style={{
                                     position: "fixed",
-                                    top: targetRect.top - window.scrollY - 8,
-                                    left: targetRect.left - window.scrollX - 8,
+                                    top: targetRect.top - 8,
+                                    left: targetRect.left - 8,
                                     width: targetRect.width + 16,
                                     height: targetRect.height + 16,
                                     borderRadius: 12,
@@ -187,7 +204,7 @@ export default function OnboardingTour({
                         style={{
                             top: tooltipPos.top,
                             left: tooltipPos.left,
-                            width: 320,
+                            width: "min(320px, calc(100vw - 32px))",
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >

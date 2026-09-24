@@ -67,14 +67,12 @@ class OrderCreated implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
-        $platform = $this->order->platform ?? ($this->order->store ? $this->order->store->platform : 'Unknown');
-        
-        $productName = 'Produk tidak diketahui';
-        if ($this->order->orderProducts && $this->order->orderProducts->count() > 0) {
-            $productName = $this->order->orderProducts->first()->product_name;
-            if ($this->order->orderProducts->count() > 1) {
-                $productName .= ' (+' . ($this->order->orderProducts->count() - 1) . ' produk)';
-            }
+        $this->order->loadMissing('store');
+        $platform = $this->order->platform ?? $this->order->store?->platform ?? 'Unknown';
+        [$productName, $productCount] = $this->resolveProductSummary();
+
+        if ($productCount > 1) {
+            $productName .= ' (+'.($productCount - 1).' produk)';
         }
 
         return [
@@ -83,7 +81,48 @@ class OrderCreated implements ShouldBroadcastNow
             'platform' => $platform,
             'product_name' => $productName,
             'store_id' => $this->order->store_id,
+            'store_name' => $this->order->store?->store_name ?? 'Toko tidak diketahui',
             'user_id' => $this->resolveUserId(),
         ];
+    }
+
+    /**
+     * Order events can fire before order_products are inserted. Marketplace raw
+     * data is therefore the reliable fallback for the first notification.
+     */
+    private function resolveProductSummary(): array
+    {
+        $products = $this->order->orderProducts()
+            ->whereNotNull('product_name')
+            ->where('product_name', '!=', '')
+            ->get(['product_name']);
+
+        if ($products->isNotEmpty()) {
+            return [trim((string) $products->first()->product_name), $products->count()];
+        }
+
+        $rawData = is_array($this->order->raw_data) ? $this->order->raw_data : [];
+        $items = data_get($rawData, 'item_list', data_get($rawData, 'line_items', []));
+        $items = is_array($items) ? $items : [];
+        $firstItem = (array) ($items[0] ?? []);
+        $productName = trim((string) ($firstItem['item_name'] ?? $firstItem['product_name'] ?? ''));
+
+        if ($productName !== '') {
+            return [$productName, count($items)];
+        }
+
+        $platformProductId = $firstItem['item_id'] ?? $firstItem['product_id'] ?? null;
+        if ($platformProductId) {
+            $catalogName = \App\Models\Product::query()
+                ->where('store_id', $this->order->store_id)
+                ->where('product_id', (string) $platformProductId)
+                ->value('product_name');
+
+            if ($catalogName) {
+                return [trim((string) $catalogName), max(count($items), 1)];
+            }
+        }
+
+        return ['Detail produk sedang dimuat', 1];
     }
 }

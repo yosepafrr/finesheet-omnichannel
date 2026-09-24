@@ -242,6 +242,21 @@ function LimitDropdown({ value, onChange }) {
 
 const STORAGE_KEY = "finesheet_order_list_state";
 
+function getNotificationNavigationState() {
+    const [, queryString = ""] = window.location.hash.split("?");
+    const params = new URLSearchParams(queryString);
+
+    if (params.get("source") !== "notification" || !params.get("store_id")) {
+        return null;
+    }
+
+    return {
+        selectedStore: params.get("store_id"),
+        selectedFilterId: params.get("filter") || "perlu_dikirim",
+        selectedShippingProcess: params.get("shipping_process") || "needs_processing",
+    };
+}
+
 function getSavedOrderListState() {
     try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -299,30 +314,32 @@ const isReturnOrCancel = (order) => {
 export default function OrderList() {
     const savedStateRef = useRef(getSavedOrderListState());
     const initialSaved = savedStateRef.current;
+    const notificationNavigationRef = useRef(getNotificationNavigationState());
+    const initialNavigation = notificationNavigationRef.current;
     const tour = useOnboarding("orders", ORDER_TOUR_STEPS.length);
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedFilterId, setSelectedFilterId] = useState(
-        () => initialSaved?.selectedFilterId || "perlu_dikirim"
+        () => initialNavigation?.selectedFilterId || initialSaved?.selectedFilterId || "perlu_dikirim"
     );
     const [selectedCancelCategory, setSelectedCancelCategory] = useState(
         () => initialSaved?.selectedCancelCategory || "all"
     );
     const [selectedStore, setSelectedStore] = useState(
-        () => initialSaved?.selectedStore ? String(initialSaved.selectedStore) : ""
+        () => initialNavigation?.selectedStore || (initialSaved?.selectedStore ? String(initialSaved.selectedStore) : "")
     );
     const [selectedPlatform, setSelectedPlatform] = useState(
         () => initialSaved?.selectedPlatform || "all"
     );
     const [selectedShippingProcess, setSelectedShippingProcess] = useState(
-        () => initialSaved?.selectedShippingProcess || "needs_processing"
+        () => initialNavigation?.selectedShippingProcess || initialSaved?.selectedShippingProcess || "needs_processing"
     );
     const [searchQuery, setSearchQuery] = useState(
-        () => initialSaved?.searchQuery || ""
+        () => initialNavigation ? "" : initialSaved?.searchQuery || ""
     );
     const [expandedOrders, setExpandedOrders] = useState(
-        () => initialSaved?.expandedOrders || {}
+        () => initialNavigation ? {} : initialSaved?.expandedOrders || {}
     );
     const storeDropdownRef = useRef(null);
     const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
@@ -332,7 +349,7 @@ export default function OrderList() {
         () => initialSaved?.limitByStore || {}
     );
     const [pageByStore, setPageByStore] = useState(
-        () => initialSaved?.pageByStore || {}
+        () => initialNavigation ? {} : initialSaved?.pageByStore || {}
     );
     const [copiedSn, setCopiedSn] = useState(null);
     const [excludeReturns, setExcludeReturns] = useState(false);
@@ -346,8 +363,32 @@ export default function OrderList() {
 
     const isInitialMount = useRef(true);
     const scrollRestoredRef = useRef(false);
-    const isRestoringScrollRef = useRef(Boolean(initialSaved?.scrollTop && initialSaved.scrollTop > 0));
-    const scrollPosRef = useRef(initialSaved?.scrollTop || 0);
+    const isRestoringScrollRef = useRef(Boolean(!initialNavigation && initialSaved?.scrollTop && initialSaved.scrollTop > 0));
+    const scrollPosRef = useRef(initialNavigation ? 0 : initialSaved?.scrollTop || 0);
+
+    useEffect(() => {
+        const applyNotificationNavigation = () => {
+            const navigation = getNotificationNavigationState();
+            if (!navigation) return;
+
+            setSelectedStore(navigation.selectedStore);
+            setSelectedFilterId("perlu_dikirim");
+            setSelectedShippingProcess("needs_processing");
+            setSelectedPlatform("all");
+            setSelectedCancelCategory("all");
+            setSearchQuery("");
+            setExpandedOrders({});
+            setPageByStore({});
+            isRestoringScrollRef.current = false;
+            scrollPosRef.current = 0;
+
+            window.history.replaceState(null, "", `${window.location.pathname}#/orders`);
+        };
+
+        applyNotificationNavigation();
+        window.addEventListener("hashchange", applyNotificationNavigation);
+        return () => window.removeEventListener("hashchange", applyNotificationNavigation);
+    }, []);
 
     const getScrollTop = () => {
         const container = document.getElementById("main-scroll-container");
@@ -1368,7 +1409,7 @@ export default function OrderList() {
                                                                                         ?.product_name
                                                                                 }
                                                                             </p>
-                                                                            <p className="w-48 truncate text-xs text-gray-400 dark:text-slate-500">
+                                                                            <p className="w-48 truncate text-xs font-semibold text-gray-500 dark:text-slate-400">
                                                                                 Varian: {order.first_product?.model_name || "Tanpa varian"}
                                                                             </p>
                                                                             {order.product_count > 1 && (
@@ -1530,7 +1571,7 @@ export default function OrderList() {
                                                                                                                 product.product_name
                                                                                                             }
                                                                                                         </p>
-                                                                                                        <p className="truncate text-xs text-gray-500 dark:text-slate-400" title={product.model_name || "Tanpa varian"}>
+                                                                                                        <p className="truncate text-xs font-semibold text-gray-500 dark:text-slate-400" title={product.model_name || "Tanpa varian"}>
                                                                                                             Varian:{" "}
                                                                                                             {
                                                                                                                 product.model_name
@@ -1748,7 +1789,7 @@ export default function OrderList() {
                                                                         ?.product_name
                                                                 }
                                                             </p>
-                                                            <p className="truncate text-xs text-gray-400 dark:text-slate-500">
+                                                            <p className="truncate text-xs font-semibold text-gray-500 dark:text-slate-400">
                                                                 Varian: {order.first_product?.model_name || "Tanpa varian"}
                                                             </p>
                                                             {order.product_count > 1 && (
@@ -1784,7 +1825,7 @@ export default function OrderList() {
                                                                                 <p className="truncate font-medium text-gray-700 dark:text-slate-200" title={product.product_name}>
                                                                                     {product.product_name}
                                                                                 </p>
-                                                                                <p className="mt-0.5 truncate text-gray-400 dark:text-slate-500" title={product.model_name || "Tanpa varian"}>
+                                                                                <p className="mt-0.5 truncate font-semibold text-gray-500 dark:text-slate-400" title={product.model_name || "Tanpa varian"}>
                                                                                     Varian: {product.model_name || "Tanpa varian"}
                                                                                 </p>
                                                                             </div>

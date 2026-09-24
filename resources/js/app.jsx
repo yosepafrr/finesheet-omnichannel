@@ -4,6 +4,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axios from "axios";
+import { BellRing, Store, Trash2, X } from "lucide-react";
 
 // Global axios config for handling 401 Unauthorized
 axios.interceptors.response.use(
@@ -125,6 +126,11 @@ function PageLoader() {
 
 // Simple hash router hook
 function useHashRouter() {
+    const routeFromHash = () => {
+        const rawHash = window.location.hash.slice(1);
+        return (rawHash || '/').split('?')[0] || '/';
+    };
+
     const [hash, setHash] = useState(() => {
         let currentHash = window.location.hash.slice(1);
         if (!currentHash && window.location.pathname && window.location.pathname !== '/') {
@@ -132,12 +138,12 @@ function useHashRouter() {
             // Normalize path to hash routing
             window.history.replaceState(null, '', '/#' + currentHash);
         }
-        return currentHash || '/';
+        return (currentHash || '/').split('?')[0] || '/';
     });
 
     useEffect(() => {
         const handleHashChange = () => {
-            setHash(window.location.hash.slice(1) || '/');
+            setHash(routeFromHash());
         };
         window.addEventListener('hashchange', handleHashChange);
 
@@ -211,62 +217,6 @@ export function initEchoForUser(userId) {
                 audio.play().catch(err => console.log('Auto-play sound failed:', err));
             }
 
-            toast.custom((t) => (
-                <div
-                    className={`${
-                        t.visible ? 'animate-enter' : 'animate-leave'
-                    } max-w-md w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5 dark:ring-white/10 overflow-hidden transform transition-all hover:scale-105`}
-                >
-                    <div className="flex-1 w-0 p-4">
-                        <div className="flex items-start">
-                            <div className="flex-shrink-0 pt-0.5">
-                                {platformName.includes('shopee') ? (
-                                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
-                                        <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                                        </svg>
-                                    </div>
-                                ) : (
-                                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-800 to-black flex items-center justify-center shadow-lg shadow-cyan-500/20 border border-slate-700">
-                                        <svg className="w-6 h-6 text-cyan-400" fill="currentColor" viewBox="0 0 24 24">
-                                            <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-5.2 1.74 2.89 2.89 0 012.31-4.64 2.93 2.93 0 01.88.13V9.4a6.84 6.84 0 00-1-.05A6.33 6.33 0 005 15.68a6.34 6.34 0 006.27 6.36 6.34 6.34 0 006.33-6.36v-6.32a8.28 8.28 0 004 1.05V6.84a4.93 4.93 0 01-2.01-.15z"/>
-                                        </svg>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="ml-3 flex-1">
-                                <p className="text-sm font-bold text-slate-900 dark:text-white">
-                                    Pesanan Baru! 🎉
-                                </p>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 font-medium">
-                                    {e.order_sn}
-                                </p>
-                                <div className="mt-2 flex items-center gap-2">
-                                    <span className={`text-xs px-2 py-1 rounded-md font-bold flex-shrink-0 ${
-                                        platformName.includes('shopee') 
-                                        ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400' 
-                                        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-cyan-400'
-                                    }`}>
-                                        {e.platform}
-                                    </span>
-                                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md truncate max-w-[200px]" title={e.product_name}>
-                                        {e.product_name || 'Produk tidak diketahui'}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex border-l border-slate-200 dark:border-slate-700 flex-shrink-0">
-                        <button
-                            onClick={() => toast.dismiss(t.id)}
-                            className="w-full border border-transparent rounded-none rounded-r-2xl p-4 flex items-center justify-center text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors focus:outline-none"
-                        >
-                            Tutup
-                        </button>
-                    </div>
-                </div>
-            ), { duration: 10000, position: 'top-right' });
-            
             // Dispatch a global event so other components (like PayableRekap) can auto-refresh
             window.dispatchEvent(new CustomEvent('order-created', { detail: e }));
         })
@@ -305,6 +255,138 @@ window.cleanupEcho = cleanupEcho;
 // Auto-initialize if authUser exists on blade render
 if (window.Echo && window.authUser && window.authUser.id) {
     initEchoForUser(window.authUser.id);
+}
+
+function OrderNotificationCenter() {
+    const [notifications, setNotifications] = useState([]);
+
+    useEffect(() => {
+        const handleOrderCreated = (event) => {
+            const notification = event.detail;
+            if (!notification?.order_sn) return;
+
+            setNotifications((current) => [
+                notification,
+                ...current.filter((item) => String(item.order_sn) !== String(notification.order_sn)),
+            ]);
+        };
+
+        window.addEventListener('order-created', handleOrderCreated);
+        return () => window.removeEventListener('order-created', handleOrderCreated);
+    }, []);
+
+    const dismiss = (orderSn) => {
+        setNotifications((current) => current.filter(
+            (item) => String(item.order_sn) !== String(orderSn),
+        ));
+    };
+
+    const openOrderList = (notification) => {
+        const params = new URLSearchParams({
+            source: 'notification',
+            store_id: String(notification.store_id),
+            filter: 'perlu_dikirim',
+            shipping_process: 'needs_processing',
+        });
+
+        dismiss(notification.order_sn);
+        window.location.hash = `#/orders?${params.toString()}`;
+    };
+
+    if (notifications.length === 0) return null;
+
+    return (
+        <aside
+            className="fixed right-3 top-3 z-[10000] flex max-h-[calc(100dvh-24px)] w-[calc(100vw-24px)] max-w-sm flex-col gap-2 sm:right-5 sm:top-5"
+            aria-label="Notifikasi pesanan baru"
+        >
+            <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-1">
+                {notifications.map((notification) => {
+                    const platformName = String(notification.platform || '').toLowerCase();
+                    const isShopee = platformName.includes('shopee');
+
+                    return (
+                        <div
+                            key={notification.order_sn}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openOrderList(notification)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openOrderList(notification);
+                                }
+                            }}
+                            className="group w-full cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-900/10 transition hover:border-[#304674]/40 hover:shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                        >
+                            <div className="flex items-start gap-3 p-4">
+                                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isShopee ? 'bg-orange-50' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                                    <img
+                                        src={isShopee ? '/Marketplace-logo/shopee.png' : '/Marketplace-logo/tts.png'}
+                                        alt=""
+                                        className="h-6 w-6 object-contain"
+                                    />
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900 dark:text-white">
+                                                <BellRing className="h-3.5 w-3.5 text-[#304674] dark:text-blue-400" />
+                                                Pesanan baru
+                                            </p>
+                                            <p className="mt-0.5 truncate text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                {notification.order_sn}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                dismiss(notification.order_sn);
+                                            }}
+                                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                            title="Tutup notifikasi"
+                                            aria-label="Tutup notifikasi"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    </div>
+
+                                    <p className="mt-2 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" title={notification.product_name}>
+                                        {notification.product_name || 'Detail produk sedang dimuat'}
+                                    </p>
+                                    <div className="mt-2 flex min-w-0 items-center gap-2 text-xs">
+                                        <span className={`shrink-0 rounded px-2 py-1 font-semibold ${isShopee ? 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-cyan-300'}`}>
+                                            {isShopee ? 'Shopee' : 'TikTok Shop'}
+                                        </span>
+                                        <span className="flex min-w-0 items-center gap-1 truncate font-medium text-slate-500 dark:text-slate-400" title={notification.store_name}>
+                                            <Store className="h-3.5 w-3.5 shrink-0" />
+                                            <span className="truncate">{notification.store_name || 'Toko tidak diketahui'}</span>
+                                        </span>
+                                    </div>
+                                    <p className="mt-2 text-[11px] font-medium text-[#304674] dark:text-blue-400">
+                                        Buka pesanan perlu diproses
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {notifications.length >= 3 && (
+                <button
+                    type="button"
+                    onClick={() => setNotifications([])}
+                    className="flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 shadow-lg transition hover:bg-slate-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                    <Trash2 className="h-4 w-4" />
+                    Hapus semua notifikasi
+                </button>
+            )}
+        </aside>
+    );
 }
 
 class ErrorBoundary extends React.Component {
@@ -394,6 +476,7 @@ function App() {
     return (
         <ErrorBoundary>
             <GlobalBanner />
+            <OrderNotificationCenter />
             <Toaster />
             <Suspense fallback={<PageLoader />}>
                 <PageComponent routeParams={routeParams} />

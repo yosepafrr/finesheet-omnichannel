@@ -7,7 +7,13 @@ class DashboardService
     public function getStats()
     {
         $user = auth()->user();
-        $storeIds = \App\Models\Store::where('user_id', $user->id)->pluck('id');
+        $stores = \App\Models\Store::where('user_id', $user->id)->get();
+        $storeIds = $stores->pluck('id');
+        $activeStoreCount = $stores->filter(function ($store) {
+            return $store->shop_expired_at
+                && \Carbon\Carbon::parse($store->shop_expired_at)->isFuture()
+                && ! empty($store->refresh_token);
+        })->count();
         
         // Fetch all orders to match Profit Tracker all-time logic
         $orders = \App\Models\Order::with('returns')->whereIn('store_id', $storeIds)->get();
@@ -144,6 +150,8 @@ class DashboardService
             'order_trend' => $orderTrend,
             'profit_trend' => $profitTrend,
             'platform_distribution' => $platformDistribution,
+            'store_count' => $stores->count(),
+            'active_store_count' => $activeStoreCount,
         ];
     }
 }
