@@ -5,80 +5,52 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Order;
+use App\Services\OrderEscrowService;
 use Illuminate\Support\Facades\Auth;
 
 class ProfitController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, OrderEscrowService $escrowService)
     {
         $user = Auth::user();
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
 
-        // Original unfiltered orders (for total selling price if needed)
         $orders = Order::with('returns')->whereIn('store_id', $storeIds)
-            ->latest()
+            ->orderByDesc('order_time')
             ->get()
-            ->sortByDesc('order_time');
+            ->groupBy('store_id');
 
         // Escrow Filters
         $includePerluDikirim = filter_var($request->query('include_perlu_dikirim', true), FILTER_VALIDATE_BOOLEAN);
         $includeDikirim = filter_var($request->query('include_dikirim', true), FILTER_VALIDATE_BOOLEAN);
         $includeReturn = filter_var($request->query('include_return', false), FILTER_VALIDATE_BOOLEAN);
 
-        \Illuminate\Support\Facades\Log::info('Profit Tracker Filters', [
-            'raw_request' => $request->all(),
-            'perlu_dikirim' => $includePerluDikirim,
-            'dikirim' => $includeDikirim,
-            'return' => $includeReturn
-        ]);
+        $includedCategories = array_keys(array_filter([
+            OrderEscrowService::CATEGORY_NEEDS_SHIPPING => $includePerluDikirim,
+            OrderEscrowService::CATEGORY_SHIPPED => $includeDikirim,
+            OrderEscrowService::CATEGORY_RETURN_CANCEL => $includeReturn,
+        ]));
 
-        $escrowOrders = $orders->filter(function ($order) use ($includePerluDikirim, $includeDikirim, $includeReturn) {
-            $status = strtoupper(trim($order->order_status ?? ''));
+        $storeSummaries = $stores->map(function ($store) use ($orders, $escrowService, $includedCategories) {
+            $summary = $escrowService->summarize(
+                $orders->get($store->id, collect()),
+                $includedCategories,
+            );
 
-            // 1. Abaikan pesanan yang SUDAH SELESAI batal/retur
-            if (in_array($status, ['CANCELLED', 'RETURNED'])) {
-                return false;
-            }
-
-            $hasActiveReturn = false;
-            if ($order->returns && $order->returns->count() > 0) {
-                $returnStatus = strtoupper(trim($order->returns->first()->normalized_status ?? ''));
-                
-                // Jika return selesai/refund selesai/unsupported, profit hilang = abaikan pesanan
-                if (in_array($returnStatus, ['REFUND_COMPLETED', 'COMPLETED', 'UNSUPPORTED'])) {
-                    return false;
-                }
-                
-                // Jika return ditolak/dibatalkan oleh buyer, pesanan lanjut secara normal (tidak ada retur aktif)
-                if (in_array($returnStatus, ['REJECTED', 'CANCELLED'])) {
-                    $hasActiveReturn = false;
-                } else {
-                    // Masih ada proses retur aktif (Menunggu pembeli, proses refund, dll)
-                    $hasActiveReturn = true;
-                }
-            }
-
-            // 2. Tentukan kategori pesanan
-            $category = 'OTHER';
-            if ($hasActiveReturn || in_array($status, ['IN_CANCEL', 'TO_RETURN'])) {
-                $category = 'RETURN';
-            } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'TO_CONFIRM_RECEIVE'])) {
-                $category = 'DIKIRIM';
-            } elseif (in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'])) {
-                $category = 'PERLU_DIKIRIM';
-            }
-
-            // 3. Filter sesuai kategori yang dinyalakan di UI
-            if ($category === 'RETURN' && $includeReturn) return true;
-            if ($category === 'DIKIRIM' && $includeDikirim) return true;
-            if ($category === 'PERLU_DIKIRIM' && $includePerluDikirim) return true;
-
-            return false;
+            return [
+                'id' => $store->id,
+                'store_name' => $store->store_name,
+                'platform' => $store->platform,
+                'escrow' => $summary['total_escrow'],
+                'included_order_count' => $summary['total_orders'],
+                'status_counts' => $summary['status_counts'],
+                'status_escrow' => $summary['status_escrow'],
+            ];
         });
 
-        $totalOrderSellingPrice = $orders->sum('order_selling_price'); // Keep total order selling price unfiltered (or you can filter it if desired)
-        $totalEscrowAmount = $escrowOrders->sum('escrow_amount');
+        $totalOrderSellingPrice = $orders->collapse()->sum('order_selling_price');
+        $totalEscrowAmount = (float) $storeSummaries->sum('escrow');
         
         $totalDebt = \App\Models\PayableEvent::where('user_id', $user->id)
             ->whereHas('period', function($q) { $q->where('payment_status', '!=', 'PAID'); })
@@ -97,12 +69,16 @@ class ProfitController extends Controller
             
         $netEstimation = $totalEscrowAmount - $totalSupplierDebt;
 
-        $storeEscrowTotal = [];
-        foreach ($stores as $store) {
-            $storeEscrowTotal[$store->id] = $escrowOrders
-                ->where('store_id', $store->id)
-                ->sum('escrow_amount');
-        }
+        $storeSummaries = $storeSummaries
+            ->map(function (array $store) use ($totalEscrowAmount) {
+                $store['percent'] = $totalEscrowAmount > 0
+                    ? round(($store['escrow'] / $totalEscrowAmount) * 100, 1)
+                    : 0;
+
+                return $store;
+            })
+            ->sortByDesc('escrow')
+            ->values();
 
         return response()->json([
             'total_order_selling_price' => $totalOrderSellingPrice,
@@ -112,17 +88,7 @@ class ProfitController extends Controller
             'margin' => $totalEscrowAmount > 0
                 ? round(($netEstimation / $totalEscrowAmount) * 100, 1)
                 : 0,
-            'stores' => $stores->map(function ($store) use ($storeEscrowTotal, $totalEscrowAmount) {
-                $escrow = $storeEscrowTotal[$store->id] ?? 0;
-                $percent = $totalEscrowAmount > 0 ? ($escrow / $totalEscrowAmount) * 100 : 0;
-                return [
-                    'id' => $store->id,
-                    'store_name' => $store->store_name,
-                    'platform' => $store->platform,
-                    'escrow' => $escrow,
-                    'percent' => round($percent, 1),
-                ];
-            }),
+            'stores' => $storeSummaries,
         ]);
     }
 }

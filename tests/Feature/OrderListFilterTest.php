@@ -27,12 +27,20 @@ class OrderListFilterTest extends TestCase
 
         $response
             ->assertOk()
+            ->assertJsonPath('shipping_process_counts.all', 4)
             ->assertJsonPath('shipping_process_counts.needs_processing', 2)
             ->assertJsonPath('shipping_process_counts.processed', 2)
             ->assertJsonCount(2, 'orders')
             ->assertJsonPath('orders.0.order_sn', 'TIKTOK-SHIPMENT')
             ->assertJsonPath('orders.0.platform', 'Tiktokshop')
             ->assertJsonPath('orders.1.order_sn', 'SHOPEE-READY');
+
+        $allResponse = $this->actingAs($user)->getJson('/api/orders?statuses=READY_TO_SHIP,AWAITING_SHIPMENT,AWAITING_COLLECTION,PROCESSED&shipping_process=all');
+
+        $allResponse
+            ->assertOk()
+            ->assertJsonPath('shipping_process_counts.all', 4)
+            ->assertJsonCount(4, 'orders');
     }
 
     public function test_platform_filter_scopes_orders_and_process_counts(): void

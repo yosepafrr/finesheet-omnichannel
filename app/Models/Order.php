@@ -98,6 +98,7 @@ class Order extends Model
         'fee_details' => 'array',
         'total_amount' => 'float',
         'order_selling_price' => 'float',
+        'escrow_amount' => 'float',
         'escrow_amount_after_adjustment' => 'float',
         'stock_sync_processed_at' => 'datetime',
     ];

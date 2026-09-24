@@ -231,6 +231,21 @@ export default function ProfitTracker() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                                     {data.stores?.map((store) => {
                                         const theme = PLATFORM_CONFIG[store.platform] || { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-100", icon: "?" };
+                                        const visibleStatusMetrics = [
+                                            escrowFilters.include_perlu_dikirim === 1 && {
+                                                key: 'perlu_dikirim',
+                                                label: 'Perlu Dikirim',
+                                            },
+                                            escrowFilters.include_dikirim === 1 && {
+                                                key: 'dikirim',
+                                                label: 'Dikirim',
+                                            },
+                                            escrowFilters.include_return === 1 && {
+                                                key: 'return_cancel',
+                                                label: 'Return / Batal',
+                                            },
+                                        ].filter(Boolean);
+
                                         return (
                                             <div key={store.id} className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-slate-700 hover:shadow-md transition-shadow duration-200 flex flex-col justify-between h-full group">
                                                 <div className="flex items-start justify-between mb-4">
@@ -249,6 +264,21 @@ export default function ProfitTracker() {
                                                         <span className="material-symbols-rounded text-lg">more_vert</span>
                                                     </button> */}
                                                 </div>
+
+                                                {visibleStatusMetrics.length > 0 && (
+                                                    <div className="mb-4 grid divide-x divide-gray-100 border-y border-gray-100 py-3 dark:divide-slate-700 dark:border-slate-700" style={{ gridTemplateColumns: `repeat(${visibleStatusMetrics.length}, minmax(0, 1fr))` }}>
+                                                        {visibleStatusMetrics.map((metric) => (
+                                                            <div key={metric.key} className="min-w-0 px-2 first:pl-0 last:pr-0">
+                                                                <p className="text-base font-bold leading-none text-gray-800 dark:text-white">
+                                                                    {store.status_counts?.[metric.key] || 0}
+                                                                </p>
+                                                                <p className="mt-1 text-[10px] font-medium leading-tight text-gray-500 dark:text-slate-400">
+                                                                    {metric.label}
+                                                                </p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
 
                                                 <div>
                                                     <p className="text-[10px] text-gray-400 dark:text-slate-500 font-medium mb-1">Escrow Balance</p>

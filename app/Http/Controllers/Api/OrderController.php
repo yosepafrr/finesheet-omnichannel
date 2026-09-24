@@ -5,11 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Order;
+use App\Services\OrderEscrowService;
 use Illuminate\Support\Facades\Auth;
 
 class OrderController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, OrderEscrowService $escrowService)
     {
         $user = Auth::user();
         $stores = $user->stores()->get();
@@ -101,6 +102,8 @@ class OrderController extends Controller
             'needs_processing' => $applyShippingProcessFilter((clone $baseQuery), 'needs_processing')->count(),
             'processed' => $applyShippingProcessFilter((clone $baseQuery), 'processed')->count(),
         ];
+        $shippingProcessCounts['all'] = $shippingProcessCounts['needs_processing']
+            + $shippingProcessCounts['processed'];
 
         $query = (clone $baseQuery)
             ->with(['orderProducts.product', 'returns', 'packages', 'store'])
@@ -163,7 +166,13 @@ class OrderController extends Controller
                     },
                 ];
             }),
-            'orders' => $orders->map(function ($order) {
+            'totals' => [
+                'order_selling_price' => (float) $orders->sum('order_selling_price'),
+                'escrow_amount' => (float) $orders->sum(
+                    fn (Order $order) => $escrowService->amount($order),
+                ),
+            ],
+            'orders' => $orders->map(function ($order) use ($escrowService) {
                 $firstProduct = $order->orderProducts->first();
                 return [
                     'id' => $order->id,
@@ -179,7 +188,7 @@ class OrderController extends Controller
                     'order_time' => $order->order_time?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'order_selling_price' => $order->order_selling_price,
-                    'escrow_amount' => $order->escrow_amount,
+                    'escrow_amount' => $escrowService->amount($order),
                     'cancel_source' => $order->cancel_source,
                     'cancel_reason' => $order->cancel_reason,
                     'buyer_cancel_reason' => $order->buyer_cancel_reason,
@@ -241,7 +250,7 @@ class OrderController extends Controller
         ]);
     }
 
-    public function show(Request $request, $id)
+    public function show(Request $request, $id, OrderEscrowService $escrowService)
     {
         $user = Auth::user();
         $stores = $user->stores()->pluck('id');
@@ -288,7 +297,7 @@ class OrderController extends Controller
             'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->format('d M Y, H:i'),
             'updated_at' => $order->updated_at?->setTimezone('Asia/Jakarta')->format('d M Y, H:i'),
             'order_selling_price' => $order->order_selling_price,
-            'escrow_amount' => $order->escrow_amount,
+            'escrow_amount' => $escrowService->amount($order),
             'fee_details' => $order->fee_details,
             'cancel_source' => $order->cancel_source,
             'cancel_reason' => $order->cancel_reason,

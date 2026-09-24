@@ -81,6 +81,7 @@ const PLATFORM_FILTERS = [
 ];
 
 const SHIPPING_PROCESS_FILTERS = [
+    { id: "all", label: "Semua" },
     { id: "needs_processing", label: "Perlu Diproses" },
     { id: "processed", label: "Telah Diproses" },
 ];
@@ -564,7 +565,7 @@ export default function OrderList() {
                 if (filterGroup && filterGroup.statuses.length > 0) {
                     params.statuses = filterGroup.statuses.join(",");
                 }
-                if (selectedFilterId === "perlu_dikirim") {
+                if (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "all") {
                     params.shipping_process = selectedShippingProcess;
                 }
                 if (selectedFilterId === "batal" && selectedCancelCategory && selectedCancelCategory !== "all") {
@@ -1252,6 +1253,23 @@ export default function OrderList() {
                             if (storeOrders.length === 0) return null;
 
                             const totalOrders = storeOrders.length;
+                            const hasClientOnlyEscrowFilter = Boolean(searchQuery)
+                                || (selectedFilterId === 'dikirim' && excludeReturns);
+                            const totalSellingPrice = searchQuery
+                                ? storeOrders.reduce(
+                                    (sum, order) => sum + Number(order.order_selling_price || 0),
+                                    0,
+                                )
+                                : Number(data?.totals?.order_selling_price || 0);
+                            const totalEscrow = hasClientOnlyEscrowFilter
+                                ? storeOrders.reduce((sum, order) => {
+                                    if (selectedFilterId === 'dikirim' && excludeReturns && isReturnOrCancel(order)) {
+                                        return sum;
+                                    }
+
+                                    return sum + Number(order.escrow_amount || 0);
+                                }, 0)
+                                : Number(data?.totals?.escrow_amount || 0);
                             const itemsPerPage = limitByStore[store.id] || 30;
                             const totalPages = Math.ceil(
                                 totalOrders / itemsPerPage,
@@ -1605,28 +1623,10 @@ export default function OrderList() {
                                                         Total:
                                                     </td>
                                                     <td className="px-6 py-3 font-bold text-gray-800 dark:text-white text-right">
-                                                        {formatRp(
-                                                            storeOrders.reduce(
-                                                                (s, o) =>
-                                                                    s +
-                                                                    (o.order_selling_price ||
-                                                                        0),
-                                                                0,
-                                                            ),
-                                                        )}
+                                                        {formatRp(totalSellingPrice)}
                                                     </td>
                                                     <td className="px-6 py-3 font-bold text-green-600 dark:text-green-400 text-right">
-                                                        {formatRp(
-                                                            storeOrders.reduce(
-                                                                (s, o) => {
-                                                                    if (selectedFilterId === 'dikirim' && excludeReturns && isReturnOrCancel(o)) {
-                                                                        return s;
-                                                                    }
-                                                                    return s + (o.escrow_amount || 0);
-                                                                },
-                                                                0,
-                                                            ),
-                                                        )}
+                                                        {formatRp(totalEscrow)}
                                                     </td>
                                                 </tr>
                                                 {selectedFilterId === 'dikirim' && (
