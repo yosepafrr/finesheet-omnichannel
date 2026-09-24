@@ -22,6 +22,45 @@ class OrderController extends Controller
             $baseQuery->where('store_id', $request->store_id);
         }
 
+        $platform = match (strtolower((string) $request->input('platform'))) {
+            'shopee' => 'Shopee',
+            'tiktokshop', 'tiktok' => 'Tiktokshop',
+            default => null,
+        };
+
+        if ($platform) {
+            $baseQuery->whereRaw('LOWER(platform) = ?', [strtolower($platform)]);
+        }
+
+        $shippingProcessFilters = [
+            'needs_processing' => [
+                'Shopee' => 'READY_TO_SHIP',
+                'Tiktokshop' => 'AWAITING_SHIPMENT',
+            ],
+            'processed' => [
+                'Shopee' => 'PROCESSED',
+                'Tiktokshop' => 'AWAITING_COLLECTION',
+            ],
+        ];
+
+        $applyShippingProcessFilter = function ($query, string $filter) use ($shippingProcessFilters) {
+            $statuses = $shippingProcessFilters[$filter] ?? null;
+
+            if (!$statuses) {
+                return $query;
+            }
+
+            return $query->where(function ($statusQuery) use ($statuses) {
+                foreach ($statuses as $statusPlatform => $status) {
+                    $statusQuery->orWhere(function ($platformQuery) use ($statusPlatform, $status) {
+                        $platformQuery
+                            ->whereRaw('LOWER(platform) = ?', [strtolower($statusPlatform)])
+                            ->where('order_status', $status);
+                    });
+                }
+            });
+        };
+
         $statusCounts = (clone $baseQuery)
             ->selectRaw('order_status, count(*) as count')
             ->groupBy('order_status')
@@ -58,9 +97,15 @@ class OrderController extends Controller
             'BUYER_SIDE' => (clone $cancelBase)->where('normalized_cancel_category', 'BUYER_SIDE')->count(),
         ];
 
+        $shippingProcessCounts = [
+            'needs_processing' => $applyShippingProcessFilter((clone $baseQuery), 'needs_processing')->count(),
+            'processed' => $applyShippingProcessFilter((clone $baseQuery), 'processed')->count(),
+        ];
+
         $query = (clone $baseQuery)
-            ->with(['orderProducts.product', 'returns', 'packages'])
-            ->latest();
+            ->with(['orderProducts.product', 'returns', 'packages', 'store'])
+            ->orderByDesc('order_time')
+            ->orderByDesc('id');
 
         // Filter by failed delivery
         if ($request->has('is_failed_delivery') && $request->is_failed_delivery === 'true') {
@@ -92,21 +137,30 @@ class OrderController extends Controller
             }
         }
 
+        if ($request->filled('shipping_process')) {
+            $applyShippingProcessFilter($query, (string) $request->input('shipping_process'));
+        }
+
         // Filter by cancel category
         if ($request->filled('cancel_category') && $request->cancel_category !== 'all') {
             $query->where('normalized_cancel_category', $request->cancel_category);
         }
 
-        $orders = $query->get()->sortByDesc('order_time')->values();
+        $orders = $query->get();
 
         return response()->json([
             'status_counts' => $statusCounts,
             'cancel_sub_counts' => $cancelSubCounts,
+            'shipping_process_counts' => $shippingProcessCounts,
             'stores' => $stores->map(function ($store) {
                 return [
                     'id' => $store->id,
                     'store_name' => $store->store_name,
-                    'platform' => $store->platform,
+                    'platform' => match (strtolower((string) $store->platform)) {
+                        'shopee' => 'Shopee',
+                        'tiktokshop', 'tiktok' => 'Tiktokshop',
+                        default => $store->platform,
+                    },
                 ];
             }),
             'orders' => $orders->map(function ($order) {
@@ -114,6 +168,12 @@ class OrderController extends Controller
                 return [
                     'id' => $order->id,
                     'store_id' => $order->store_id,
+                    'store_name' => $order->store?->store_name,
+                    'platform' => match (strtolower((string) $order->platform)) {
+                        'shopee' => 'Shopee',
+                        'tiktokshop', 'tiktok' => 'Tiktokshop',
+                        default => $order->platform,
+                    },
                     'order_sn' => $order->order_sn,
                     'order_status' => $order->order_status,
                     'order_time' => $order->order_time?->setTimezone('Asia/Jakarta')->toIso8601String(),

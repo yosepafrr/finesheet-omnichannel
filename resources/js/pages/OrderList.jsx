@@ -74,6 +74,17 @@ const FILTER_GROUPS = [
     { id: "batal", label: "Pembatalan", statuses: ["CANCEL", "CANCELLED", "IN_CANCEL"] },
 ];
 
+const PLATFORM_FILTERS = [
+    { id: "all", label: "Semua" },
+    { id: "Shopee", label: "Shopee" },
+    { id: "Tiktokshop", label: "TikTok Shop" },
+];
+
+const SHIPPING_PROCESS_FILTERS = [
+    { id: "needs_processing", label: "Perlu Diproses" },
+    { id: "processed", label: "Telah Diproses" },
+];
+
 const PLATFORM_CONFIG = {
     Shopee: {
         bg: "bg-orange-50 dark:bg-orange-500/10",
@@ -301,6 +312,12 @@ export default function OrderList() {
     const [selectedStore, setSelectedStore] = useState(
         () => initialSaved?.selectedStore ? String(initialSaved.selectedStore) : ""
     );
+    const [selectedPlatform, setSelectedPlatform] = useState(
+        () => initialSaved?.selectedPlatform || "all"
+    );
+    const [selectedShippingProcess, setSelectedShippingProcess] = useState(
+        () => initialSaved?.selectedShippingProcess || "needs_processing"
+    );
     const [searchQuery, setSearchQuery] = useState(
         () => initialSaved?.searchQuery || ""
     );
@@ -359,6 +376,8 @@ export default function OrderList() {
             selectedFilterId,
             selectedCancelCategory,
             selectedStore,
+            selectedPlatform,
+            selectedShippingProcess,
             searchQuery,
             limitByStore,
             pageByStore,
@@ -370,7 +389,7 @@ export default function OrderList() {
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore, searchQuery, limitByStore, pageByStore, expandedOrders]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders]);
 
     const handleNavigateToDetail = (orderId) => {
         const currentPos = getScrollTop();
@@ -394,14 +413,14 @@ export default function OrderList() {
         setPageByStore({});
         scrollPosRef.current = 0;
         setScrollTop(0);
-    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore]);
+    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess]);
 
     // Persist state changes
     useEffect(() => {
         if (!isInitialMount.current) {
             saveStateToStorage();
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
 
     // Track scroll events
     useEffect(() => {
@@ -504,11 +523,15 @@ export default function OrderList() {
                 if (filterGroup && filterGroup.statuses.length > 0) {
                     params.statuses = filterGroup.statuses.join(",");
                 }
+                if (selectedFilterId === "perlu_dikirim") {
+                    params.shipping_process = selectedShippingProcess;
+                }
                 if (selectedFilterId === "batal" && selectedCancelCategory && selectedCancelCategory !== "all") {
                     params.cancel_category = selectedCancelCategory;
                 }
             }
             if (selectedStore) params.store_id = selectedStore;
+            if (selectedPlatform !== "all") params.platform = selectedPlatform;
             
             const res = await axios.get("/api/orders", { 
                 params,
@@ -526,7 +549,7 @@ export default function OrderList() {
                 setLoading(false);
             }
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess]);
 
     useEffect(() => {
         fetchData();
@@ -649,8 +672,10 @@ export default function OrderList() {
         setExpandedOrders((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
     };
 
-    // Group orders by store
+    // A selected store keeps the existing grouped view. "Semua Toko" uses one
+    // chronological stream so orders from different stores can be compared directly.
     const ordersByStore = {};
+    const visibleOrders = [];
     if (data?.orders) {
         data.orders.forEach((order) => {
             if (searchQuery) {
@@ -668,29 +693,40 @@ export default function OrderList() {
                 }
             }
 
-            if (!ordersByStore[order.store_id])
-                ordersByStore[order.store_id] = [];
-            ordersByStore[order.store_id].push(order);
+            visibleOrders.push(order);
         });
     }
 
-    const totalOrdersCount = Object.values(ordersByStore).reduce(
-        (sum, list) => sum + (list?.length || 0),
-        0
-    );
+    visibleOrders.sort((a, b) => {
+        const timeA = new Date(a.order_time || a.created_at || 0).getTime();
+        const timeB = new Date(b.order_time || b.created_at || 0).getTime();
+        return timeB - timeA;
+    });
+
+    if (selectedStore) {
+        ordersByStore[selectedStore] = visibleOrders;
+    } else {
+        ordersByStore.all = visibleOrders;
+    }
+
+    const totalOrdersCount = visibleOrders.length;
 
     const handleResetFilter = () => {
         setSearchQuery("");
         setSelectedFilterId("semua");
         setSelectedCancelCategory("all");
         setSelectedStore("");
+        setSelectedPlatform("all");
+        setSelectedShippingProcess("needs_processing");
     };
 
     const hasActiveFilter =
         Boolean(searchQuery) ||
         (selectedFilterId !== "semua" && selectedFilterId !== "all") ||
         (selectedFilterId === "batal" && selectedCancelCategory !== "all") ||
-        Boolean(selectedStore);
+        Boolean(selectedStore) ||
+        selectedPlatform !== "all" ||
+        (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "needs_processing");
 
     const selectedStoreOption = data?.stores?.find(
         (store) => String(store.id) === String(selectedStore),
@@ -698,6 +734,9 @@ export default function OrderList() {
     const selectedStoreLabel = selectedStore === ""
         ? "Semua Toko"
         : selectedStoreOption?.store_name || (data ? "Semua Toko" : "Memuat toko...");
+    const displayStores = selectedStore
+        ? (data?.stores || []).filter((store) => String(store.id) === String(selectedStore))
+        : [{ id: "all", store_name: "Semua Pesanan", platform: null, isCombined: true }];
 
     return (
         <AppLayout>
@@ -819,6 +858,7 @@ export default function OrderList() {
                                                                     setSelectedStore(
                                                                         String(store.id),
                                                                     );
+                                                                    setSelectedPlatform(store.platform);
                                                                     setIsStoreDropdownOpen(
                                                                         false,
                                                                     );
@@ -897,6 +937,87 @@ export default function OrderList() {
                                     );
                                 })}
                             </div>
+                        </div>
+
+                        <div className="space-y-2.5">
+                            <div className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+                                <span className="mr-1 shrink-0 text-xs font-semibold text-gray-400 dark:text-slate-500">
+                                    Platform:
+                                </span>
+                                {PLATFORM_FILTERS.map((platform) => {
+                                    const isActive = selectedPlatform === platform.id;
+                                    const platformTheme = PLATFORM_CONFIG[platform.id];
+
+                                    return (
+                                        <button
+                                            key={platform.id}
+                                            type="button"
+                                            aria-label={`Platform: ${platform.label}`}
+                                            onClick={() => {
+                                                setSelectedPlatform(platform.id);
+                                                if (
+                                                    platform.id !== "all" &&
+                                                    selectedStoreOption?.platform !== platform.id
+                                                ) {
+                                                    setSelectedStore("");
+                                                }
+                                            }}
+                                            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
+                                                ? "border-[#304674] bg-[#304674] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600"
+                                                : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                }`}
+                                        >
+                                            {platformTheme?.icon && (
+                                                <span className="flex h-4 w-4 items-center justify-center overflow-hidden rounded-sm">
+                                                    {platformTheme.icon}
+                                                </span>
+                                            )}
+                                            {platform.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <AnimatePresence initial={false}>
+                                {selectedFilterId === "perlu_dikirim" && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.15 }}
+                                        className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar"
+                                    >
+                                        <span className="mr-1 shrink-0 text-xs font-semibold text-gray-400 dark:text-slate-500">
+                                            Status Pesanan:
+                                        </span>
+                                        {SHIPPING_PROCESS_FILTERS.map((filter) => {
+                                            const isActive = selectedShippingProcess === filter.id;
+                                            const count = data?.shipping_process_counts?.[filter.id] || 0;
+
+                                            return (
+                                                <button
+                                                    key={filter.id}
+                                                    type="button"
+                                                    onClick={() => setSelectedShippingProcess(filter.id)}
+                                                    className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
+                                                        ? "border-[#304674] bg-[#304674] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600"
+                                                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                        }`}
+                                                >
+                                                    {filter.label}
+                                                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${isActive
+                                                        ? "bg-white/20 text-white"
+                                                        : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-300"
+                                                        }`}
+                                                    >
+                                                        {count}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
 
                         {/* Sub-Filters for Pembatalan */}
@@ -1085,7 +1206,7 @@ export default function OrderList() {
                             </div>
                         </motion.div>
                     ) : (
-                        data.stores.map((store) => {
+                        displayStores.map((store) => {
                             const storeOrders = ordersByStore[store.id] || [];
                             if (storeOrders.length === 0) return null;
 
@@ -1104,7 +1225,11 @@ export default function OrderList() {
                                 validPage * itemsPerPage,
                             );
 
-                            const theme = PLATFORM_CONFIG[store.platform] || {
+                            const theme = store.isCombined ? {
+                                bg: "bg-slate-100 dark:bg-slate-700",
+                                text: "text-[#304674] dark:text-blue-400",
+                                icon: <span className="material-symbols-rounded text-[18px]">receipt_long</span>,
+                            } : PLATFORM_CONFIG[store.platform] || {
                                 bg: "bg-blue-50",
                                 text: "text-blue-600",
                                 icon: "?",
@@ -1113,7 +1238,7 @@ export default function OrderList() {
                             return (
                                 <div
                                     key={store.id}
-                                    id={store.id === data.stores[0]?.id ? "tour-order-table" : undefined}
+                                    id={store.isCombined || store.id === displayStores[0]?.id ? "tour-order-table" : undefined}
                                     className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden"
                                 >
                                     {/* Store Header */}
@@ -1135,15 +1260,17 @@ export default function OrderList() {
                                             <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md hidden sm:inline-block">
                                                 {storeOrders.length} Orders
                                             </span>
-                                            <button
-                                                onClick={() => handleSyncStore(store.id)}
-                                                disabled={isSyncBusy}
-                                                aria-busy={isSyncBusy}
-                                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <span className={`material-symbols-rounded text-[16px] ${isSyncBusy ? 'animate-spin' : ''}`}>sync</span>
-                                                {isSyncBusy ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
-                                            </button>
+                                            {!store.isCombined && (
+                                                <button
+                                                    onClick={() => handleSyncStore(store.id)}
+                                                    disabled={isSyncBusy}
+                                                    aria-busy={isSyncBusy}
+                                                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    <span className={`material-symbols-rounded text-[16px] ${isSyncBusy ? 'animate-spin' : ''}`}>sync</span>
+                                                    {isSyncBusy ? 'Menyelaraskan...' : 'Sinkronkan Toko'}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
 
@@ -1207,6 +1334,14 @@ export default function OrderList() {
                                                                     <div className="text-xs text-gray-400 dark:text-slate-500 mt-1" title="Waktu Order">
                                                                         {formatDate(order.order_time)}
                                                                     </div>
+                                                                    {store.isCombined && (
+                                                                        <div className="mt-1.5 flex max-w-48 items-center gap-1.5 text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                                                                            <span className="truncate">{order.store_name || "Toko"}</span>
+                                                                            <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 dark:bg-slate-700">
+                                                                                {order.platform === "Tiktokshop" ? "TikTok Shop" : order.platform}
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
                                                                     <div className="flex items-center gap-3">
@@ -1560,10 +1695,16 @@ export default function OrderList() {
                                                                 )}
                                                             </div>
                                                             <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
-                                                                {
-                                                                    order.created_at
-                                                                }
+                                                                {formatDate(order.order_time)}
                                                             </p>
+                                                            {store.isCombined && (
+                                                                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                                                                    <span className="truncate">{order.store_name || "Toko"}</span>
+                                                                    <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 dark:bg-slate-700">
+                                                                        {order.platform === "Tiktokshop" ? "TikTok Shop" : order.platform}
+                                                                    </span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="text-right">
                                                             <p className="text-xs text-gray-400 dark:text-slate-500">
