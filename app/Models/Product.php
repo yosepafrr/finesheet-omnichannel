@@ -43,6 +43,12 @@ class Product extends Model
                     ->orderBy('tier_index->1');
     }
 
+    public function skuSyncMember()
+    {
+        return $this->hasOne(SkuSyncMember::class)
+            ->whereNull('variant_product_id');
+    }
+
     public function supplierMappings()
     {
         return $this->hasMany(SupplierProductMapping::class);

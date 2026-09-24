@@ -13,6 +13,7 @@ use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Models\Product;
 use App\Models\Store;
+use App\Services\ProductHppService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -224,16 +225,18 @@ class PayableController extends Controller
     /**
      * Get products of user's stores for mapping interface
      */
-    public function getProductsForMapping()
+    public function getProductsForMapping(ProductHppService $hppService)
     {
         $userId = Auth::id();
         $storeIds = Store::where('user_id', $userId)->pluck('id');
 
         $products = Product::whereIn('store_id', $storeIds)
-            ->with(['store', 'supplier', 'variantProducts'])
+            ->with(['store', 'supplier', 'variantProducts', 'skuSyncMember.group.masterVariant'])
             ->orderBy('product_name', 'asc')
             ->get()
-            ->map(function ($p) {
+            ->map(function ($p) use ($hppService) {
+                $hpp = $hppService->productDetails($p);
+
                 return [
                     'id' => $p->id,
                     'platform_product_id' => $p->product_id,
@@ -241,7 +244,8 @@ class PayableController extends Controller
                     'product_sku' => $p->product_sku,
                     'image' => $p->image,
                     'price' => $p->price,
-                    'hpp' => $p->hpp,
+                    'hpp' => $hpp['hpp'],
+                    'hpp_source' => $hpp['source'],
                     'platform' => $p->platform,
                     'store_name' => $p->store?->store_name,
                     'supplier_id' => $p->supplier_id,

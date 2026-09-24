@@ -16,6 +16,10 @@ use Illuminate\Support\Facades\Log;
 
 class PayableService
 {
+    public function __construct(private ProductHppService $hppService)
+    {
+    }
+
     /**
      * Get or create the payable period for a given date, user, and supplier.
      */
@@ -131,48 +135,12 @@ class PayableService
      */
     private function getItemHpp($item): float
     {
-        // Step 1: Find internal Product by platform product_id
-        $product = \App\Models\Product::where('product_id', $item->product_id)->first();
-
-        if ($product) {
-            // Step 2a: Try to find variant by model_name (normalize spaces around commas)
-            $modelName = $item->model_name ?? '';
-            $modelNameNorm = str_replace(', ', ',', $modelName);
-            
-            $isWithoutVariant = in_array(strtolower($modelName), ['without variant', '']);
-
-            if (!$isWithoutVariant) {
-                $variant = \App\Models\VariantProduct::where('product_id', $product->id)
-                    ->where(function ($q) use ($modelName, $modelNameNorm) {
-                        $q->where('model_name', $modelName)
-                          ->orWhere('model_name', $modelNameNorm);
-                    })
-                    ->first();
-
-                if ($variant && $variant->hpp > 0) return (float)$variant->hpp;
-                if ($variant && $variant->price > 0) return (float)$variant->price;
-            }
-
-            // Step 2b: Fallback — first variant of this product
-            $firstVariant = \App\Models\VariantProduct::where('product_id', $product->id)->first();
-            if ($firstVariant) {
-                if ($firstVariant->hpp > 0) return (float)$firstVariant->hpp;
-                if ($firstVariant->price > 0) return (float)$firstVariant->price;
-            }
-
-            // Step 2c: Fallback — use product-level hpp or price
-            if ($product->hpp > 0) return (float)$product->hpp;
-            if ($product->price > 0) return (float)$product->price;
+        $hpp = $this->hppService->orderItemHpp($item);
+        if ($hpp <= 0) {
+            Log::warning("PayableService: Could not determine HPP for product_id={$item->product_id} model_name={$item->model_name}");
         }
 
-        // Step 3: Last resort — use order item price directly
-        if ($item->price > 0) {
-            Log::info("PayableService: Using item price as HPP fallback for product_id={$item->product_id}");
-            return (float)$item->price;
-        }
-
-        Log::warning("PayableService: Could not determine HPP for product_id={$item->product_id} model_name={$item->model_name}");
-        return 0;
+        return $hpp;
     }
 
     /**
@@ -403,8 +371,9 @@ class PayableService
                         $supplierId = $this->resolveSupplierIdForItem((object)['product_id' => $product?->product_id, 'model_name' => $variant->model_name], $userId);
                     }
 
-                    if ($supplierId && $variant && $variant->hpp > 0) {
-                        $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($variant->hpp * $item->quantity);
+                    $hpp = $variant ? $this->hppService->variantDetails($variant)['hpp'] : 0;
+                    if ($supplierId && $hpp > 0) {
+                        $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $item->quantity);
                     }
                 }
             }
@@ -418,8 +387,9 @@ class PayableService
                     ? $this->resolveSupplierIdForItem((object)['product_id' => $product->product_id, 'model_name' => $variant->model_name], $userId)
                     : null;
 
-                if ($supplierId && $variant && $variant->hpp > 0) {
-                    $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($variant->hpp * $item->quantity);
+                $hpp = $variant ? $this->hppService->variantDetails($variant)['hpp'] : 0;
+                if ($supplierId && $hpp > 0) {
+                    $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $item->quantity);
                 }
             }
         }

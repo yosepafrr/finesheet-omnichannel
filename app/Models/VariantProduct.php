@@ -30,4 +30,9 @@ class VariantProduct extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    public function skuSyncMember()
+    {
+        return $this->hasOne(SkuSyncMember::class, 'variant_product_id');
+    }
 }

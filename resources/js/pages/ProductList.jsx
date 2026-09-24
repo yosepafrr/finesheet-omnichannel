@@ -803,6 +803,7 @@ export default function ProductList() {
                                                                                                 hpp={
                                                                                                     product.hpp
                                                                                                 }
+                                                                                                hppSource={product.hpp_source}
                                                                                                 onSave={() =>
                                                                                                     fetchData()
                                                                                                 }
@@ -928,6 +929,7 @@ export default function ProductList() {
                                                                                                                                 hpp={
                                                                                                                                     variant.hpp
                                                                                                                                 }
+                                                                                                                                hppSource={variant.hpp_source}
                                                                                                                                 onSave={() =>
                                                                                                                                     fetchData()
                                                                                                                                 }
@@ -1170,6 +1172,7 @@ export default function ProductList() {
                                                                                         hpp={
                                                                                             product.hpp
                                                                                         }
+                                                                                        hppSource={product.hpp_source}
                                                                                         onSave={() =>
                                                                                             fetchData()
                                                                                         }
@@ -1259,6 +1262,7 @@ export default function ProductList() {
                                                                                                             hpp={
                                                                                                                 variant.hpp
                                                                                                             }
+                                                                                                            hppSource={variant.hpp_source}
                                                                                                             onSave={() =>
                                                                                                                 fetchData()
                                                                                                             }

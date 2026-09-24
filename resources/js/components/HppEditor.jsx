@@ -5,7 +5,7 @@ function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
 }
 
-export default function HppEditor({ type, id, hpp, onSave, align = "right" }) {
+export default function HppEditor({ type, id, hpp, hppSource = "marketplace", onSave, align = "right" }) {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(hpp || 0);
     const [saving, setSaving] = useState(false);
@@ -16,8 +16,8 @@ export default function HppEditor({ type, id, hpp, onSave, align = "right" }) {
             const endpoint = type === "variant"
                 ? `/api/variants/${id}/hpp`
                 : `/api/products/${id}/hpp`;
-            await axios.put(endpoint, { hpp: Number(value) });
-            onSave?.(Number(value));
+            const response = await axios.put(endpoint, { hpp: Number(value) });
+            onSave?.(Number(response.data?.hpp ?? value), response.data?.hpp_source ?? hppSource);
             setEditing(false);
         } catch (err) {
             console.error(err);
@@ -51,6 +51,11 @@ export default function HppEditor({ type, id, hpp, onSave, align = "right" }) {
             <span className={`text-xs font-medium ${hpp ? "text-gray-600 dark:text-slate-300" : "text-gray-400 dark:text-slate-500 italic"}`}>
                 {hpp ? formatRp(hpp) : "Belum diisi"}
             </span>
+            {hppSource === "master" && (
+                <span title="HPP Produk Master" className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-[#304674] dark:bg-blue-500/10 dark:text-blue-300">
+                    Master
+                </span>
+            )}
             <button onClick={() => { setValue(hpp || 0); setEditing(true); }}
                 className="bg-gray-100 dark:bg-slate-700 p-1 rounded text-gray-400 dark:text-slate-400 hover:text-[#304674] dark:hover:text-blue-400 shrink-0">
                 <span className="material-symbols-rounded text-sm">edit</span>

@@ -6,11 +6,12 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Product;
 use App\Models\VariantProduct;
+use App\Services\ProductHppService;
 use Illuminate\Support\Facades\Auth;
 
 class ProductController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, ProductHppService $hppService)
     {
         $user = Auth::user();
         $stores = $user->stores()->get();
@@ -26,19 +27,28 @@ class ProductController extends Controller
                       });
                 });
             })
-            ->with('variantProducts')
+            ->with([
+                'store',
+                'skuSyncMember.group.masterVariant',
+                'variantProducts' => fn ($query) => $query->with([
+                    'product.store',
+                    'skuSyncMember.group.masterVariant',
+                ]),
+            ])
             ->latest()
             ->get();
 
         return response()->json([
-            'stores' => $stores->map(function ($store) use ($products) {
+            'stores' => $stores->map(function ($store) use ($products, $hppService) {
                 $storeProducts = $products->where('store_id', $store->id)->values();
                 return [
                     'id' => $store->id,
                     'store_name' => $store->store_name,
                     'platform' => $store->platform,
                     'product_count' => $storeProducts->count(),
-                    'products' => $storeProducts->map(function ($product) {
+                    'products' => $storeProducts->map(function ($product) use ($hppService) {
+                        $hpp = $hppService->productDetails($product);
+
                         return [
                             'id' => $product->id,
                             'platform_product_id' => $product->product_id,
@@ -46,9 +56,13 @@ class ProductController extends Controller
                             'product_sku' => $product->product_sku,
                             'stock' => $product->stock,
                             'price' => $product->price,
-                            'hpp' => $product->hpp,
+                            'hpp' => $hpp['hpp'],
+                            'hpp_source' => $hpp['source'],
+                            'master_product_variant_id' => $hpp['master_variant_id'],
                             'image' => $product->image,
-                            'variants' => $product->variantProducts->map(function ($v) {
+                            'variants' => $product->variantProducts->map(function ($v) use ($hppService) {
+                                $hpp = $hppService->variantDetails($v);
+
                                 return [
                                     'id' => $v->id,
                                     'platform_variant_id' => $v->model_id,
@@ -60,7 +74,9 @@ class ProductController extends Controller
                                     'model_sku' => $v->model_sku,
                                     'stock' => $v->stock,
                                     'price' => $v->price,
-                                    'hpp' => $v->hpp,
+                                    'hpp' => $hpp['hpp'],
+                                    'hpp_source' => $hpp['source'],
+                                    'master_product_variant_id' => $hpp['master_variant_id'],
                                 ];
                             }),
                         ];
@@ -70,7 +86,7 @@ class ProductController extends Controller
         ]);
     }
 
-    public function updateItemHpp(Request $request, $id)
+    public function updateItemHpp(Request $request, $id, ProductHppService $hppService)
     {
         $request->validate(['hpp' => 'required|numeric|min:0']);
 
@@ -83,13 +99,19 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $product->hpp = $request->hpp;
-        $product->save();
+        $result = $hppService->updateProduct($product, (float) $request->hpp);
 
-        return response()->json(['message' => 'HPP updated', 'hpp' => $product->hpp]);
+        return response()->json([
+            'message' => $result['source'] === 'master'
+                ? 'HPP master berhasil diperbarui.'
+                : 'HPP produk marketplace berhasil diperbarui.',
+            'hpp' => $result['hpp'],
+            'hpp_source' => $result['source'],
+            'master_product_variant_id' => $result['master_variant_id'],
+        ]);
     }
 
-    public function updateVariantHpp(Request $request, $id)
+    public function updateVariantHpp(Request $request, $id, ProductHppService $hppService)
     {
         $request->validate(['hpp' => 'required|numeric|min:0']);
 
@@ -104,13 +126,19 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $variant->hpp = $request->hpp;
-        $variant->save();
+        $result = $hppService->updateVariant($variant, (float) $request->hpp);
 
-        return response()->json(['message' => 'HPP updated', 'hpp' => $variant->hpp]);
+        return response()->json([
+            'message' => $result['source'] === 'master'
+                ? 'HPP master berhasil diperbarui.'
+                : 'HPP varian marketplace berhasil diperbarui.',
+            'hpp' => $result['hpp'],
+            'hpp_source' => $result['source'],
+            'master_product_variant_id' => $result['master_variant_id'],
+        ]);
     }
 
-    public function updateBulkVariantHpp(Request $request)
+    public function updateBulkVariantHpp(Request $request, ProductHppService $hppService)
     {
         $request->validate([
             'variant_ids' => 'required|array',
@@ -127,8 +155,7 @@ class ProductController extends Controller
         foreach ($variants as $variant) {
             $product = Product::find($variant->product_id);
             if ($product && $storeIds->contains($product->store_id)) {
-                $variant->hpp = $request->hpp;
-                $variant->save();
+                $hppService->updateVariant($variant, (float) $request->hpp);
                 $updatedCount++;
             }
         }
