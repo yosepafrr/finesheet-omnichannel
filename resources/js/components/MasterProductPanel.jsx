@@ -328,6 +328,144 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
     );
 }
 
+function BulkMasterSkuModal({ detected, onClose, onSaved }) {
+    const [query, setQuery] = useState("");
+    const [selected, setSelected] = useState(() => new Set(detected.map((item) => item.sku)));
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+
+    useModalScrollLock(onClose);
+
+    const normalizedQuery = query.trim().toLocaleLowerCase("id-ID");
+    const filtered = detected.filter((item) => {
+        if (!normalizedQuery) return true;
+        const first = item.items?.[0] || {};
+
+        return [item.sku, first.product_name, first.variant_name]
+            .filter(Boolean)
+            .some((value) => String(value).toLocaleLowerCase("id-ID").includes(normalizedQuery));
+    });
+    const allSelected = selected.size === detected.length;
+
+    const toggleSku = (sku) => {
+        setSelected((current) => {
+            const next = new Set(current);
+            if (next.has(sku)) next.delete(sku);
+            else next.add(sku);
+
+            return next;
+        });
+    };
+
+    const toggleAll = () => {
+        setSelected(allSelected ? new Set() : new Set(detected.map((item) => item.sku)));
+    };
+
+    const submit = async (event) => {
+        event.preventDefault();
+        if (selected.size === 0) return;
+
+        setSaving(true);
+        setError("");
+
+        try {
+            const response = await axios.post("/api/master-products/bulk", {
+                skus: detected.filter((item) => selected.has(item.sku)).map((item) => item.sku),
+            });
+            await onSaved(response.data);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overscroll-contain bg-black/50 p-3 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+            <motion.form
+                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                onSubmit={submit}
+                className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+            >
+                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 sm:px-5 dark:border-slate-700">
+                    <div className="min-w-0">
+                        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Tambah SKU Master Secara Massal</h2>
+                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Pilih semua atau sebagian SKU yang akan dimasukkan ke katalog master.</p>
+                    </div>
+                    <button type="button" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup">
+                        <span className="material-symbols-rounded">close</span>
+                    </button>
+                </div>
+
+                <div className="border-b border-slate-200 px-4 py-4 sm:px-5 dark:border-slate-700">
+                    <div className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-800 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-200">
+                        <span className="material-symbols-rounded mt-0.5 text-lg">info</span>
+                        <p>Nama, varian, dan stok mengikuti listing pertama. HPP diisi Rp 0, sedangkan data opsional dikosongkan.</p>
+                    </div>
+                    {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
+                    <label className="relative mt-3 block">
+                        <span className="material-symbols-rounded pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl text-slate-400">search</span>
+                        <input
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            placeholder="Cari SKU atau nama produk"
+                            className="w-full rounded-lg border-slate-300 py-2.5 pl-10 pr-3 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        />
+                    </label>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />
+                            Pilih semua SKU
+                        </label>
+                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{selected.size} dari {detected.length} dipilih</span>
+                    </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    {filtered.length === 0 ? (
+                        <div className="px-5 py-12 text-center text-sm text-slate-500 dark:text-slate-400">SKU yang dicari tidak ditemukan.</div>
+                    ) : (
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {filtered.map((item) => {
+                                const first = item.items?.[0] || {};
+                                const checked = selected.has(item.sku);
+
+                                return (
+                                    <label key={item.sku} className={`flex cursor-pointer items-start gap-3 px-4 py-3.5 transition-colors sm:px-5 ${checked ? "bg-blue-50/50 dark:bg-blue-500/5" : "hover:bg-slate-50 dark:hover:bg-slate-700/40"}`}>
+                                        <input type="checkbox" checked={checked} onChange={() => toggleSku(item.sku)} aria-label={`Pilih SKU ${item.sku}`} className="mt-1 rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                                <span className="truncate font-mono text-sm font-bold text-slate-900 dark:text-white">{item.sku}</span>
+                                                <span className="shrink-0 text-xs font-semibold text-emerald-700 dark:text-emerald-300">{item.stores_count} toko cocok</span>
+                                            </div>
+                                            <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">{first.product_name || "Nama produk belum tersedia"}</p>
+                                            <p className="mt-0.5 truncate text-xs text-slate-400">{first.variant_name || "Produk utama"}, stok awal {Number(first.stock || 0).toLocaleString("id-ID")}</p>
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-slate-700 dark:bg-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Koneksi marketplace dilanjutkan otomatis di latar belakang.</p>
+                    <div className="flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Batal</button>
+                        <button type="submit" disabled={saving || selected.size === 0} className="inline-flex min-w-40 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2 text-sm font-semibold text-white hover:bg-[#243558] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600">
+                            <span className={`material-symbols-rounded text-lg ${saving ? "animate-spin" : ""}`}>{saving ? "progress_activity" : "library_add"}</span>
+                            {saving ? "Menambahkan..." : `Tambahkan ${selected.size} SKU`}
+                        </button>
+                    </div>
+                </div>
+            </motion.form>
+        </div>,
+        document.body,
+    );
+}
+
 function MasterValueModal({ row, field, onClose, onSaved }) {
     const isStock = field === "stock";
     const step = isStock ? 1 : 1000;
@@ -446,7 +584,9 @@ export default function MasterProductPanel({ search = "" }) {
     const [error, setError] = useState("");
     const [modal, setModal] = useState({ open: false, row: null, preset: null });
     const [valueModal, setValueModal] = useState({ open: false, row: null, field: null });
+    const [bulkModalOpen, setBulkModalOpen] = useState(false);
     const [busyId, setBusyId] = useState(null);
+    const [notice, setNotice] = useState("");
 
     const fetchRows = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
@@ -485,6 +625,12 @@ export default function MasterProductPanel({ search = "" }) {
     const refresh = async () => {
         setModal({ open: false, row: null, preset: null });
         setValueModal({ open: false, row: null, field: null });
+        await Promise.all([fetchRows(), fetchDetected()]);
+    };
+
+    const finishBulkCreate = async (result) => {
+        setBulkModalOpen(false);
+        setNotice(result.message || "SKU master berhasil ditambahkan.");
         await Promise.all([fetchRows(), fetchDetected()]);
     };
 
@@ -555,17 +701,22 @@ export default function MasterProductPanel({ search = "" }) {
                                 <p className="text-xs text-amber-700 dark:text-amber-300">Buat master produk untuk mulai mengelola stoknya.</p>
                             </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             {detected.slice(0, 3).map((item) => (
                                 <button key={item.sku} type="button" onClick={() => createFromDetection(item)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-mono text-xs font-semibold text-amber-800 hover:border-amber-400 dark:border-amber-500/30 dark:bg-slate-800 dark:text-amber-200">
                                     {item.sku} ({item.stores_count})
                                 </button>
                             ))}
+                            <button type="button" onClick={() => setBulkModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">
+                                <span className="material-symbols-rounded text-base">checklist</span>
+                                Tambah Massal
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
+            {notice && <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"><span>{notice}</span><button type="button" onClick={() => setNotice("")} className="material-symbols-rounded" aria-label="Tutup pemberitahuan">close</button></div>}
             {error && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"><span>{error}</span><button type="button" onClick={() => setError("")} className="material-symbols-rounded">close</button></div>}
 
             <div className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -651,6 +802,7 @@ export default function MasterProductPanel({ search = "" }) {
 
             <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
+            <AnimatePresence>{bulkModalOpen && <BulkMasterSkuModal detected={detected} onClose={() => setBulkModalOpen(false)} onSaved={finishBulkCreate} />}</AnimatePresence>
         </div>
     );
 }

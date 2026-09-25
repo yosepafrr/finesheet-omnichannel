@@ -1,0 +1,970 @@
+[
+  {
+    "file": "mass_update_sales_info_615078427_20260925103824.xlsx",
+    "opened_from": "C:\\Bisnis\\finesheet-omnichannel\\outputs\\sku-update\\working\\mass_update_sales_sanitized.xlsx",
+    "sheets": [
+      {
+        "name": "Sheet1",
+        "max_row": 1,
+        "max_column": 1,
+        "sample_values": [
+          [
+            "et_title_product_id"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "file": "Master_Produk_Anak_SKU_Revisi.xlsx",
+    "opened_from": "C:\\Bisnis\\Vilion Apparel\\Products SKUs\\Master_Produk_Anak_SKU_Revisi.xlsx",
+    "sheets": [
+      {
+        "name": "Produk Anak",
+        "max_row": 631,
+        "max_column": 8,
+        "sample_values": [
+          [
+            "sku",
+            "nama_produk",
+            "kategori",
+            "warna",
+            "size",
+            "gender",
+            "harga",
+            "status_aktif"
+          ],
+          [
+            "JAS-A-HTM-2-3TH",
+            "Jas Anak Hitam 2-3 Tahun",
+            "Jas",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            169000,
+            true
+          ],
+          [
+            "RMP-A-HTM-2-3TH",
+            "Rompi Anak Hitam 2-3 Tahun",
+            "Rompi",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            139000,
+            true
+          ],
+          [
+            "CLN-A-HTM-2-3TH",
+            "Celana Anak Hitam 2-3 Tahun",
+            "Celana",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            149000,
+            true
+          ],
+          [
+            "RC-A-HTM-2-3TH",
+            "Rompi Celana Anak Hitam 2-3 Tahun",
+            "Paket",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            288000,
+            true
+          ],
+          [
+            "JC-A-HTM-2-3TH",
+            "Jas Celana Anak Hitam 2-3 Tahun",
+            "Paket",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            318000,
+            true
+          ],
+          [
+            "JR-A-HTM-2-3TH",
+            "Jas Rompi Anak Hitam 2-3 Tahun",
+            "Paket",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            308000,
+            true
+          ],
+          [
+            "3IN1-A-HTM-2-3TH",
+            "3 in 1 Anak Hitam 2-3 Tahun",
+            "Paket",
+            "Hitam",
+            "2-3 Tahun",
+            "Anak",
+            409000,
+            true
+          ],
+          [
+            "JAS-A-HTM-4-5TH",
+            "Jas Anak Hitam 4-5 Tahun",
+            "Jas",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            169000,
+            true
+          ],
+          [
+            "RMP-A-HTM-4-5TH",
+            "Rompi Anak Hitam 4-5 Tahun",
+            "Rompi",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            139000,
+            true
+          ],
+          [
+            "CLN-A-HTM-4-5TH",
+            "Celana Anak Hitam 4-5 Tahun",
+            "Celana",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            149000,
+            true
+          ],
+          [
+            "RC-A-HTM-4-5TH",
+            "Rompi Celana Anak Hitam 4-5 Tahun",
+            "Paket",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            288000,
+            true
+          ],
+          [
+            "JC-A-HTM-4-5TH",
+            "Jas Celana Anak Hitam 4-5 Tahun",
+            "Paket",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            318000,
+            true
+          ],
+          [
+            "JR-A-HTM-4-5TH",
+            "Jas Rompi Anak Hitam 4-5 Tahun",
+            "Paket",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            308000,
+            true
+          ],
+          [
+            "3IN1-A-HTM-4-5TH",
+            "3 in 1 Anak Hitam 4-5 Tahun",
+            "Paket",
+            "Hitam",
+            "4-5 Tahun",
+            "Anak",
+            409000,
+            true
+          ],
+          [
+            "JAS-A-HTM-6-7TH",
+            "Jas Anak Hitam 6-7 Tahun",
+            "Jas",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            169000,
+            true
+          ],
+          [
+            "RMP-A-HTM-6-7TH",
+            "Rompi Anak Hitam 6-7 Tahun",
+            "Rompi",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            139000,
+            true
+          ],
+          [
+            "CLN-A-HTM-6-7TH",
+            "Celana Anak Hitam 6-7 Tahun",
+            "Celana",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            149000,
+            true
+          ],
+          [
+            "RC-A-HTM-6-7TH",
+            "Rompi Celana Anak Hitam 6-7 Tahun",
+            "Paket",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            288000,
+            true
+          ],
+          [
+            "JC-A-HTM-6-7TH",
+            "Jas Celana Anak Hitam 6-7 Tahun",
+            "Paket",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            318000,
+            true
+          ],
+          [
+            "JR-A-HTM-6-7TH",
+            "Jas Rompi Anak Hitam 6-7 Tahun",
+            "Paket",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            308000,
+            true
+          ],
+          [
+            "3IN1-A-HTM-6-7TH",
+            "3 in 1 Anak Hitam 6-7 Tahun",
+            "Paket",
+            "Hitam",
+            "6-7 Tahun",
+            "Anak",
+            409000,
+            true
+          ],
+          [
+            "JAS-A-HTM-8-9TH",
+            "Jas Anak Hitam 8-9 Tahun",
+            "Jas",
+            "Hitam",
+            "8-9 Tahun",
+            "Anak",
+            169000,
+            true
+          ],
+          [
+            "RMP-A-HTM-8-9TH",
+            "Rompi Anak Hitam 8-9 Tahun",
+            "Rompi",
+            "Hitam",
+            "8-9 Tahun",
+            "Anak",
+            139000,
+            true
+          ],
+          [
+            "CLN-A-HTM-8-9TH",
+            "Celana Anak Hitam 8-9 Tahun",
+            "Celana",
+            "Hitam",
+            "8-9 Tahun",
+            "Anak",
+            149000,
+            true
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "file": "Master_Produk_Wanita.xlsx",
+    "opened_from": "C:\\Bisnis\\Vilion Apparel\\Products SKUs\\Master_Produk_Wanita.xlsx",
+    "sheets": [
+      {
+        "name": "Produk Wanita",
+        "max_row": 481,
+        "max_column": 8,
+        "sample_values": [
+          [
+            "sku",
+            "nama_produk",
+            "kategori",
+            "warna",
+            "size",
+            "gender",
+            "harga",
+            "status_aktif"
+          ],
+          [
+            "JAS-W-HTM-XS",
+            "Jas Wanita Hitam XS",
+            "Jas",
+            "Hitam",
+            "XS",
+            "Wanita",
+            169000,
+            true
+          ],
+          [
+            "CLN-W-HTM-27",
+            "Celana Wanita Hitam 27",
+            "Celana",
+            "Hitam",
+            "27",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-28",
+            "Celana Wanita Hitam 28",
+            "Celana",
+            "Hitam",
+            "28",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-XS",
+            "Jas Celana Wanita Hitam XS",
+            "Paket",
+            "Hitam",
+            "XS",
+            "Wanita",
+            318000,
+            true
+          ],
+          [
+            "JAS-W-HTM-S",
+            "Jas Wanita Hitam S",
+            "Jas",
+            "Hitam",
+            "S",
+            "Wanita",
+            169000,
+            true
+          ],
+          [
+            "CLN-W-HTM-29",
+            "Celana Wanita Hitam 29",
+            "Celana",
+            "Hitam",
+            "29",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-30",
+            "Celana Wanita Hitam 30",
+            "Celana",
+            "Hitam",
+            "30",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-S",
+            "Jas Celana Wanita Hitam S",
+            "Paket",
+            "Hitam",
+            "S",
+            "Wanita",
+            318000,
+            true
+          ],
+          [
+            "JAS-W-HTM-M",
+            "Jas Wanita Hitam M",
+            "Jas",
+            "Hitam",
+            "M",
+            "Wanita",
+            169000,
+            true
+          ],
+          [
+            "CLN-W-HTM-31",
+            "Celana Wanita Hitam 31",
+            "Celana",
+            "Hitam",
+            "31",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-32",
+            "Celana Wanita Hitam 32",
+            "Celana",
+            "Hitam",
+            "32",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-M",
+            "Jas Celana Wanita Hitam M",
+            "Paket",
+            "Hitam",
+            "M",
+            "Wanita",
+            318000,
+            true
+          ],
+          [
+            "JAS-W-HTM-L",
+            "Jas Wanita Hitam L",
+            "Jas",
+            "Hitam",
+            "L",
+            "Wanita",
+            169000,
+            true
+          ],
+          [
+            "CLN-W-HTM-33",
+            "Celana Wanita Hitam 33",
+            "Celana",
+            "Hitam",
+            "33",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-34",
+            "Celana Wanita Hitam 34",
+            "Celana",
+            "Hitam",
+            "34",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-L",
+            "Jas Celana Wanita Hitam L",
+            "Paket",
+            "Hitam",
+            "L",
+            "Wanita",
+            318000,
+            true
+          ],
+          [
+            "JAS-W-HTM-XL",
+            "Jas Wanita Hitam XL",
+            "Jas",
+            "Hitam",
+            "XL",
+            "Wanita",
+            169000,
+            true
+          ],
+          [
+            "CLN-W-HTM-35",
+            "Celana Wanita Hitam 35",
+            "Celana",
+            "Hitam",
+            "35",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-36",
+            "Celana Wanita Hitam 36",
+            "Celana",
+            "Hitam",
+            "36",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-XL",
+            "Jas Celana Wanita Hitam XL",
+            "Paket",
+            "Hitam",
+            "XL",
+            "Wanita",
+            318000,
+            true
+          ],
+          [
+            "JAS-W-HTM-XXL",
+            "Jas Wanita Hitam XXL",
+            "Jas",
+            "Hitam",
+            "XXL",
+            "Wanita",
+            179000,
+            true
+          ],
+          [
+            "CLN-W-HTM-37",
+            "Celana Wanita Hitam 37",
+            "Celana",
+            "Hitam",
+            "37",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "CLN-W-HTM-38",
+            "Celana Wanita Hitam 38",
+            "Celana",
+            "Hitam",
+            "38",
+            "Wanita",
+            149000,
+            true
+          ],
+          [
+            "JC-W-HTM-XXL",
+            "Jas Celana Wanita Hitam XXL",
+            "Paket",
+            "Hitam",
+            "XXL",
+            "Wanita",
+            328000,
+            true
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "file": "Master_SKU_Paket.xlsx",
+    "opened_from": "C:\\Bisnis\\Vilion Apparel\\Products SKUs\\Master_SKU_Paket.xlsx",
+    "sheets": [
+      {
+        "name": "Master Bundling SKU",
+        "max_row": 1276,
+        "max_column": 3,
+        "sample_values": [
+          [
+            "sku_paket",
+            "sku_komponen",
+            "qty_komponen"
+          ],
+          [
+            "3IN1-P-HTM-XS",
+            "JAS-P-HTM-XS",
+            1
+          ],
+          [
+            "3IN1-P-HTM-XS",
+            "RMP-P-HTM-XS",
+            1
+          ],
+          [
+            "RC-P-HTM-XS",
+            "RMP-P-HTM-XS",
+            1
+          ],
+          [
+            "JC-P-HTM-XS",
+            "JAS-P-HTM-XS",
+            1
+          ],
+          [
+            "3IN1-P-HTM-S",
+            "JAS-P-HTM-S",
+            1
+          ],
+          [
+            "3IN1-P-HTM-S",
+            "RMP-P-HTM-S",
+            1
+          ],
+          [
+            "RC-P-HTM-S",
+            "RMP-P-HTM-S",
+            1
+          ],
+          [
+            "JC-P-HTM-S",
+            "JAS-P-HTM-S",
+            1
+          ],
+          [
+            "3IN1-P-HTM-M",
+            "JAS-P-HTM-M",
+            1
+          ],
+          [
+            "3IN1-P-HTM-M",
+            "RMP-P-HTM-M",
+            1
+          ],
+          [
+            "RC-P-HTM-M",
+            "RMP-P-HTM-M",
+            1
+          ],
+          [
+            "JC-P-HTM-M",
+            "JAS-P-HTM-M",
+            1
+          ],
+          [
+            "3IN1-P-HTM-L",
+            "JAS-P-HTM-L",
+            1
+          ],
+          [
+            "3IN1-P-HTM-L",
+            "RMP-P-HTM-L",
+            1
+          ],
+          [
+            "RC-P-HTM-L",
+            "RMP-P-HTM-L",
+            1
+          ],
+          [
+            "JC-P-HTM-L",
+            "JAS-P-HTM-L",
+            1
+          ],
+          [
+            "3IN1-P-HTM-XL",
+            "JAS-P-HTM-XL",
+            1
+          ],
+          [
+            "3IN1-P-HTM-XL",
+            "RMP-P-HTM-XL",
+            1
+          ],
+          [
+            "RC-P-HTM-XL",
+            "RMP-P-HTM-XL",
+            1
+          ],
+          [
+            "JC-P-HTM-XL",
+            "JAS-P-HTM-XL",
+            1
+          ],
+          [
+            "3IN1-P-HTM-XXL",
+            "JAS-P-HTM-XXL",
+            1
+          ],
+          [
+            "JC-P-HTM-XXL",
+            "JAS-P-HTM-XXL",
+            1
+          ],
+          [
+            "3IN1-P-HTM-XXXL",
+            "JAS-P-HTM-XXXL",
+            1
+          ],
+          [
+            "JC-P-HTM-XXXL",
+            "JAS-P-HTM-XXXL",
+            1
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "file": "SKU_PRODUK_PRIA_INCLUDE_CELANA_UPDATED.xlsx",
+    "opened_from": "C:\\Bisnis\\Vilion Apparel\\Products SKUs\\SKU_PRODUK_PRIA_INCLUDE_CELANA_UPDATED.xlsx",
+    "sheets": [
+      {
+        "name": "Sheet1",
+        "max_row": 1381,
+        "max_column": 9,
+        "sample_values": [
+          [
+            "sku",
+            "nama_produk",
+            "kategori",
+            "warna",
+            "size",
+            "gender",
+            "harga",
+            "status_aktif",
+            "include_celana"
+          ],
+          [
+            "JAS-P-HTM-XS",
+            "Jas Pria Hitam XS",
+            "Jas",
+            "Hitam",
+            "XS",
+            "Pria",
+            169000,
+            true,
+            null
+          ],
+          [
+            "RMP-P-HTM-XS",
+            "Rompi Pria Hitam XS",
+            "Rompi",
+            "Hitam",
+            "XS",
+            "Pria",
+            139000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-27",
+            "Celana Pria Hitam 27",
+            "Celana",
+            "Hitam",
+            27,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-28",
+            "Celana Pria Hitam 28",
+            "Celana",
+            "Hitam",
+            28,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "RC-P-HTM-XS",
+            "Rompi Celana Pria Hitam XS",
+            "Paket",
+            "Hitam",
+            "XS",
+            "Pria",
+            288000,
+            true,
+            true
+          ],
+          [
+            "JC-P-HTM-XS",
+            "Jas Celana Pria Hitam XS",
+            "Paket",
+            "Hitam",
+            "XS",
+            "Pria",
+            318000,
+            true,
+            true
+          ],
+          [
+            "JR-P-HTM-XS",
+            "Jas Rompi Pria Hitam XS",
+            "Paket",
+            "Hitam",
+            "XS",
+            "Pria",
+            308000,
+            true,
+            null
+          ],
+          [
+            "3IN1-P-HTM-XS",
+            "3 in 1 Pria Hitam XS",
+            "Paket",
+            "Hitam",
+            "XS",
+            "Pria",
+            409000,
+            true,
+            true
+          ],
+          [
+            "JAS-P-HTM-S",
+            "Jas Pria Hitam S",
+            "Jas",
+            "Hitam",
+            "S",
+            "Pria",
+            169000,
+            true,
+            null
+          ],
+          [
+            "RMP-P-HTM-S",
+            "Rompi Pria Hitam S",
+            "Rompi",
+            "Hitam",
+            "S",
+            "Pria",
+            139000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-29",
+            "Celana Pria Hitam 29",
+            "Celana",
+            "Hitam",
+            29,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-30",
+            "Celana Pria Hitam 30",
+            "Celana",
+            "Hitam",
+            30,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "RC-P-HTM-S",
+            "Rompi Celana Pria Hitam S",
+            "Paket",
+            "Hitam",
+            "S",
+            "Pria",
+            288000,
+            true,
+            true
+          ],
+          [
+            "JC-P-HTM-S",
+            "Jas Celana Pria Hitam S",
+            "Paket",
+            "Hitam",
+            "S",
+            "Pria",
+            318000,
+            true,
+            true
+          ],
+          [
+            "JR-P-HTM-S",
+            "Jas Rompi Pria Hitam S",
+            "Paket",
+            "Hitam",
+            "S",
+            "Pria",
+            308000,
+            true,
+            null
+          ],
+          [
+            "3IN1-P-HTM-S",
+            "3 in 1 Pria Hitam S",
+            "Paket",
+            "Hitam",
+            "S",
+            "Pria",
+            409000,
+            true,
+            true
+          ],
+          [
+            "JAS-P-HTM-M",
+            "Jas Pria Hitam M",
+            "Jas",
+            "Hitam",
+            "M",
+            "Pria",
+            169000,
+            true,
+            null
+          ],
+          [
+            "RMP-P-HTM-M",
+            "Rompi Pria Hitam M",
+            "Rompi",
+            "Hitam",
+            "M",
+            "Pria",
+            139000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-31",
+            "Celana Pria Hitam 31",
+            "Celana",
+            "Hitam",
+            31,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "CLN-P-HTM-32",
+            "Celana Pria Hitam 32",
+            "Celana",
+            "Hitam",
+            32,
+            "Pria",
+            149000,
+            true,
+            null
+          ],
+          [
+            "RC-P-HTM-M",
+            "Rompi Celana Pria Hitam M",
+            "Paket",
+            "Hitam",
+            "M",
+            "Pria",
+            288000,
+            true,
+            true
+          ],
+          [
+            "JC-P-HTM-M",
+            "Jas Celana Pria Hitam M",
+            "Paket",
+            "Hitam",
+            "M",
+            "Pria",
+            318000,
+            true,
+            true
+          ],
+          [
+            "JR-P-HTM-M",
+            "Jas Rompi Pria Hitam M",
+            "Paket",
+            "Hitam",
+            "M",
+            "Pria",
+            308000,
+            true,
+            null
+          ],
+          [
+            "3IN1-P-HTM-M",
+            "3 in 1 Pria Hitam M",
+            "Paket",
+            "Hitam",
+            "M",
+            "Pria",
+            409000,
+            true,
+            true
+          ]
+        ]
+      }
+    ]
+  }
+]

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncMasterProductVariantsJob;
 use App\Jobs\SyncStockToMarketplaceJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
@@ -164,6 +165,77 @@ class MasterProductTest extends TestCase
             ->assertOk()
             ->assertJsonPath('0.sku', 'SKU-DETEKSI')
             ->assertJsonPath('0.stores_count', 2);
+    }
+
+    public function test_detected_skus_can_be_added_to_master_catalog_in_bulk_with_defaults(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $stores = [
+            $this->createStore($user, 'Shopee', 'Toko A', 'SHOP-BULK-A'),
+            $this->createStore($user, 'Tiktokshop', 'Toko B', 'SHOP-BULK-B'),
+        ];
+
+        foreach ($stores as $storeIndex => $store) {
+            foreach (['SKU-BULK-A', 'SKU-BULK-B'] as $skuIndex => $sku) {
+                Product::create([
+                    'store_id' => $store->id,
+                    'platform' => $store->platform,
+                    'product_id' => 5000 + ($storeIndex * 10) + $skuIndex,
+                    'product_name' => $sku === 'SKU-BULK-A' ? 'Kemeja Bulk' : 'Celana Bulk',
+                    'product_sku' => $sku,
+                    'stock' => 8 + $skuIndex,
+                    'price' => 90000,
+                ]);
+            }
+        }
+
+        $response = $this->actingAs($user)->postJson('/api/master-products/bulk', [
+            'skus' => ['SKU-BULK-A'],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('requested_count', 1)
+            ->assertJsonPath('created_count', 1)
+            ->assertJsonPath('skipped_count', 0)
+            ->assertJsonPath('sync_queued', true);
+        $this->assertDatabaseHas('master_products', [
+            'user_id' => $user->id,
+            'name' => 'Kemeja Bulk',
+            'source' => 'manual',
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('master_product_variants', [
+            'user_id' => $user->id,
+            'sku' => 'SKU-BULK-A',
+            'barcode' => null,
+            'hpp' => 0,
+            'stock' => 8,
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseMissing('master_product_variants', [
+            'user_id' => $user->id,
+            'sku' => 'SKU-BULK-B',
+        ]);
+        Bus::assertDispatched(SyncMasterProductVariantsJob::class, function ($job) {
+            return count($job->variantIds) === 1;
+        });
+    }
+
+    public function test_bulk_add_skips_skus_that_are_not_in_the_users_detected_list(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->postJson('/api/master-products/bulk', ['skus' => ['SKU-TIDAK-TERDETEKSI']])
+            ->assertOk()
+            ->assertJsonPath('created_count', 0)
+            ->assertJsonPath('skipped_count', 1)
+            ->assertJsonPath('sync_queued', false);
+
+        $this->assertDatabaseCount('master_products', 0);
+        Bus::assertNotDispatched(SyncMasterProductVariantsJob::class);
     }
 
     public function test_master_list_is_isolated_per_user(): void

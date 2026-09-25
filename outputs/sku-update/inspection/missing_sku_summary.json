@@ -1,0 +1,1703 @@
+{
+  "total_data_rows": 1554,
+  "filled_sku_rows": 732,
+  "missing_sku_rows": 822,
+  "products_with_missing": [
+    {
+      "product_id": "47160852979",
+      "product_name": "Dasi kupu-kupu warna hitam aksesoris jas blazer",
+      "missing": 1,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 7,
+          "variation": null
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "26336754672",
+      "product_name": "Setelah Rompi dan Celana Anak 2 IN 1",
+      "missing": 24,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 104,
+          "variation": "Navy,8-9 Tahun"
+        },
+        {
+          "row": 105,
+          "variation": "Burgundy,6-7 Tahun"
+        },
+        {
+          "row": 106,
+          "variation": "Hitam,8-9 Tahun"
+        },
+        {
+          "row": 107,
+          "variation": "Hitam,12-13 Tahun"
+        },
+        {
+          "row": 108,
+          "variation": "Hitam,4-5 Tahun"
+        },
+        {
+          "row": 109,
+          "variation": "Navy,10-11 Tahun"
+        },
+        {
+          "row": 110,
+          "variation": "Merah Cabe,12-13 Tahun"
+        },
+        {
+          "row": 111,
+          "variation": "Merah Cabe,4-5 Tahun"
+        },
+        {
+          "row": 112,
+          "variation": "Burgundy,2-3 Tahun"
+        },
+        {
+          "row": 113,
+          "variation": "Hitam,10-11 Tahun"
+        },
+        {
+          "row": 114,
+          "variation": "Navy,4-5 Tahun"
+        },
+        {
+          "row": 115,
+          "variation": "Navy,12-13 Tahun"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "23422488757",
+      "product_name": "Jas Blazer Anak Laki Laki Formal Usia 2 Tahun Sampai 13 Tahun Outerwear Formal Untuk Anak",
+      "missing": 49,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 164,
+          "variation": "Biru Langit,11 Thn"
+        },
+        {
+          "row": 165,
+          "variation": "Biru Langit,10 Thn"
+        },
+        {
+          "row": 166,
+          "variation": "Merah Cabai,5-6 Thn"
+        },
+        {
+          "row": 167,
+          "variation": "Merah Cabai,7 Thn"
+        },
+        {
+          "row": 168,
+          "variation": "Burgundy,10 Thn"
+        },
+        {
+          "row": 169,
+          "variation": "Abu,8 Thn"
+        },
+        {
+          "row": 170,
+          "variation": "Biru Langit,2-4 Thn"
+        },
+        {
+          "row": 171,
+          "variation": "Burgundy,7 Thn"
+        },
+        {
+          "row": 172,
+          "variation": "Hitam,11 Thn"
+        },
+        {
+          "row": 173,
+          "variation": "Burgundy,2-4 Thn"
+        },
+        {
+          "row": 174,
+          "variation": "Hitam,5-6 Thn"
+        },
+        {
+          "row": 175,
+          "variation": "Merah Cabai,9 Thn"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "23324959833",
+      "product_name": "Best Seller Kulot Wanita Highwaist Pants Panjang Bahan Adem Tebal Dan Jatoh Loose Pants Cewek",
+      "missing": 21,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 213,
+          "variation": "Navy,XL"
+        },
+        {
+          "row": 214,
+          "variation": "Latte,M"
+        },
+        {
+          "row": 215,
+          "variation": "Mocca,M"
+        },
+        {
+          "row": 216,
+          "variation": "Rose Gold,L"
+        },
+        {
+          "row": 217,
+          "variation": "Navy,M"
+        },
+        {
+          "row": 218,
+          "variation": "Abu Tua,XL"
+        },
+        {
+          "row": 219,
+          "variation": "Abu Tua,L"
+        },
+        {
+          "row": 220,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 221,
+          "variation": "Mocca,XL"
+        },
+        {
+          "row": 222,
+          "variation": "Mocca,L"
+        },
+        {
+          "row": 223,
+          "variation": "Rose Gold,M"
+        },
+        {
+          "row": 224,
+          "variation": "Rose Gold,XL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "22949962550",
+      "product_name": "Kolor Pria Dan Wanita Unisex Dengan Logo Bordir Dan Bahan Yang Tebal Premium Kolor Olahraga Kolor Sehari hari",
+      "missing": 4,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 234,
+          "variation": "Biru,L"
+        },
+        {
+          "row": 235,
+          "variation": "Biru,XL"
+        },
+        {
+          "row": 236,
+          "variation": "Navy,L"
+        },
+        {
+          "row": 237,
+          "variation": "Navy,XL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "22915043294",
+      "product_name": "Best Seller Kemeja Flanel Kasual Bahan Adem Unisex Outfit Kampus Kemeja Flanel Pria Tangan Panjang",
+      "missing": 20,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 238,
+          "variation": "1,XL"
+        },
+        {
+          "row": 239,
+          "variation": "7,XL"
+        },
+        {
+          "row": 240,
+          "variation": "8,XL"
+        },
+        {
+          "row": 241,
+          "variation": "2,L"
+        },
+        {
+          "row": 242,
+          "variation": "6,L"
+        },
+        {
+          "row": 243,
+          "variation": "2,XL"
+        },
+        {
+          "row": 244,
+          "variation": "4,XL"
+        },
+        {
+          "row": 245,
+          "variation": "3,XL"
+        },
+        {
+          "row": 246,
+          "variation": "5,L"
+        },
+        {
+          "row": 247,
+          "variation": "6,XL"
+        },
+        {
+          "row": 248,
+          "variation": "10,XL"
+        },
+        {
+          "row": 249,
+          "variation": "3,L"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "22656255576",
+      "product_name": "Tuksedo 3 In 1 Set Jas Pria Tuxedo Pria Setelan Jas Pria Formal",
+      "missing": 49,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 328,
+          "variation": "Navy,XXL"
+        },
+        {
+          "row": 329,
+          "variation": "Burgundy,XS"
+        },
+        {
+          "row": 330,
+          "variation": "Putih,M"
+        },
+        {
+          "row": 331,
+          "variation": "Merah Cabe,L"
+        },
+        {
+          "row": 332,
+          "variation": "Sky Blue,S"
+        },
+        {
+          "row": 333,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 334,
+          "variation": "Merah Cabe,S"
+        },
+        {
+          "row": 335,
+          "variation": "Putih,L"
+        },
+        {
+          "row": 336,
+          "variation": "Burgundy,XXL"
+        },
+        {
+          "row": 337,
+          "variation": "Navy,XXXL"
+        },
+        {
+          "row": 338,
+          "variation": "Sky Blue,XL"
+        },
+        {
+          "row": 339,
+          "variation": "Burgundy,XL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "22375612618",
+      "product_name": "Paket 2 IN 1 Blazer Wanita Dan Celana Kantor Formal Dengan Bahan dan Kualitas Premium Pakaian Kantor Pakaian Wisuda Pakaian Sidang Skripsi",
+      "missing": 70,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 377,
+          "variation": "Baby Pink,XXXL"
+        },
+        {
+          "row": 378,
+          "variation": "Abu,S"
+        },
+        {
+          "row": 379,
+          "variation": "Abu,XL"
+        },
+        {
+          "row": 380,
+          "variation": "Baby Pink,XS"
+        },
+        {
+          "row": 381,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 382,
+          "variation": "Abu,XXXL"
+        },
+        {
+          "row": 383,
+          "variation": "Baby Pink,S"
+        },
+        {
+          "row": 384,
+          "variation": "Hitam,S"
+        },
+        {
+          "row": 385,
+          "variation": "Burgundy,L"
+        },
+        {
+          "row": 386,
+          "variation": "Cream,XXL"
+        },
+        {
+          "row": 387,
+          "variation": "Marun,S"
+        },
+        {
+          "row": 388,
+          "variation": "Putih,XXXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "22226266149",
+      "product_name": "Best Seller 2 In 1 Berisi Jas dan Celana Bahan Tuxedo Style Korea Pakaian Nikah Pria Jas Wisuda Laki Laki Pakaian Sidang Skripsi Pakaian Meeting",
+      "missing": 56,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 447,
+          "variation": "Navy,XXL"
+        },
+        {
+          "row": 448,
+          "variation": "Marun Tua,XXXL"
+        },
+        {
+          "row": 449,
+          "variation": "Navy,XXXL"
+        },
+        {
+          "row": 450,
+          "variation": "Navy,XL"
+        },
+        {
+          "row": 451,
+          "variation": "Biru Langit,XS"
+        },
+        {
+          "row": 452,
+          "variation": "Biru Langit,XXXL"
+        },
+        {
+          "row": 453,
+          "variation": "Putih,XXXL"
+        },
+        {
+          "row": 454,
+          "variation": "Marun,S"
+        },
+        {
+          "row": 455,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 456,
+          "variation": "Putih,XL"
+        },
+        {
+          "row": 457,
+          "variation": "Merah Cabe,M"
+        },
+        {
+          "row": 458,
+          "variation": "Marun,XS"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "21876818960",
+      "product_name": "Best Seller One Set Blazer Wanita Korean Style dan Celana Kulot Highwaist Premium Tebal 2 IN 1 Set Pakaian Wanita Mode Tren Blazer dan Kulot Wanita",
+      "missing": 18,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 503,
+          "variation": "Moka,L"
+        },
+        {
+          "row": 504,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 505,
+          "variation": "Dark Grey,M"
+        },
+        {
+          "row": 506,
+          "variation": "Light Grey,M"
+        },
+        {
+          "row": 507,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 508,
+          "variation": "Dusty Pink,M"
+        },
+        {
+          "row": 509,
+          "variation": "Light Grey,L"
+        },
+        {
+          "row": 510,
+          "variation": "Moka,XL"
+        },
+        {
+          "row": 511,
+          "variation": "Latte,M"
+        },
+        {
+          "row": 512,
+          "variation": "Latte,XL"
+        },
+        {
+          "row": 513,
+          "variation": "Dusty Pink,XL"
+        },
+        {
+          "row": 514,
+          "variation": "Moka,M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "20054716390",
+      "product_name": "Best Seller Dasi Panjang Long Tie Formal Untuk Blazer Formal",
+      "missing": 1,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 521,
+          "variation": null
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "19516756511",
+      "product_name": "Best Seller Celana Sirwal Pria Polos Bawahan Celana Cingkrang Sirwal Dewasa Celana Sirwal Pria Dewasa Pakaian Pria Celana Pria Dewasa Celana Teuku Wisnu Celana Alwaleed Celana Muslim",
+      "missing": 24,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 522,
+          "variation": "Navy,XL"
+        },
+        {
+          "row": 523,
+          "variation": "Navy,M"
+        },
+        {
+          "row": 524,
+          "variation": "Krem,XXL"
+        },
+        {
+          "row": 525,
+          "variation": "Abu Lumut,M"
+        },
+        {
+          "row": 526,
+          "variation": "Abu Tua,XXL"
+        },
+        {
+          "row": 527,
+          "variation": "Mocca,L"
+        },
+        {
+          "row": 528,
+          "variation": "Navy,L"
+        },
+        {
+          "row": 529,
+          "variation": "Krem,M"
+        },
+        {
+          "row": 530,
+          "variation": "Mocca,XL"
+        },
+        {
+          "row": 531,
+          "variation": "Mocca,XXL"
+        },
+        {
+          "row": 532,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 533,
+          "variation": "Abu Lumut,XXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "19117557162",
+      "product_name": "Best Seller Celana Sirwal Cargo Celana Komprang Pria Celana Pangsi Pria Dewasa Celana Komprang Model Kargo Pria Dewasa",
+      "missing": 28,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 546,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 547,
+          "variation": "Navy,M"
+        },
+        {
+          "row": 548,
+          "variation": "Cream,L"
+        },
+        {
+          "row": 549,
+          "variation": "Navy,XXL"
+        },
+        {
+          "row": 550,
+          "variation": "Pemda,L"
+        },
+        {
+          "row": 551,
+          "variation": "Army Tua,XL"
+        },
+        {
+          "row": 552,
+          "variation": "Abu Tua,XXL"
+        },
+        {
+          "row": 553,
+          "variation": "Cream,XL"
+        },
+        {
+          "row": 554,
+          "variation": "Army Tua,M"
+        },
+        {
+          "row": 555,
+          "variation": "Pemda,XXL"
+        },
+        {
+          "row": 556,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 557,
+          "variation": "Hitam,XXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "19076831885",
+      "product_name": "Best Seller Outer Wanita Kekinian Panjang 3/4 Korean Style Model Blazer Korea Outer Wanita Kondangan Outfit Kampus Pakaian Kantor",
+      "missing": 6,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 574,
+          "variation": "Moka"
+        },
+        {
+          "row": 575,
+          "variation": "Latte"
+        },
+        {
+          "row": 576,
+          "variation": "Dusty Pink"
+        },
+        {
+          "row": 577,
+          "variation": "Hitam"
+        },
+        {
+          "row": 578,
+          "variation": "Dark Gray"
+        },
+        {
+          "row": 579,
+          "variation": "Light Gray"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "18735176975",
+      "product_name": "Rompi Jas Pria Vest Blazer Jaket Rompi Pria Rompi Vest Blazer Jas Blazer Formal Pria Vest Formal Slim Fit",
+      "missing": 24,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 580,
+          "variation": "Maroon,XXXL"
+        },
+        {
+          "row": 581,
+          "variation": "Abu,XXXL"
+        },
+        {
+          "row": 582,
+          "variation": "Maroon,M"
+        },
+        {
+          "row": 583,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 584,
+          "variation": "Maroon,XXL"
+        },
+        {
+          "row": 585,
+          "variation": "Abu,S"
+        },
+        {
+          "row": 586,
+          "variation": "Hitam,XXL"
+        },
+        {
+          "row": 587,
+          "variation": "Maroon,L"
+        },
+        {
+          "row": 588,
+          "variation": "Abu,XL"
+        },
+        {
+          "row": 589,
+          "variation": "Navy,XL"
+        },
+        {
+          "row": 590,
+          "variation": "Hitam,S"
+        },
+        {
+          "row": 591,
+          "variation": "Abu,M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "18653316238",
+      "product_name": "Blazer Wanita Korean Style Slimfit Pakaian Meeting Jas Kantor Pakaian Sidang Skripsi Pakaian Meeting",
+      "missing": 55,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 604,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 605,
+          "variation": "Biru Langit,XXL"
+        },
+        {
+          "row": 606,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 607,
+          "variation": "Abu,XXL"
+        },
+        {
+          "row": 608,
+          "variation": "Baby Pink,XL"
+        },
+        {
+          "row": 609,
+          "variation": "Hitam,XXL"
+        },
+        {
+          "row": 610,
+          "variation": "Baby Pink,S"
+        },
+        {
+          "row": 611,
+          "variation": "Marun,S"
+        },
+        {
+          "row": 612,
+          "variation": "Marun,XL"
+        },
+        {
+          "row": 613,
+          "variation": "Krem,XL"
+        },
+        {
+          "row": 614,
+          "variation": "Biru,S"
+        },
+        {
+          "row": 615,
+          "variation": "Navy,XL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "18584652576",
+      "product_name": "Setelan Jas Blazer dan Celana Formal Jas Pria Formal Slim Fit",
+      "missing": 3,
+      "filled": 18,
+      "samples_missing": [
+        {
+          "row": 668,
+          "variation": "Navy Blue,XXXL"
+        },
+        {
+          "row": 669,
+          "variation": "Abu-abu,XXXL"
+        },
+        {
+          "row": 670,
+          "variation": "Hitam,XXXL"
+        }
+      ],
+      "samples_filled": [
+        {
+          "row": 659,
+          "variation": "Abu-abu,XXL",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 660,
+          "variation": "Hitam,XL",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 661,
+          "variation": "Hitam,XXL",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 662,
+          "variation": "Navy Blue,L",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 663,
+          "variation": "Navy Blue,S",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 664,
+          "variation": "Navy Blue,XL",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 665,
+          "variation": "Navy Blue,M",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 666,
+          "variation": "Abu-abu,S",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 667,
+          "variation": "Hitam,M",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 671,
+          "variation": "Abu-abu,L",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 672,
+          "variation": "Abu-abu,M",
+          "sku": "SetelanJas"
+        },
+        {
+          "row": 673,
+          "variation": "Navy Blue,XXL",
+          "sku": "SetelanJas"
+        }
+      ]
+    },
+    {
+      "product_id": "17992238782",
+      "product_name": "Best Seller Celana Tartan Panjang Pria Style Ngampus Outfit Casual Maupun Formal Pakaian Laki Laki Atasan Pria",
+      "missing": 4,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 771,
+          "variation": "Abu,29"
+        },
+        {
+          "row": 772,
+          "variation": "Cream,27"
+        },
+        {
+          "row": 773,
+          "variation": "Cream,29"
+        },
+        {
+          "row": 774,
+          "variation": "Abu,27"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "17928117325",
+      "product_name": "Best Seller Setelan Koko Anak Set Koko Anak Stelan Koko Anak Laki Laki Stelan Koko Anak Kemeja Koko Anak Baju Koko Anak Laki Setelan Koko Anak Laki Laki 3-9 Tahun Kurta Lengan Pendek",
+      "missing": 16,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 775,
+          "variation": "Putih,S ( 3-5 Tahun )"
+        },
+        {
+          "row": 776,
+          "variation": "Putih,L ( 7 Tahun )"
+        },
+        {
+          "row": 777,
+          "variation": "Merah Maroon,M ( 6 Tahun )"
+        },
+        {
+          "row": 778,
+          "variation": "Merah Maroon,L ( 7 Tahun )"
+        },
+        {
+          "row": 779,
+          "variation": "Abu-abu,L ( 7 Tahun )"
+        },
+        {
+          "row": 780,
+          "variation": "Putih,XL ( 8-9 Tahun )"
+        },
+        {
+          "row": 781,
+          "variation": "Coklat Susu,S ( 3-5 Tahun )"
+        },
+        {
+          "row": 782,
+          "variation": "Abu-abu,XL ( 8-9 Tahun )"
+        },
+        {
+          "row": 783,
+          "variation": "Merah Maroon,XL ( 8-9 Tahun )"
+        },
+        {
+          "row": 784,
+          "variation": "Coklat Susu,M ( 6 Tahun )"
+        },
+        {
+          "row": 785,
+          "variation": "Coklat Susu,XL ( 8-9 Tahun )"
+        },
+        {
+          "row": 786,
+          "variation": "Abu-abu,S ( 3-5 Tahun )"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "17618962718",
+      "product_name": "Best Seller Kolor Mizuno Celana Mizuno Full Printing Kolor Olahraga Pria Kolor Volly Celana Pendek Kolor Pria Katok Kolor Pria Kolor Badminton Pria Kolor Lari Pria Joging",
+      "missing": 30,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 847,
+          "variation": "Garuda Biru,M"
+        },
+        {
+          "row": 848,
+          "variation": "Kubus Hijau,XL"
+        },
+        {
+          "row": 849,
+          "variation": "Garuda Hijau,L"
+        },
+        {
+          "row": 850,
+          "variation": "Garuda Hijau,M"
+        },
+        {
+          "row": 851,
+          "variation": "Kubus Oren,M"
+        },
+        {
+          "row": 852,
+          "variation": "Kubus Biru,XL"
+        },
+        {
+          "row": 853,
+          "variation": "Garuda Merah,L"
+        },
+        {
+          "row": 854,
+          "variation": "Garuda Oren,XL"
+        },
+        {
+          "row": 855,
+          "variation": "Garuda Biru,L"
+        },
+        {
+          "row": 856,
+          "variation": "Garuda Biru,XL"
+        },
+        {
+          "row": 857,
+          "variation": "Kubus Oren,XL"
+        },
+        {
+          "row": 858,
+          "variation": "Kubus Hijau,M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "17338071748",
+      "product_name": "Kaos Dalam Anak Lusinan 12 Pcs 3 Warna Singlet Anak Lusinan Laki Laki Perempuan Singlet Anak 1 Lusin",
+      "missing": 10,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 877,
+          "variation": "XL (6 PCS)"
+        },
+        {
+          "row": 878,
+          "variation": "XXXL = L3 (6 PCS)"
+        },
+        {
+          "row": 879,
+          "variation": "XL (12 PCS)"
+        },
+        {
+          "row": 880,
+          "variation": "L (6 PCS)"
+        },
+        {
+          "row": 881,
+          "variation": "M (12 PCS)"
+        },
+        {
+          "row": 882,
+          "variation": "S (12 PCS)"
+        },
+        {
+          "row": 883,
+          "variation": "L (12 PCS)"
+        },
+        {
+          "row": 884,
+          "variation": "S (6 PCS)"
+        },
+        {
+          "row": 885,
+          "variation": "XXXL = L3 (12 PCS)"
+        },
+        {
+          "row": 886,
+          "variation": "M (6 PCS)"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "16307270256",
+      "product_name": "Best Seller Celana Sirwal Cargo Pria Dewasa Celana Cingkrang Pria Celana Sirwal Kargo Celana Cargo Pria Panjang Celana Muslim Pria",
+      "missing": 28,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 908,
+          "variation": "Army Tua,XXL"
+        },
+        {
+          "row": 909,
+          "variation": "Abu Tua,L"
+        },
+        {
+          "row": 910,
+          "variation": "Abu Tua,XXL"
+        },
+        {
+          "row": 911,
+          "variation": "Abu Tua,XL"
+        },
+        {
+          "row": 912,
+          "variation": "Army Tua,L"
+        },
+        {
+          "row": 913,
+          "variation": "Navy,L"
+        },
+        {
+          "row": 914,
+          "variation": "Olive,M"
+        },
+        {
+          "row": 915,
+          "variation": "Olive,XL"
+        },
+        {
+          "row": 916,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 917,
+          "variation": "Abu Tua,M"
+        },
+        {
+          "row": 918,
+          "variation": "Pemda,XXL"
+        },
+        {
+          "row": 919,
+          "variation": "Pemda,M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "16092916076",
+      "product_name": "Best Seller 2 In 1 Blazer Pria Dan Rompi Formal Tuxedo Bahan Premium Korean Style Jas Kantoran Outfit Wisuda Pakaian Nikah Laki Laki  Pakaian Sidang Skripsi Pakaian Meeting",
+      "missing": 54,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 996,
+          "variation": "Biru Langit,M"
+        },
+        {
+          "row": 997,
+          "variation": "Moka,S"
+        },
+        {
+          "row": 998,
+          "variation": "Burgundy,XXL"
+        },
+        {
+          "row": 999,
+          "variation": "Navy,M"
+        },
+        {
+          "row": 1000,
+          "variation": "Navy,S"
+        },
+        {
+          "row": 1001,
+          "variation": "Biru Langit,XL"
+        },
+        {
+          "row": 1002,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 1003,
+          "variation": "Navy,L"
+        },
+        {
+          "row": 1004,
+          "variation": "Marun,XL"
+        },
+        {
+          "row": 1005,
+          "variation": "Marun,L"
+        },
+        {
+          "row": 1006,
+          "variation": "Burgundy,L"
+        },
+        {
+          "row": 1007,
+          "variation": "Navy,XXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15991304773",
+      "product_name": "Best Seller Jas Mandarin Pria Cheong Sam Jas Koko Mandarin Jasko Mandarin Fashion Muslim Jas Koko Muslim",
+      "missing": 21,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1050,
+          "variation": "Hitam,S"
+        },
+        {
+          "row": 1051,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 1052,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 1053,
+          "variation": "Abu,S"
+        },
+        {
+          "row": 1054,
+          "variation": "Putih,XXL"
+        },
+        {
+          "row": 1055,
+          "variation": "Putih,M"
+        },
+        {
+          "row": 1056,
+          "variation": "Putih,XS"
+        },
+        {
+          "row": 1057,
+          "variation": "Abu,L"
+        },
+        {
+          "row": 1058,
+          "variation": "Abu,XXXL"
+        },
+        {
+          "row": 1059,
+          "variation": "Hitam,XS"
+        },
+        {
+          "row": 1060,
+          "variation": "Putih,S"
+        },
+        {
+          "row": 1061,
+          "variation": "Putih,XXXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15790000534",
+      "product_name": "Best Seller Celana Kulot High Waist Wanita Style Korean Cullote Loose Pants Bahan Adem Dan Tebal Juga Jatuh",
+      "missing": 21,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1127,
+          "variation": "Rose Gold,XL"
+        },
+        {
+          "row": 1128,
+          "variation": "Mocca,L"
+        },
+        {
+          "row": 1129,
+          "variation": "Rose Gold,M"
+        },
+        {
+          "row": 1130,
+          "variation": "Hitam,XL"
+        },
+        {
+          "row": 1131,
+          "variation": "Mocca,M"
+        },
+        {
+          "row": 1132,
+          "variation": "Abu Tua,M"
+        },
+        {
+          "row": 1133,
+          "variation": "Latte,M"
+        },
+        {
+          "row": 1134,
+          "variation": "Abu Muda,L"
+        },
+        {
+          "row": 1135,
+          "variation": "Abu Muda,M"
+        },
+        {
+          "row": 1136,
+          "variation": "Navy,M"
+        },
+        {
+          "row": 1137,
+          "variation": "Abu Tua,L"
+        },
+        {
+          "row": 1138,
+          "variation": "Hitam,L"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15752296555",
+      "product_name": "Best Seller Celana Sirwal Pria Polos Premium Celana Cingkrang Pria Celana Muslim Pria Celana Sirwal Premium Celana Cingkrang Pria",
+      "missing": 24,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1148,
+          "variation": "Moka,XL"
+        },
+        {
+          "row": 1149,
+          "variation": "Krem,XL"
+        },
+        {
+          "row": 1150,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 1151,
+          "variation": "Abu Lumut,L"
+        },
+        {
+          "row": 1152,
+          "variation": "Abu Lumut,XXL"
+        },
+        {
+          "row": 1153,
+          "variation": "Krem,M"
+        },
+        {
+          "row": 1154,
+          "variation": "Moka,M"
+        },
+        {
+          "row": 1155,
+          "variation": "Krem,XXL"
+        },
+        {
+          "row": 1156,
+          "variation": "Abu Tua,XXL"
+        },
+        {
+          "row": 1157,
+          "variation": "Hitam,M"
+        },
+        {
+          "row": 1158,
+          "variation": "Moka,XXL"
+        },
+        {
+          "row": 1159,
+          "variation": "Abu Tua,M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15488716851",
+      "product_name": "Best Seller Celana Kulot Highwaist Cewe Warna Abu Tua Style Korea Bahan Jatuh dan Adem Cullote Highwaist Wanita",
+      "missing": 3,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1172,
+          "variation": "M"
+        },
+        {
+          "row": 1173,
+          "variation": "L"
+        },
+        {
+          "row": 1174,
+          "variation": "XL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15168747240",
+      "product_name": "Set Piyama Anak Umur 1-3 Tahun Piyama Bayi Piyama Bayi Laki Laki Piyama Bayi Perempuan Set Pakaian Anak Baju Tidur Bayi",
+      "missing": 13,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1175,
+          "variation": "Bunga Pink"
+        },
+        {
+          "row": 1176,
+          "variation": "Putih  Bunga Hijau"
+        },
+        {
+          "row": 1177,
+          "variation": "Hewan Kuning"
+        },
+        {
+          "row": 1178,
+          "variation": "Doraemon Hijau"
+        },
+        {
+          "row": 1179,
+          "variation": "Hewan Biru"
+        },
+        {
+          "row": 1180,
+          "variation": "Hewan Hijau"
+        },
+        {
+          "row": 1181,
+          "variation": "Putih Bunga Kuning"
+        },
+        {
+          "row": 1182,
+          "variation": "Putih Bunga Merah"
+        },
+        {
+          "row": 1183,
+          "variation": "Bunga Kuning"
+        },
+        {
+          "row": 1184,
+          "variation": "Doraemon Merah"
+        },
+        {
+          "row": 1185,
+          "variation": "Bunga Biru"
+        },
+        {
+          "row": 1186,
+          "variation": "Putih Bunga Biru"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "15088717081",
+      "product_name": "Best Seller Celana Kulot Highwaist Cewek Dusty Pink Bahan Tebal Jatuh Dan Adem Loose Pants Wanita",
+      "missing": 3,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1188,
+          "variation": "XL"
+        },
+        {
+          "row": 1189,
+          "variation": "M"
+        },
+        {
+          "row": 1190,
+          "variation": "L"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "14113818693",
+      "product_name": "Best Seller Celana Bahan Pria Formal Slimfit Style Korea Celana Jas Blazer Celana Formal Laki Laki",
+      "missing": 96,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1263,
+          "variation": "Hitam,29"
+        },
+        {
+          "row": 1264,
+          "variation": "Biru Langit,41"
+        },
+        {
+          "row": 1265,
+          "variation": "Abu,32"
+        },
+        {
+          "row": 1266,
+          "variation": "Biru Langit,27"
+        },
+        {
+          "row": 1267,
+          "variation": "Burgundy,35"
+        },
+        {
+          "row": 1268,
+          "variation": "Burgundy,42"
+        },
+        {
+          "row": 1269,
+          "variation": "Hitam,30"
+        },
+        {
+          "row": 1270,
+          "variation": "Navy,32"
+        },
+        {
+          "row": 1271,
+          "variation": "Navy,39"
+        },
+        {
+          "row": 1272,
+          "variation": "Burgundy,30"
+        },
+        {
+          "row": 1273,
+          "variation": "Marun,42"
+        },
+        {
+          "row": 1274,
+          "variation": "Navy,36"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "12778031503",
+      "product_name": "Best Seller Celana Sirwal Cargo Pria Premium Celana Sirwal Pria Celana Pangsi Celana Cingkrang Pria Celana Komprang Model Kargo",
+      "missing": 28,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1479,
+          "variation": "Navy,XXL"
+        },
+        {
+          "row": 1480,
+          "variation": "Hitam,L"
+        },
+        {
+          "row": 1481,
+          "variation": "Olive,S"
+        },
+        {
+          "row": 1482,
+          "variation": "Navy,L"
+        },
+        {
+          "row": 1483,
+          "variation": "Navy,S"
+        },
+        {
+          "row": 1484,
+          "variation": "Navy,XL"
+        },
+        {
+          "row": 1485,
+          "variation": "Abu Tua,S"
+        },
+        {
+          "row": 1486,
+          "variation": "Abu Tua,L"
+        },
+        {
+          "row": 1487,
+          "variation": "Army Tua,S"
+        },
+        {
+          "row": 1488,
+          "variation": "Krem,L"
+        },
+        {
+          "row": 1489,
+          "variation": "Hitam,S"
+        },
+        {
+          "row": 1490,
+          "variation": "Olive,XXL"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "11397737616",
+      "product_name": "Best Seller Tuxedo Pria 3 In 1 Paket Berisi Blazer Rompi Dan Celana Pakaian Kantor Jas Nikah Pakaian Sidang Skripsi Outfit Meeting Tuskedo Pria",
+      "missing": 12,
+      "filled": 36,
+      "samples_missing": [
+        {
+          "row": 1513,
+          "variation": "Merah Cabe,L"
+        },
+        {
+          "row": 1515,
+          "variation": "Putih,XL"
+        },
+        {
+          "row": 1516,
+          "variation": "Putih,XXL"
+        },
+        {
+          "row": 1528,
+          "variation": "Putih,L"
+        },
+        {
+          "row": 1530,
+          "variation": "Merah Cabe,XXL"
+        },
+        {
+          "row": 1531,
+          "variation": "Putih,M"
+        },
+        {
+          "row": 1534,
+          "variation": "Merah Cabe,XL"
+        },
+        {
+          "row": 1537,
+          "variation": "Putih,S"
+        },
+        {
+          "row": 1539,
+          "variation": "Merah Cabe,S"
+        },
+        {
+          "row": 1547,
+          "variation": "Merah Cabe,XXXL"
+        },
+        {
+          "row": 1550,
+          "variation": "Merah Cabe,M"
+        },
+        {
+          "row": 1551,
+          "variation": "Putih,XXXL"
+        }
+      ],
+      "samples_filled": [
+        {
+          "row": 1507,
+          "variation": "Marun,XXL",
+          "sku": "0"
+        },
+        {
+          "row": 1508,
+          "variation": "Hitam,XXL",
+          "sku": "0"
+        },
+        {
+          "row": 1509,
+          "variation": "Biru Langit,XL",
+          "sku": "0"
+        },
+        {
+          "row": 1510,
+          "variation": "Navy,XL",
+          "sku": "0"
+        },
+        {
+          "row": 1511,
+          "variation": "Burgundy,S",
+          "sku": "0"
+        },
+        {
+          "row": 1512,
+          "variation": "Biru Langit,M",
+          "sku": "0"
+        },
+        {
+          "row": 1514,
+          "variation": "Abu,XXXL",
+          "sku": "0"
+        },
+        {
+          "row": 1517,
+          "variation": "Navy,S",
+          "sku": "0"
+        },
+        {
+          "row": 1518,
+          "variation": "Abu,XXL",
+          "sku": "0"
+        },
+        {
+          "row": 1519,
+          "variation": "Hitam,L",
+          "sku": "0"
+        },
+        {
+          "row": 1520,
+          "variation": "Burgundy,XXXL",
+          "sku": "0"
+        },
+        {
+          "row": 1521,
+          "variation": "Navy,XXL",
+          "sku": "0"
+        }
+      ]
+    },
+    {
+      "product_id": "10696834504",
+      "product_name": "Best Seller Celana Kullot Highwaist Wanita Hitam Style Korea Bahan Jatuh Tebal Dan Adem Loose Pants Cewek",
+      "missing": 3,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1555,
+          "variation": "L"
+        },
+        {
+          "row": 1556,
+          "variation": "XL"
+        },
+        {
+          "row": 1557,
+          "variation": "M"
+        }
+      ],
+      "samples_filled": []
+    },
+    {
+      "product_id": "8199523431",
+      "product_name": "Best Seller Celana Kulot Highwaist Wanita Warna Abu Muda Loose Pants Cewek Bahan Jatuh Adem Dan Tebal Kulot Pants Cewe",
+      "missing": 3,
+      "filled": 0,
+      "samples_missing": [
+        {
+          "row": 1558,
+          "variation": "M"
+        },
+        {
+          "row": 1559,
+          "variation": "L"
+        },
+        {
+          "row": 1560,
+          "variation": "XL"
+        }
+      ],
+      "samples_filled": []
+    }
+  ]
+}

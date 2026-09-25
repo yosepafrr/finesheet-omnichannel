@@ -26,10 +26,11 @@ const masterRow = {
   ],
 };
 
-async function mockMasterApis(page: Page, initialRows = [masterRow]) {
+async function mockMasterApis(page: Page, initialRows = [masterRow], initialDetections: any[] = []) {
   let rows = structuredClone(initialRows);
+  let detections = structuredClone(initialDetections);
 
-  await page.route('**/api/sku-sync/detect', route => route.fulfill({ json: [] }));
+  await page.route('**/api/sku-sync/detect', route => route.fulfill({ json: detections }));
   await page.route('**/api/master-products**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -60,6 +61,37 @@ async function mockMasterApis(page: Page, initialRows = [masterRow]) {
       }];
 
       return route.fulfill({ status: 201, json: { id: 8, name: payload.name, variants: rows } });
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/master-products/bulk') {
+      const payload = request.postDataJSON();
+      const selected = detections.filter(item => payload.skus.includes(item.sku));
+      rows = [...rows, ...selected.map((item, index) => ({
+        ...masterRow,
+        id: 30 + index,
+        master_product_id: 20 + index,
+        name: item.items[0].product_name,
+        sku: item.sku,
+        variant_name: item.items[0].variant_name,
+        stock: item.items[0].stock,
+        hpp: 0,
+        stores_count: 0,
+        listings_count: 0,
+        same_sku_across_stores: false,
+        stores: [],
+      }))];
+      detections = detections.filter(item => !payload.skus.includes(item.sku));
+
+      return route.fulfill({
+        status: 201,
+        json: {
+          message: `${selected.length} SKU master berhasil ditambahkan.`,
+          requested_count: payload.skus.length,
+          created_count: selected.length,
+          skipped_count: 0,
+          sync_queued: true,
+        },
+      });
     }
 
     if (request.method() === 'PUT' && url.pathname.endsWith('/variants/21')) {
@@ -124,5 +156,35 @@ test.describe('Master product and stock synchronization', () => {
     const pushPromise = page.waitForRequest(request => request.url().endsWith('/variants/21/push') && request.method() === 'POST');
     await page.getByRole('button', { name: 'Sinkronkan stok' }).click();
     await pushPromise;
+  });
+
+  test('adds all or selected detected SKUs in bulk', async ({ page }) => {
+    const detections = [
+      {
+        sku: 'SKU-MASSAL-A',
+        stores_count: 2,
+        items: [{ product_name: 'Kemeja Massal', variant_name: 'Hitam / L', stock: 18 }],
+      },
+      {
+        sku: 'SKU-MASSAL-B',
+        stores_count: 3,
+        items: [{ product_name: 'Celana Massal', variant_name: 'Navy / M', stock: 9 }],
+      },
+    ];
+    await mockMasterApis(page, [], detections);
+    await page.goto('/#/products');
+
+    await page.getByRole('button', { name: 'Tambah Massal' }).click();
+    await expect(page.getByRole('heading', { name: 'Tambah SKU Master Secara Massal' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tambahkan 2 SKU' })).toBeEnabled();
+
+    await page.getByLabel('Pilih SKU SKU-MASSAL-B').uncheck();
+    const requestPromise = page.waitForRequest(request => request.url().endsWith('/api/master-products/bulk') && request.method() === 'POST');
+    await page.getByRole('button', { name: 'Tambahkan 1 SKU' }).click();
+    const request = await requestPromise;
+
+    expect(request.postDataJSON()).toEqual({ skus: ['SKU-MASSAL-A'] });
+    await expect(page.getByText('SKU-MASSAL-A').first()).toBeVisible();
+    await expect(page.getByText('1 SKU master berhasil ditambahkan.')).toBeVisible();
   });
 });

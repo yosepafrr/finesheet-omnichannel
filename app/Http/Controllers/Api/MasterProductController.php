@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncMasterProductVariantsJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Services\MasterSkuSyncService;
@@ -96,6 +97,94 @@ class MasterProductController extends Controller
             ])),
             201
         );
+    }
+
+    public function bulkStore(Request $request, MasterSkuSyncService $skuSync)
+    {
+        $data = $request->validate([
+            'skus' => ['required', 'array', 'min:1', 'max:2000'],
+            'skus.*' => ['required', 'string', 'max:120', 'not_in:0', 'distinct:ignore_case'],
+        ]);
+        $user = $request->user();
+        $requestedSkus = collect($data['skus'])
+            ->map(fn ($sku) => trim((string) $sku))
+            ->mapWithKeys(fn (string $sku) => [mb_strtolower($sku) => $sku]);
+        $detections = $skuSync->detectUnlinkedSkus($user->id)
+            ->keyBy(fn (array $detection) => mb_strtolower(trim($detection['sku'])));
+
+        $result = DB::transaction(function () use ($detections, $requestedSkus, $user) {
+            DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+
+            $existingSkus = MasterProductVariant::query()
+                ->where('user_id', $user->id)
+                ->whereNotNull('sku')
+                ->pluck('sku')
+                ->map(fn ($sku) => mb_strtolower(trim((string) $sku)))
+                ->flip();
+            $createdVariantIds = [];
+            $createdSkus = [];
+            $skippedSkus = [];
+
+            foreach ($requestedSkus as $normalizedSku => $requestedSku) {
+                $detection = $detections->get($normalizedSku);
+                if (! $detection || $existingSkus->has($normalizedSku)) {
+                    $skippedSkus[] = $requestedSku;
+
+                    continue;
+                }
+
+                $firstListing = collect($detection['items'] ?? [])->first() ?? [];
+                $sku = trim((string) $detection['sku']);
+                $name = trim((string) ($firstListing['product_name'] ?? ''));
+                $variantName = trim((string) ($firstListing['variant_name'] ?? ''));
+
+                $product = MasterProduct::create([
+                    'user_id' => $user->id,
+                    'name' => mb_substr($name !== '' ? $name : "Master Produk {$sku}", 0, 255),
+                    'brand' => null,
+                    'category' => null,
+                    'description' => null,
+                    'image' => null,
+                    'status' => 'active',
+                    'source' => 'manual',
+                ]);
+                $variant = $product->variants()->create([
+                    'user_id' => $user->id,
+                    'sku' => $sku,
+                    'variant_name' => $variantName !== '' ? mb_substr($variantName, 0, 255) : null,
+                    'barcode' => null,
+                    'hpp' => 0,
+                    'stock' => max(0, (int) ($firstListing['stock'] ?? 0)),
+                    'is_active' => true,
+                ]);
+
+                $createdVariantIds[] = $variant->id;
+                $createdSkus[] = $sku;
+                $existingSkus->put($normalizedSku, true);
+            }
+
+            return compact('createdVariantIds', 'createdSkus', 'skippedSkus');
+        });
+
+        collect($result['createdVariantIds'])
+            ->chunk(50)
+            ->each(fn (Collection $ids) => SyncMasterProductVariantsJob::dispatch($ids->values()->all())
+                ->onQueue('products'));
+
+        $createdCount = count($result['createdSkus']);
+        $skippedCount = count($result['skippedSkus']);
+
+        return response()->json([
+            'message' => $createdCount > 0
+                ? "{$createdCount} SKU master berhasil ditambahkan. Koneksi toko diproses di latar belakang."
+                : 'Tidak ada SKU baru yang ditambahkan.',
+            'requested_count' => $requestedSkus->count(),
+            'created_count' => $createdCount,
+            'skipped_count' => $skippedCount,
+            'created_skus' => $result['createdSkus'],
+            'skipped_skus' => $result['skippedSkus'],
+            'sync_queued' => $createdCount > 0,
+        ], $createdCount > 0 ? 201 : 200);
     }
 
     public function update(
