@@ -1428,7 +1428,7 @@ export default function OrderList() {
                                                                                 }
                                                                             </p>
                                                                             <p className="w-48 truncate text-xs font-semibold text-gray-500 dark:text-slate-400">
-                                                                                Varian: {order.first_product?.model_name || "Tanpa varian"}
+                                                                                Varian: <span className="font-bold">{order.first_product?.model_name || "Tanpa varian"} </span>
                                                                             </p>
                                                                             {order.product_count > 1 && (
                                                                                 <button

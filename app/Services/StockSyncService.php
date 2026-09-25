@@ -14,18 +14,65 @@ class StockSyncService
      */
     public function deductStock(SkuSyncGroup $group, int $qty): int
     {
+        return $this->deductStockWithResult($group, $qty)['queued_updates'];
+    }
+
+    /**
+     * @return array{queued_updates: int, deducted_quantity: int, stock: int}
+     */
+    public function deductStockWithResult(SkuSyncGroup $group, int $qty): array
+    {
+        $qty = max(0, $qty);
+
         return DB::transaction(function () use ($group, $qty) {
             $lockedGroup = SkuSyncGroup::query()->lockForUpdate()->findOrFail($group->id);
 
             if (! $lockedGroup->is_active) {
-                return 0;
+                return [
+                    'queued_updates' => 0,
+                    'deducted_quantity' => 0,
+                    'stock' => (int) $lockedGroup->master_stock,
+                ];
             }
 
-            $newStock = max(0, $lockedGroup->master_stock - $qty);
+            $previousStock = (int) $lockedGroup->master_stock;
+            $newStock = max(0, $previousStock - $qty);
+            $deductedQuantity = $previousStock - $newStock;
             $lockedGroup->update(['master_stock' => $newStock]);
             $lockedGroup->masterVariant?->update(['stock' => $newStock]);
 
             Log::info("StockSyncService: Deducted stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}). New stock: {$newStock}");
+
+            return [
+                'queued_updates' => $this->dispatchMemberUpdates($lockedGroup, $newStock),
+                'deducted_quantity' => $deductedQuantity,
+                'stock' => $newStock,
+            ];
+        });
+    }
+
+    /**
+     * Restore a previous order deduction and push the resulting stock to marketplaces.
+     */
+    public function restoreStock(SkuSyncGroup $group, int $qty): int
+    {
+        $qty = max(0, $qty);
+        if ($qty === 0) {
+            return 0;
+        }
+
+        return DB::transaction(function () use ($group, $qty) {
+            $lockedGroup = SkuSyncGroup::query()->lockForUpdate()->findOrFail($group->id);
+            $newStock = (int) $lockedGroup->master_stock + $qty;
+
+            $lockedGroup->update(['master_stock' => $newStock]);
+            $lockedGroup->masterVariant?->update(['stock' => $newStock]);
+
+            Log::info("StockSyncService: Restored stock for group {$lockedGroup->id} (SKU: {$lockedGroup->sku}). New stock: {$newStock}");
+
+            if (! $lockedGroup->is_active) {
+                return 0;
+            }
 
             return $this->dispatchMemberUpdates($lockedGroup, $newStock);
         });

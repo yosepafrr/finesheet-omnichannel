@@ -27,7 +27,7 @@ class Order extends Model
             // Smart Notification Logic (OrderCreated is treated as "Pesanan Baru" in frontend)
             $statusUpper = strtoupper(trim($order->order_status ?? ''));
             $isPerluDikirim = in_array($statusUpper, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']);
-            
+
             $shouldNotify = false;
             if ($order->wasRecentlyCreated && $isPerluDikirim) {
                 $shouldNotify = true;
@@ -86,6 +86,9 @@ class Order extends Model
         'buyer_cancel_reason',
         'normalized_cancel_category',
         'stock_sync_processed_at',
+        'stock_sync_deductions',
+        'stock_sync_reverted_at',
+        'stock_sync_shipped_at',
         'created_at',
         'updated_at',
     ];
@@ -101,6 +104,9 @@ class Order extends Model
         'escrow_amount' => 'float',
         'escrow_amount_after_adjustment' => 'float',
         'stock_sync_processed_at' => 'datetime',
+        'stock_sync_deductions' => 'array',
+        'stock_sync_reverted_at' => 'datetime',
+        'stock_sync_shipped_at' => 'datetime',
     ];
 
     public function product()

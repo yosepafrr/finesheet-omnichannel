@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Events\OrderStockSyncRequested;
 use App\Jobs\SyncStockToMarketplaceJob;
 use App\Models\Order;
+use App\Models\OrderPackage;
 use App\Models\OrderProduct;
 use App\Models\Product;
 use App\Models\SkuSyncGroup;
@@ -181,6 +182,172 @@ class StockSyncTest extends TestCase
             'quantity_purchased' => 1,
         ]));
 
+        event(new OrderStockSyncRequested($order));
+
+        $this->assertSame(7, $group->fresh()->master_stock);
+        $this->assertNull($order->fresh()->stock_sync_processed_at);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_final_cancellation_restores_deducted_stock_once(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-CANCELLED');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        $this->assertSame(5, $group->fresh()->master_stock);
+        $this->assertSame([
+            [
+                'group_id' => $group->id,
+                'sku' => 'SKU-TEST',
+                'quantity' => 2,
+            ],
+        ], $order->fresh()->stock_sync_deductions);
+
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(7, $group->fresh()->master_stock);
+        $this->assertNotNull($order->fresh()->stock_sync_reverted_at);
+        Queue::assertPushed(SyncStockToMarketplaceJob::class, 2);
+    }
+
+    public function test_pending_cancellation_does_not_restore_stock(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-IN-CANCEL');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        $order->updateQuietly(['order_status' => 'IN_CANCEL']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(5, $group->fresh()->master_stock);
+        $this->assertNull($order->fresh()->stock_sync_reverted_at);
+    }
+
+    public function test_failed_delivery_cancellation_does_not_restore_stock(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-FAILED-DELIVERY');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'package_id' => 'PACKAGE-FAILED',
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+        ]));
+
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(5, $group->fresh()->master_stock);
+        $this->assertNull($order->fresh()->stock_sync_reverted_at);
+        Queue::assertPushed(SyncStockToMarketplaceJob::class, 1);
+    }
+
+    public function test_order_that_was_already_shipped_is_not_automatically_restocked(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-SHIPPED-CANCEL');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        $order->updateQuietly(['order_status' => 'SHIPPED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertNotNull($order->fresh()->stock_sync_shipped_at);
+
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(5, $group->fresh()->master_stock);
+        $this->assertNull($order->fresh()->stock_sync_reverted_at);
+        Queue::assertPushed(SyncStockToMarketplaceJob::class, 1);
+    }
+
+    public function test_cancellation_restores_only_the_quantity_actually_deducted(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $group->update(['master_stock' => 1]);
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-PARTIAL-STOCK');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        $this->assertSame(0, $group->fresh()->master_stock);
+        $this->assertSame(1, $order->fresh()->stock_sync_deductions[0]['quantity']);
+
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(1, $group->fresh()->master_stock);
+    }
+
+    public function test_stale_ready_event_cannot_deduct_an_order_that_is_already_cancelled(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $order = $this->createReadyOrder($product, 'SHOPEE-ORDER-STALE-EVENT');
+
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        $order->newQuery()->whereKey($order->id)->update(['order_status' => 'CANCELLED']);
         event(new OrderStockSyncRequested($order));
 
         $this->assertSame(7, $group->fresh()->master_stock);
