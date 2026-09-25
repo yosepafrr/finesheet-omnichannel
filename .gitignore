@@ -34,3 +34,6 @@ dashboard-reference.png
 playwright/
 playwright-report/
 test-results/
+
+/.codex-tmp/
+/outputs/
