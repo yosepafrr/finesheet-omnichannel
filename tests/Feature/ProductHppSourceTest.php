@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderProduct;
 use App\Models\OrderReturn;
 use App\Models\OrderReturnItem;
+use App\Models\PayableEvent;
 use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\SkuSyncMember;
@@ -139,13 +140,15 @@ class ProductHppSourceTest extends TestCase
             'amount' => 50000,
         ]);
 
+        $returnCreatedAt = now()->subDay()->startOfMinute();
         $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
             'order_id' => $order->id,
             'platform' => 'Shopee',
             'external_return_id' => 'RETURN-HPP-FALLBACK',
             'return_status' => 'ACCEPTED',
             'normalized_status' => 'RETURN_COMPLETED',
-            'created_at_platform' => now(),
+            'created_at_platform' => $returnCreatedAt,
+            'updated_at_platform' => now()->addDay(),
         ]));
         OrderReturnItem::withoutEvents(fn () => OrderReturnItem::create([
             'order_return_id' => $return->id,
@@ -164,6 +167,20 @@ class ProductHppSourceTest extends TestCase
             'source_type' => 'RETURN_ORDER',
             'amount' => -25000,
         ]);
+
+        $event = PayableEvent::query()
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->firstOrFail();
+        $this->assertSame($returnCreatedAt->format('Y-m-d H:i:s'), $event->event_date->format('Y-m-d H:i:s'));
+
+        $return->updateQuietly(['updated_at_platform' => now()->addDays(3)]);
+        $payable->recordReturnEvent($return->fresh(['items', 'order.store']));
+
+        $this->assertSame(
+            $returnCreatedAt->format('Y-m-d H:i:s'),
+            $event->fresh()->event_date->format('Y-m-d H:i:s')
+        );
     }
 
     private function createLinkedVariant(int $localHpp, int $masterHpp): array

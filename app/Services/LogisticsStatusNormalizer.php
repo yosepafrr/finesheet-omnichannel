@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Carbon\Carbon;
+
 class LogisticsStatusNormalizer
 {
     private const FAILED_DELIVERY_ACTION_CODES = [
@@ -111,7 +113,7 @@ class LogisticsStatusNormalizer
     public function trackingNumber(array $payload): ?string
     {
         foreach ($payload['logistics_details'] ?? [] as $detail) {
-            if (!empty($detail['newest_tracking_no'])) {
+            if (! empty($detail['newest_tracking_no'])) {
                 return (string) $detail['newest_tracking_no'];
             }
         }
@@ -122,6 +124,41 @@ class LogisticsStatusNormalizer
             'tracking_no',
             'shipping_tracking_number',
         ]);
+    }
+
+    public function failedDeliveryOccurredAt(array $payload): ?Carbon
+    {
+        $events = [];
+        $this->collectEvents($payload, $events);
+
+        $timestamp = collect($events)
+            ->filter(function (array $event) {
+                $failedAction = $event['action_code'] !== null
+                    && in_array((int) $event['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true);
+
+                return $event['time'] > 0
+                    && ($failedAction || $this->containsPhrase(
+                        $this->normalizeText($event['description']),
+                        self::FAILED_DELIVERY_PHRASES
+                    ));
+            })
+            ->min('time');
+
+        if (! $timestamp) {
+            return null;
+        }
+
+        $date = $timestamp > 100_000_000_000
+            ? Carbon::createFromTimestampMs($timestamp, 'UTC')
+            : Carbon::createFromTimestamp($timestamp, 'UTC');
+
+        try {
+            $timezone = config('app.timezone', 'UTC');
+        } catch (\Throwable) {
+            $timezone = 'UTC';
+        }
+
+        return $date->setTimezone($timezone);
     }
 
     private function collectEvents(array $value, array &$events): void
@@ -142,6 +179,7 @@ class LogisticsStatusNormalizer
                     ?? $value['event_time']
                     ?? $value['create_time']
                     ?? 0),
+                'action_code' => $value['action_code'] ?? null,
             ];
         }
 

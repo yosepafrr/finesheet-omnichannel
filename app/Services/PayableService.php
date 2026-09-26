@@ -17,7 +17,10 @@ use Illuminate\Support\Facades\Log;
 
 class PayableService
 {
-    public function __construct(private ProductHppService $hppService) {}
+    public function __construct(
+        private ProductHppService $hppService,
+        private LogisticsStatusNormalizer $logisticsNormalizer,
+    ) {}
 
     /**
      * Get or create the payable period for a given date, user, and supplier.
@@ -392,7 +395,7 @@ class PayableService
      */
     public function recordReturnEvent(OrderReturn $return, string $type = 'RETURN_ORDER')
     {
-        $date = $return->created_at_platform ?? $return->updated_at_platform ?? $return->created_at;
+        $date = $this->returnEventDate($return);
 
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
@@ -407,6 +410,11 @@ class PayableService
 
         if ($order) {
             $orderReturns = OrderReturn::with('items')->where('order_id', $order->id)->get();
+            $date = $orderReturns
+                ->map(fn (OrderReturn $orderReturn) => $this->returnEventDate($orderReturn))
+                ->sortBy(fn (Carbon $returnDate) => $returnDate->getTimestamp())
+                ->first() ?? $date;
+
             foreach ($orderReturns as $ret) {
                 foreach ($ret->items as $item) {
                     [$variant, $product] = $this->resolveReturnListing($item->sku_id, $order, $userId);
@@ -599,6 +607,34 @@ class PayableService
         return [null, $productQuery->first()];
     }
 
+    private function returnEventDate(OrderReturn $return): Carbon
+    {
+        return Carbon::parse($return->created_at_platform ?? $return->created_at ?? now());
+    }
+
+    private function failedDeliveryEventDate(Order $order): Carbon
+    {
+        $order->loadMissing('packages');
+        $dates = $order->packages
+            ->where('normalized_logistics_status', 'DELIVERY_FAILED')
+            ->map(function ($package) use ($order) {
+                $date = $package->failed_at
+                    ?? $this->logisticsNormalizer->failedDeliveryOccurredAt($package->raw_data ?? [])
+                    ?? $this->logisticsNormalizer->failedDeliveryOccurredAt($order->raw_data ?? [])
+                    ?? $package->updated_at
+                    ?? now();
+
+                if (! $package->failed_at) {
+                    $package->forceFill(['failed_at' => $date])->saveQuietly();
+                }
+
+                return Carbon::parse($date);
+            })
+            ->sortBy(fn (Carbon $failedDate) => $failedDate->getTimestamp());
+
+        return $dates->first() ?? Carbon::parse(now());
+    }
+
     /**
      * Record a cancellation event.
      *
@@ -656,7 +692,7 @@ class PayableService
             return;
         }
 
-        $date = $order->updated_at;
+        $date = $this->failedDeliveryEventDate($order);
         $recordedSupplierIds = [];
 
         foreach ($createEvents as $createEvent) {
@@ -805,7 +841,7 @@ class PayableService
             ->get();
 
         foreach ($returns as $return) {
-            $date = $return->created_at_platform ?? $return->updated_at_platform ?? $return->created_at;
+            $date = $this->returnEventDate($return);
             if (! $start || Carbon::parse($date)->gte($start)) {
                 $this->recordReturnEvent($return);
             }

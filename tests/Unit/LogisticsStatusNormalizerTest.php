@@ -71,7 +71,7 @@ class LogisticsStatusNormalizerTest extends TestCase
 
     public function test_it_reads_the_latest_tracking_number_from_tiktok_202604_payload(): void
     {
-        $normalizer = new LogisticsStatusNormalizer();
+        $normalizer = new LogisticsStatusNormalizer;
         $payload = [
             'logistics_details' => [[
                 'newest_tracking_no' => 'JY1587607104',
@@ -80,5 +80,29 @@ class LogisticsStatusNormalizerTest extends TestCase
         ];
 
         $this->assertSame('JY1587607104', $normalizer->trackingNumber($payload));
+    }
+
+    public function test_it_uses_the_first_failed_delivery_tracking_timestamp(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $payload = [
+            'tracking' => [
+                [
+                    'action_code' => 70204,
+                    'description' => 'Return package left the sorting center.',
+                    'update_time_millis' => 1_789_303_517_000,
+                ],
+                [
+                    'action_code' => 40601,
+                    'description' => 'Package can no longer be delivered.',
+                    'update_time_millis' => 1_789_018_876_000,
+                ],
+            ],
+        ];
+
+        $date = $normalizer->failedDeliveryOccurredAt($payload);
+
+        $this->assertNotNull($date);
+        $this->assertSame(1_789_018_876, $date->getTimestamp());
     }
 }
