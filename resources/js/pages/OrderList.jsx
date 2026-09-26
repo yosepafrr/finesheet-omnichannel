@@ -1360,7 +1360,7 @@ export default function OrderList() {
                                                     <th className="px-6 py-4">
                                                         Status
                                                     </th>
-                                                    <th className="px-6 py-4 max-w-80">
+                                                    <th className="px-6 py-4 w-80">
                                                         Informasi Logistik
                                                     </th>
                                                     <th className="px-6 py-4 text-right">
