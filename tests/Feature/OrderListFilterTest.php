@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\OrderPackage;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,6 +65,40 @@ class OrderListFilterTest extends TestCase
             ->assertJsonPath('orders.0.store_name', 'Shopee Utama');
     }
 
+    public function test_order_list_and_detail_can_serialize_package_data(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Utama', 'shop-1');
+        $order = $this->createOrder($store, 'TIKTOK-PACKAGE', 'IN_TRANSIT', now());
+
+        OrderPackage::withoutEvents(function () use ($order) {
+            OrderPackage::create([
+                'order_id' => $order->id,
+                'platform' => 'Tiktokshop',
+                'package_id' => 'PACKAGE-1',
+                'tracking_number' => 'TRACK-1',
+                'logistics_status' => 'Package is in transit',
+                'normalized_logistics_status' => 'IN_TRANSIT',
+                'raw_data' => [
+                    'tracking' => [[
+                        'description' => 'Package is in transit',
+                        'update_time_millis' => 1_789_000_000_000,
+                    ]],
+                ],
+            ]);
+        });
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=IN_TRANSIT')
+            ->assertOk()
+            ->assertJsonPath('orders.0.packages.0.tracking_number', 'TRACK-1');
+
+        $this->actingAs($user)
+            ->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('order.packages.0.history.0.description', 'Package is in transit');
+    }
+
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
     {
         return Store::create([
@@ -75,10 +110,10 @@ class OrderListFilterTest extends TestCase
         ]);
     }
 
-    private function createOrder(Store $store, string $orderSn, string $status, $orderTime): void
+    private function createOrder(Store $store, string $orderSn, string $status, $orderTime): Order
     {
-        Order::withoutEvents(function () use ($store, $orderSn, $status, $orderTime) {
-            Order::create([
+        return Order::withoutEvents(function () use ($store, $orderSn, $status, $orderTime) {
+            return Order::create([
                 'store_id' => $store->id,
                 'platform' => $store->platform,
                 'order_sn' => $orderSn,

@@ -239,7 +239,7 @@ class OrderController extends Controller
                     'tracking_number' => $order->platform === 'Shopee' 
                         ? ($order->raw_data['tracking_no'] ?? null) 
                         : ($order->raw_data['tracking_number'] ?? null),
-                    'packages' => $order->packages->map(function ($pkg) use ($logisticsStatusNormalizer) {
+                    'packages' => $order->packages->map(function ($pkg) {
                         return [
                             'package_id' => $pkg->package_id,
                             'tracking_number' => $pkg->tracking_number,
@@ -354,7 +354,7 @@ class OrderController extends Controller
                     }),
                 ];
             }),
-            'packages' => $order->packages->map(function ($pkg) {
+            'packages' => $order->packages->map(function ($pkg) use ($logisticsStatusNormalizer) {
                 return [
                     'package_id' => $pkg->package_id,
                     'tracking_number' => $pkg->tracking_number,
