@@ -135,7 +135,7 @@ class HandleTiktokOrderWebhookJob implements ShouldBeUnique, ShouldQueue
 
             // Fetch actual/estimated escrow in the background
             if ($needsEscrowRefresh) {
-                if (strtoupper((string) $incomingStatus) === 'COMPLETED') {
+                if ($escrowResolver->shouldTryStatement($incomingStatus)) {
                     SyncTiktokEscrowJob::dispatch(
                         $store->id,
                         $order['id'],

@@ -121,6 +121,7 @@ class TiktokEscrowAmountResolverTest extends TestCase
 
         $this->assertTrue($this->resolver->needsRefresh(null, 'IN_TRANSIT', 125078));
         $this->assertFalse($this->resolver->needsRefresh($unsettled, 'IN_TRANSIT', 125078));
+        $this->assertTrue($this->resolver->needsRefresh($unsettled, 'DELIVERED', 125078));
         $this->assertTrue($this->resolver->needsRefresh($unsettled, 'COMPLETED', 125078));
         $this->assertFalse($this->resolver->needsRefresh($settled, 'COMPLETED', 120500));
     }

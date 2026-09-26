@@ -54,6 +54,7 @@ class Order extends Model
                 'order_selling_price',
                 'escrow_amount',
                 'escrow_amount_after_adjustment',
+                'fee_details',
             ]);
 
             if ($shouldBroadcastUpdate) {

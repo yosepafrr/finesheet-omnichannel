@@ -241,6 +241,9 @@ export default function OrderDetail({ routeParams }) {
         components: [],
         is_affiliate: false,
         affiliate_percentage: null,
+        source: null,
+        is_estimated: false,
+        sync_pending: false,
     };
 
     return (
@@ -634,6 +637,17 @@ export default function OrderDetail({ routeParams }) {
                             </div>
 
                             <div className="text-sm">
+                                {financialBreakdown.sync_pending && (
+                                    <div className="mb-2 flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300">
+                                        <span className="material-symbols-rounded animate-spin text-base">progress_activity</span>
+                                        <span>Rincian potongan sedang diminta dari platform dan akan diperbarui otomatis.</span>
+                                    </div>
+                                )}
+                                {!financialBreakdown.sync_pending && financialBreakdown.is_estimated && (
+                                    <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+                                        Nilai ini masih estimasi. TikTok menyediakan rincian biaya final setelah statement transaksi tersedia.
+                                    </div>
+                                )}
                                 <div className="flex items-start justify-between gap-4 py-2 text-gray-700 dark:text-slate-300">
                                     <span className="font-semibold">Penghasilan kotor</span>
                                     <span className="font-semibold tabular-nums">{formatRp(financialBreakdown.gross_amount)}</span>

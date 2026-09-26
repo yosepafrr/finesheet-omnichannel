@@ -68,6 +68,54 @@ class OrderFinancialBreakdownServiceTest extends TestCase
         $this->assertFalse($components->has('platform_adjustment'));
     }
 
+    public function test_it_reads_shopee_fee_components_from_item_income_when_order_totals_are_absent(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_selling_price' => 169000,
+            'escrow_amount' => 158000,
+            'fee_details' => [
+                'items' => [[
+                    'item_income' => [
+                        'commission_fee' => 5000,
+                        'service_fee' => 6000,
+                    ],
+                ]],
+            ],
+        ]);
+
+        $breakdown = $this->service()->forOrder($order);
+        $components = collect($breakdown['components'])->keyBy('key');
+
+        $this->assertSame(5000.0, $components['commission_fee']['amount']);
+        $this->assertSame(6000.0, $components['service_fee']['amount']);
+        $this->assertFalse($components->has('platform_adjustment'));
+    }
+
+    public function test_it_labels_unsettled_tiktok_difference_as_an_estimate(): void
+    {
+        $order = new Order([
+            'platform' => 'Tiktokshop',
+            'order_selling_price' => 229775,
+            'escrow_amount' => 140966,
+            'fee_details' => [
+                'source' => 'unsettled',
+                'transactions' => [[
+                    'order_id' => 'ORDER-1',
+                    'est_settlement_amount' => '140966',
+                ]],
+            ],
+        ]);
+
+        $breakdown = $this->service()->forOrder($order);
+        $adjustment = collect($breakdown['components'])->firstWhere('key', 'platform_adjustment');
+
+        $this->assertTrue($breakdown['is_estimated']);
+        $this->assertSame('unsettled', $breakdown['source']);
+        $this->assertSame('Estimasi total biaya platform', $adjustment['label']);
+        $this->assertSame(88809.0, $adjustment['amount']);
+    }
+
     private function service(): OrderFinancialBreakdownService
     {
         return new OrderFinancialBreakdownService(new OrderEscrowService);

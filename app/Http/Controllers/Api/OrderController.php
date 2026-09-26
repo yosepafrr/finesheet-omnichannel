@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncShopeeEscrowJob;
+use App\Jobs\SyncTiktokEscrowJob;
 use Illuminate\Http\Request;
 use App\Models\Order;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
+use App\Services\TiktokEscrowAmountResolver;
 use Illuminate\Support\Facades\Auth;
 
 class OrderController extends Controller
@@ -257,7 +260,8 @@ class OrderController extends Controller
         $id,
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService,
-        LogisticsStatusNormalizer $logisticsStatusNormalizer
+        LogisticsStatusNormalizer $logisticsStatusNormalizer,
+        TiktokEscrowAmountResolver $tiktokEscrowResolver
     )
     {
         $user = Auth::user();
@@ -295,6 +299,33 @@ class OrderController extends Controller
             }
         }
 
+        $financeSyncPending = false;
+        if (strtolower((string) $order->platform) === 'shopee' && empty($order->fee_details)) {
+            SyncShopeeEscrowJob::dispatch($order->store_id, $order->order_sn)
+                ->onQueue('orders-low');
+            $financeSyncPending = true;
+        } elseif (
+            strtolower((string) $order->platform) === 'tiktokshop'
+            && $tiktokEscrowResolver->shouldTryStatement($order->order_status)
+            && $tiktokEscrowResolver->needsRefresh(
+                $order->fee_details,
+                $order->order_status,
+                $order->escrow_amount
+            )
+        ) {
+            SyncTiktokEscrowJob::dispatch(
+                $order->store_id,
+                $order->order_sn,
+                $order->order_status,
+                $tiktokEscrowResolver->fallbackForOrder($order),
+                true
+            )->onQueue('orders-low');
+            $financeSyncPending = true;
+        }
+
+        $financialBreakdown = $financialBreakdownService->forOrder($order);
+        $financialBreakdown['sync_pending'] = $financeSyncPending;
+
         $orderData = [
             'id' => $order->id,
             'store_name' => $order->store->store_name ?? 'Unknown',
@@ -307,7 +338,7 @@ class OrderController extends Controller
             'order_selling_price' => $order->order_selling_price,
             'escrow_amount' => $escrowService->amount($order),
             'fee_details' => $order->fee_details,
-            'financial_breakdown' => $financialBreakdownService->forOrder($order),
+            'financial_breakdown' => $financialBreakdown,
             'cancel_source' => $order->cancel_source,
             'cancel_reason' => $order->cancel_reason,
             'buyer_cancel_reason' => $order->buyer_cancel_reason,

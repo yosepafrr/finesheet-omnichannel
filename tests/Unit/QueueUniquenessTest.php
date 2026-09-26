@@ -6,6 +6,7 @@ use App\Jobs\HandleTiktokOrderWebhookJob;
 use App\Jobs\HandleShopeeOrderWebhookJob;
 use App\Jobs\HandleShopeeProductWebhookJob;
 use App\Jobs\SyncShopeeOrderJob;
+use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncStoreLogisticsChunkJob;
 use App\Jobs\SyncStoreLogisticsJob;
 use App\Jobs\SyncTiktokEscrowJob;
@@ -59,11 +60,14 @@ class QueueUniquenessTest extends TestCase
     {
         $order = new HandleShopeeOrderWebhookJob('SHOP-9', 'ORDER-123');
         $product = new HandleShopeeProductWebhookJob('SHOP-9', 'ITEM-456');
+        $escrow = new SyncShopeeEscrowJob(12, 'ORDER-123');
 
         $this->assertInstanceOf(ShouldBeUnique::class, $order);
         $this->assertInstanceOf(ShouldBeUnique::class, $product);
+        $this->assertInstanceOf(ShouldBeUnique::class, $escrow);
         $this->assertSame('SHOP-9:ORDER-123', $order->uniqueId());
         $this->assertSame('SHOP-9:ITEM-456', $product->uniqueId());
+        $this->assertSame('12:ORDER-123', $escrow->uniqueId());
     }
 
     public function test_tiktok_product_sync_is_unique_per_store(): void

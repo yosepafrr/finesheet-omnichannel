@@ -17,7 +17,7 @@ class TiktokEscrowAmountResolver
             return true;
         }
 
-        return strtoupper((string) $status) === 'COMPLETED'
+        return $this->shouldTryStatement($status)
             && ($financeDetails['source'] ?? null) !== 'settled';
     }
 

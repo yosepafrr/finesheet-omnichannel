@@ -50,7 +50,9 @@ class OrderFinancialBreakdownService
      *     }>,
      *     is_affiliate: bool,
      *     affiliate_percentage: float|null,
-     *     has_platform_details: bool
+     *     has_platform_details: bool,
+     *     source: string|null,
+     *     is_estimated: bool
      * }
      */
     public function forOrder(Order $order): array
@@ -58,8 +60,12 @@ class OrderFinancialBreakdownService
         $details = is_array($order->fee_details) ? $order->fee_details : [];
         $grossAmount = (float) ($order->order_selling_price ?? 0);
         $escrowAmount = $this->escrowService->amount($order);
+        $isShopee = strtolower((string) $order->platform) === 'shopee';
+        $source = $isShopee
+            ? ($details !== [] ? 'shopee_escrow' : null)
+            : ($details['source'] ?? null);
 
-        if (strtolower((string) $order->platform) === 'shopee') {
+        if ($isShopee) {
             $components = $this->shopeeComponents($details);
         } else {
             $grossAmount = $this->tiktokGrossAmount($details, $grossAmount);
@@ -79,7 +85,7 @@ class OrderFinancialBreakdownService
             return $component;
         }, $components);
 
-        $components = $this->reconcile($components, $grossAmount, $escrowAmount, $details !== []);
+        $components = $this->reconcile($components, $grossAmount, $escrowAmount, $details !== [], $source);
 
         return [
             'gross_amount' => $grossAmount,
@@ -88,6 +94,8 @@ class OrderFinancialBreakdownService
             'is_affiliate' => $affiliateAmount > 0,
             'affiliate_percentage' => $affiliatePercentage,
             'has_platform_details' => $details !== [],
+            'source' => $source,
+            'is_estimated' => ! $isShopee && $source !== 'settled',
         ];
     }
 
@@ -100,18 +108,22 @@ class OrderFinancialBreakdownService
         $components = [];
 
         foreach (self::SHOPEE_DEDUCTIONS as $key => $label) {
+            $value = $income[$key]
+                ?? array_sum($this->numericValuesForKey($income['items'] ?? [], $key));
             $this->appendComponent(
                 $components,
                 $key,
                 $label,
-                $income[$key] ?? null,
+                $value,
                 '-',
                 $key === 'order_ams_commission_fee'
             );
         }
 
         foreach (self::SHOPEE_ADDITIONS as $key => $label) {
-            $this->appendComponent($components, $key, $label, $income[$key] ?? null, '+');
+            $value = $income[$key]
+                ?? array_sum($this->numericValuesForKey($income['items'] ?? [], $key));
+            $this->appendComponent($components, $key, $label, $value, '+');
         }
 
         if (! $this->hasComponent($components, 'order_ams_commission_fee')) {
@@ -229,7 +241,13 @@ class OrderFinancialBreakdownService
     }
 
     /** @param array<int, array<string, mixed>> $components */
-    private function reconcile(array $components, float $gross, float $escrow, bool $hasDetails): array
+    private function reconcile(
+        array $components,
+        float $gross,
+        float $escrow,
+        bool $hasDetails,
+        ?string $source
+    ): array
     {
         $computed = $gross;
         foreach ($components as $component) {
@@ -245,9 +263,13 @@ class OrderFinancialBreakdownService
 
         $components[] = [
             'key' => 'platform_adjustment',
-            'label' => $hasDetails
-                ? 'Penyesuaian lainnya dari platform'
-                : 'Potongan platform (rincian belum tersedia)',
+            'label' => match ($source) {
+                'unsettled' => 'Estimasi total biaya platform',
+                null => 'Potongan platform (menunggu rincian API)',
+                default => $hasDetails
+                    ? 'Penyesuaian lainnya dari platform'
+                    : 'Potongan platform (rincian belum tersedia)',
+            },
             'amount' => abs($difference),
             'operator' => $difference > 0 ? '+' : '-',
             'is_affiliate' => false,
