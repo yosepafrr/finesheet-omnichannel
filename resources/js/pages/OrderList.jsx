@@ -171,6 +171,18 @@ function ReturnStatusBadge({ status, platformStatus }) {
     );
 }
 
+function AffiliateBadge({ percentage }) {
+    return (
+        <span
+            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+            title="Pesanan berasal dari affiliate"
+        >
+            <span className="material-symbols-rounded text-xs">campaign</span>
+            Affiliate{percentage !== null && percentage !== undefined ? ` ${Number(percentage).toLocaleString("id-ID", { maximumFractionDigits: 2 })}%` : ""}
+        </span>
+    );
+}
+
 function SkeletonRow() {
     return (
         <div className="animate-pulse flex items-center gap-4 p-5 border-b border-gray-50 dark:border-slate-700/50">
@@ -1461,6 +1473,9 @@ export default function OrderList() {
                                                                                 order.platform
                                                                             }
                                                                         />
+                                                                        {order.is_affiliate && (
+                                                                            <AffiliateBadge percentage={order.affiliate_percentage} />
+                                                                        )}
                                                                         {order.returns && order.returns.length > 0 && (
                                                                             <ReturnStatusBadge
                                                                                 status={order.returns[0].normalized_status}
@@ -1675,6 +1690,9 @@ export default function OrderList() {
                                                                             order.platform
                                                                         }
                                                                     />
+                                                                    {order.is_affiliate && (
+                                                                        <AffiliateBadge percentage={order.affiliate_percentage} />
+                                                                    )}
                                                                     {order.returns && order.returns.length > 0 && (
                                                                         <ReturnStatusBadge
                                                                             status={order.returns[0].normalized_status}

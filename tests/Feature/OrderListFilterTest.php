@@ -99,6 +99,38 @@ class OrderListFilterTest extends TestCase
             ->assertJsonPath('order.packages.0.history.0.description', 'Package is in transit');
     }
 
+    public function test_order_list_exposes_affiliate_badge_metadata(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Utama', 'shop-1');
+        $affiliateOrder = $this->createOrder($store, 'SHOPEE-AFFILIATE', 'COMPLETED', now());
+        $regularOrder = $this->createOrder($store, 'SHOPEE-REGULAR', 'COMPLETED', now()->subMinute());
+
+        Order::withoutEvents(function () use ($affiliateOrder, $regularOrder) {
+            $affiliateOrder->update([
+                'order_selling_price' => 100000,
+                'escrow_amount' => 90000,
+                'fee_details' => ['order_ams_commission_fee' => 10000],
+            ]);
+            $regularOrder->update([
+                'order_selling_price' => 100000,
+                'escrow_amount' => 100000,
+                'fee_details' => [],
+            ]);
+        });
+
+        $response = $this->actingAs($user)->getJson('/api/orders?statuses=COMPLETED');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('orders.0.order_sn', 'SHOPEE-AFFILIATE')
+            ->assertJsonPath('orders.0.is_affiliate', true)
+            ->assertJsonPath('orders.0.affiliate_percentage', 10.0)
+            ->assertJsonPath('orders.1.order_sn', 'SHOPEE-REGULAR')
+            ->assertJsonPath('orders.1.is_affiliate', false)
+            ->assertJsonPath('orders.1.affiliate_percentage', null);
+    }
+
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
     {
         return Store::create([

@@ -15,7 +15,11 @@ use Illuminate\Support\Facades\Auth;
 
 class OrderController extends Controller
 {
-    public function index(Request $request, OrderEscrowService $escrowService)
+    public function index(
+        Request $request,
+        OrderEscrowService $escrowService,
+        OrderFinancialBreakdownService $financialBreakdownService
+    )
     {
         $user = Auth::user();
         $stores = $user->stores()->get();
@@ -177,8 +181,10 @@ class OrderController extends Controller
                     fn (Order $order) => $escrowService->amount($order),
                 ),
             ],
-            'orders' => $orders->map(function ($order) use ($escrowService) {
+            'orders' => $orders->map(function ($order) use ($escrowService, $financialBreakdownService) {
                 $firstProduct = $order->orderProducts->first();
+                $financialBreakdown = $financialBreakdownService->forOrder($order);
+
                 return [
                     'id' => $order->id,
                     'store_id' => $order->store_id,
@@ -194,6 +200,8 @@ class OrderController extends Controller
                     'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'order_selling_price' => $order->order_selling_price,
                     'escrow_amount' => $escrowService->amount($order),
+                    'is_affiliate' => $financialBreakdown['is_affiliate'],
+                    'affiliate_percentage' => $financialBreakdown['affiliate_percentage'],
                     'cancel_source' => $order->cancel_source,
                     'cancel_reason' => $order->cancel_reason,
                     'buyer_cancel_reason' => $order->buyer_cancel_reason,
