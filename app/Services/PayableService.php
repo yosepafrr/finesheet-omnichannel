@@ -4,21 +4,20 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderReturn;
-use App\Models\PayablePeriod;
 use App\Models\PayableEvent;
-use App\Models\VariantProduct;
+use App\Models\PayablePeriod;
 use App\Models\Product;
+use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
-use App\Models\Setting;
+use App\Models\VariantProduct;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PayableService
 {
-    public function __construct(private ProductHppService $hppService)
-    {
-    }
+    public function __construct(private ProductHppService $hppService) {}
 
     /**
      * Get or create the payable period for a given date, user, and supplier.
@@ -37,7 +36,9 @@ class PayableService
         }
 
         $firstPeriodStart = $supplier->first_period_start;
-        if (!$firstPeriodStart) return null;
+        if (! $firstPeriodStart) {
+            return null;
+        }
 
         // If the date is before the first period start AND no manual period covers it, ignore it (historical data)
         if ($date->lt($firstPeriodStart)) {
@@ -53,20 +54,20 @@ class PayableService
         $periodStart = $firstPeriodStart->copy()->addDays($periodsPassed * $lengthDays);
         $periodEnd = $periodStart->copy()->addDays($lengthDays)->subSecond();
 
-        $periodName = 'Periode ' . $periodStart->format('d M Y') . ' - ' . $periodEnd->format('d M Y');
+        $periodName = 'Periode '.$periodStart->format('d M Y').' - '.$periodEnd->format('d M Y');
 
         return PayablePeriod::firstOrCreate(
             [
                 'user_id' => $userId,
                 'supplier_id' => $supplier->id,
-                'start_date' => $periodStart
+                'start_date' => $periodStart,
             ],
             [
                 'name' => $periodName,
                 'end_date' => $periodEnd,
                 'payment_status' => 'UNPAID',
                 'is_closed' => false,
-                'is_manual' => false
+                'is_manual' => false,
             ]
         );
     }
@@ -78,7 +79,9 @@ class PayableService
     public function ensureAllPeriods(Carbon $start, int $userId, Supplier $supplier): void
     {
         $firstPeriodStart = $supplier->first_period_start;
-        if (!$firstPeriodStart) return;
+        if (! $firstPeriodStart) {
+            return;
+        }
 
         $lengthDays = $supplier->period_length_days ?? 14;
 
@@ -92,21 +95,21 @@ class PayableService
         $cursor = $firstPeriodStart->copy();
 
         while ($cursor->lte($now)) {
-            $periodEnd  = $cursor->copy()->addDays($lengthDays)->subSecond();
-            $periodName = 'Periode ' . $cursor->format('d M Y') . ' - ' . $periodEnd->format('d M Y');
+            $periodEnd = $cursor->copy()->addDays($lengthDays)->subSecond();
+            $periodName = 'Periode '.$cursor->format('d M Y').' - '.$periodEnd->format('d M Y');
 
             PayablePeriod::firstOrCreate(
                 [
                     'user_id' => $userId,
                     'supplier_id' => $supplier->id,
-                    'start_date' => $cursor->copy()
+                    'start_date' => $cursor->copy(),
                 ],
                 [
-                    'name'           => $periodName,
-                    'end_date'       => $periodEnd,
+                    'name' => $periodName,
+                    'end_date' => $periodEnd,
                     'payment_status' => 'UNPAID',
-                    'is_closed'      => false,
-                    'is_manual'      => false,
+                    'is_closed' => false,
+                    'is_manual' => false,
                 ]
             );
 
@@ -127,6 +130,7 @@ class PayableService
             $hpp = $this->getItemHpp($item);
             $totalHpp += $hpp * $item->quantity_purchased;
         }
+
         return $totalHpp;
     }
 
@@ -150,57 +154,85 @@ class PayableService
     {
         // Supplier assignment must come from an explicit mapping. The direct
         // relation may contain legacy values created by the old auto-assign.
-        $product = \App\Models\Product::where('product_id', $item->product_id)->first();
+        $productQuery = Product::query()->where('product_id', $item->product_id);
+        $orderStoreId = ($item->order ?? null)?->store_id;
+        if ($orderStoreId) {
+            $productQuery->where('store_id', $orderStoreId);
+        } else {
+            $productQuery->whereHas('store', fn ($query) => $query->where('user_id', $userId));
+        }
+        $product = $productQuery->first();
 
         // 1. Variant model_sku in supplier_product_mappings
         $modelSku = null;
         if ($product) {
             $modelName = $item->model_name ?? '';
             $modelNameNorm = str_replace(', ', ',', $modelName);
-            $variant = \App\Models\VariantProduct::where('product_id', $product->id)
-                ->where(function ($q) use ($modelName, $modelNameNorm) {
-                    $q->where('model_name', $modelName)
-                      ->orWhere('model_name', $modelNameNorm);
-                })
-                ->first();
-            if ($variant && !empty($variant->model_sku)) {
+            $variantQuery = VariantProduct::query()->where('product_id', $product->id);
+            $variant = null;
+
+            if (! empty($item->platform_variant_id)) {
+                $variant = (clone $variantQuery)->where('model_id', $item->platform_variant_id)->first();
+            }
+
+            $itemSku = trim((string) ($item->sku ?? ''));
+            if (! $variant && $itemSku !== '' && $itemSku !== '0') {
+                $variant = (clone $variantQuery)
+                    ->whereRaw('LOWER(model_sku) = ?', [mb_strtolower($itemSku)])
+                    ->first();
+            }
+
+            if (! $variant && $modelName !== '') {
+                $variant = (clone $variantQuery)
+                    ->where(function ($q) use ($modelName, $modelNameNorm) {
+                        $q->where('model_name', $modelName)
+                            ->orWhere('model_name', $modelNameNorm)
+                            ->orWhere('variant_name', $modelName);
+                    })
+                    ->first();
+            }
+
+            if ($variant && ! empty($variant->model_sku)) {
                 $modelSku = $variant->model_sku;
             }
         }
 
         if ($modelSku) {
-            $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
+            $mapping = SupplierProductMapping::where('user_id', $userId)
                 ->where('sku', $modelSku)
                 ->first();
             if ($mapping) {
-                if ($product && !$product->supplier_id) {
+                if ($product && ! $product->supplier_id) {
                     $product->update(['supplier_id' => $mapping->supplier_id]);
                 }
+
                 return $mapping->supplier_id;
             }
         }
 
         // 2. Product product_sku in supplier_product_mappings
-        if ($product && !empty($product->product_sku)) {
-            $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
+        if ($product && ! empty($product->product_sku)) {
+            $mapping = SupplierProductMapping::where('user_id', $userId)
                 ->where('sku', $product->product_sku)
                 ->first();
             if ($mapping) {
-                if (!$product->supplier_id) {
+                if (! $product->supplier_id) {
                     $product->update(['supplier_id' => $mapping->supplier_id]);
                 }
+
                 return $mapping->supplier_id;
             }
         }
 
         // 3. Platform product_id in supplier_product_mappings
-        $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
-            ->where('platform_product_id', (string)$item->product_id)
+        $mapping = SupplierProductMapping::where('user_id', $userId)
+            ->where('platform_product_id', (string) $item->product_id)
             ->first();
         if ($mapping) {
-            if ($product && !$product->supplier_id) {
+            if ($product && ! $product->supplier_id) {
                 $product->update(['supplier_id' => $mapping->supplier_id]);
             }
+
             return $mapping->supplier_id;
         }
 
@@ -212,8 +244,8 @@ class PayableService
      */
     public function recordOrderEvent(Order $order)
     {
-        Log::info("PayableService::recordOrderEvent called for Order " . $order->order_sn);
-        
+        Log::info('PayableService::recordOrderEvent called for Order '.$order->order_sn);
+
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
 
         // If order is cancelled, remove the CREATE_ORDER event entirely (as if it never happened).
@@ -222,7 +254,8 @@ class PayableService
             PayableEvent::where('source_id', $order->order_sn)
                 ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
                 ->delete();
-            Log::info("PayableService: Deleted CREATE_ORDER events for cancelled order " . $order->order_sn);
+            Log::info('PayableService: Deleted CREATE_ORDER events for cancelled order '.$order->order_sn);
+
             return;
         }
 
@@ -231,17 +264,21 @@ class PayableService
             PayableEvent::where('source_id', $order->order_sn)
                 ->where('source_type', 'CREATE_ORDER')
                 ->delete();
+
             return;
         }
 
-        $userId = $order->store?->user_id ?? \App\Models\Store::where('id', $order->store_id)->value('user_id');
-        if (!$userId) {
+        $userId = $order->store?->user_id ?? Store::where('id', $order->store_id)->value('user_id');
+        if (! $userId) {
             Log::warning("PayableService: Could not determine user_id for Order {$order->order_sn} (store_id={$order->store_id})");
+
             return;
         }
 
         $date = $order->order_time;
-        if (!$date) return;
+        if (! $date) {
+            return;
+        }
 
         // Group order products by resolved supplier
         $orderProducts = $order->orderProducts;
@@ -257,14 +294,20 @@ class PayableService
         $recordedSupplierIds = [];
 
         foreach ($itemsBySupplier as $supplierId => $items) {
-            $actualSupplierId = !empty($supplierId) ? (int)$supplierId : null;
-            if (!$actualSupplierId) continue;
-            
-            $supplier = \App\Models\Supplier::find($actualSupplierId);
-            if (!$supplier) continue;
-            
+            $actualSupplierId = ! empty($supplierId) ? (int) $supplierId : null;
+            if (! $actualSupplierId) {
+                continue;
+            }
+
+            $supplier = Supplier::find($actualSupplierId);
+            if (! $supplier) {
+                continue;
+            }
+
             $period = $this->getPeriodForDate($date, $userId, $supplier);
-            if (!$period) continue; // Before first period
+            if (! $period) {
+                continue;
+            } // Before first period
 
             $groupHpp = 0;
             if (empty($items)) {
@@ -276,7 +319,9 @@ class PayableService
                 }
             }
 
-            if ($groupHpp <= 0) continue;
+            if ($groupHpp <= 0) {
+                continue;
+            }
 
             $recordedSupplierIds[] = $actualSupplierId;
 
@@ -292,7 +337,7 @@ class PayableService
                 ->first();
 
             // Match legacy event if migrating
-            if (!$existingEvent && $actualSupplierId) {
+            if (! $existingEvent && $actualSupplierId) {
                 $legacy = PayableEvent::where('source_id', $order->order_sn)
                     ->where('source_type', 'CREATE_ORDER')
                     ->whereNull('supplier_id')
@@ -302,8 +347,8 @@ class PayableService
                 }
             }
 
-            $periodId = ($existingEvent && $existingEvent->is_manual_moved) 
-                ? $existingEvent->payable_period_id 
+            $periodId = ($existingEvent && $existingEvent->is_manual_moved)
+                ? $existingEvent->payable_period_id
                 : $period->id;
 
             PayableEvent::updateOrCreate(
@@ -328,12 +373,13 @@ class PayableService
             ->where('source_type', 'CREATE_ORDER');
         if (empty($recordedSupplierIds)) {
             $cleanup->delete();
+
             return;
         }
-        if (!in_array(null, $recordedSupplierIds, true)) {
+        if (! in_array(null, $recordedSupplierIds, true)) {
             $cleanup->where(function ($q) use ($recordedSupplierIds) {
                 $q->whereNotIn('supplier_id', $recordedSupplierIds)
-                  ->orWhereNull('supplier_id');
+                    ->orWhereNull('supplier_id');
             })->delete();
         } else {
             $nonNull = array_filter($recordedSupplierIds);
@@ -347,12 +393,14 @@ class PayableService
     public function recordReturnEvent(OrderReturn $return, string $type = 'RETURN_ORDER')
     {
         $date = $return->created_at_platform ?? $return->updated_at_platform ?? $return->created_at;
-        
+
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
 
-        $userId = $order?->store?->user_id ?? ($order ? \App\Models\Store::where('id', $order->store_id)->value('user_id') : null);
-        if (!$userId) return;
+        $userId = $order?->store?->user_id ?? ($order ? Store::where('id', $order->store_id)->value('user_id') : null);
+        if (! $userId) {
+            return;
+        }
 
         // Group returns by supplier
         $returnsBySupplier = [];
@@ -361,17 +409,19 @@ class PayableService
             $orderReturns = OrderReturn::with('items')->where('order_id', $order->id)->get();
             foreach ($orderReturns as $ret) {
                 foreach ($ret->items as $item) {
-                    $variant = VariantProduct::where('model_id', $item->sku_id)
-                        ->orWhere('model_sku', $item->sku_id)
-                        ->first();
-                        
-                    $product = $variant ? $variant->product : Product::where('product_id', $item->sku_id)->first();
-                    $supplierId = null;
-                    if ($variant && $product) {
-                        $supplierId = $this->resolveSupplierIdForItem((object)['product_id' => $product?->product_id, 'model_name' => $variant->model_name], $userId);
-                    }
-
-                    $hpp = $variant ? $this->hppService->variantDetails($variant)['hpp'] : 0;
+                    [$variant, $product] = $this->resolveReturnListing($item->sku_id, $order, $userId);
+                    $supplierId = $product
+                        ? $this->resolveSupplierIdForItem((object) [
+                            'product_id' => $product->product_id,
+                            'model_name' => $variant?->model_name,
+                            'platform_variant_id' => $variant?->model_id,
+                            'sku' => $variant?->model_sku ?? $item->sku_id,
+                            'order' => $order,
+                        ], $userId)
+                        : null;
+                    $hpp = $variant
+                        ? $this->hppService->variantDetails($variant)['hpp']
+                        : ($product ? $this->hppService->productDetails($product)['hpp'] : 0);
                     if ($supplierId && $hpp > 0) {
                         $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $item->quantity);
                     }
@@ -379,15 +429,19 @@ class PayableService
             }
         } else {
             foreach ($return->items as $item) {
-                $variant = VariantProduct::where('model_id', $item->sku_id)
-                    ->orWhere('model_sku', $item->sku_id)
-                    ->first();
-                $product = $variant ? $variant->product : Product::where('product_id', $item->sku_id)->first();
-                $supplierId = ($variant && $product)
-                    ? $this->resolveSupplierIdForItem((object)['product_id' => $product->product_id, 'model_name' => $variant->model_name], $userId)
+                [$variant, $product] = $this->resolveReturnListing($item->sku_id, null, $userId);
+                $supplierId = $product
+                    ? $this->resolveSupplierIdForItem((object) [
+                        'product_id' => $product->product_id,
+                        'model_name' => $variant?->model_name,
+                        'platform_variant_id' => $variant?->model_id,
+                        'sku' => $variant?->model_sku ?? $item->sku_id,
+                    ], $userId)
                     : null;
 
-                $hpp = $variant ? $this->hppService->variantDetails($variant)['hpp'] : 0;
+                $hpp = $variant
+                    ? $this->hppService->variantDetails($variant)['hpp']
+                    : ($product ? $this->hppService->productDetails($product)['hpp'] : 0);
                 if ($supplierId && $hpp > 0) {
                     $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $item->quantity);
                 }
@@ -413,7 +467,7 @@ class PayableService
                 ->get();
             if ($createEvents->isNotEmpty()) {
                 foreach ($createEvents as $ce) {
-                    $returnsBySupplier[$ce->supplier_id] = (float)$ce->amount;
+                    $returnsBySupplier[$ce->supplier_id] = (float) $ce->amount;
                 }
             }
         }
@@ -423,47 +477,59 @@ class PayableService
                 ->whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
                 ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
                 ->delete();
+
             return;
         }
 
-        if ($orderSn && !empty($returnsBySupplier)) {
+        if ($orderSn && ! empty($returnsBySupplier)) {
             // Delete legacy event where source_id was external_return_id
             if ($return->external_return_id && $return->external_return_id !== $orderSn) {
-                PayableEvent::where('source_id', (string)$return->external_return_id)
+                PayableEvent::where('source_id', (string) $return->external_return_id)
                     ->where('source_type', $type)
                     ->delete();
             }
 
             // Also delete duplicate FAILED_DELIVERY
-            PayableEvent::where('source_id', (string)$orderSn)
+            PayableEvent::where('source_id', (string) $orderSn)
                 ->where('source_type', 'FAILED_DELIVERY')
                 ->delete();
 
             $recordedSupplierIds = [];
             foreach ($returnsBySupplier as $supplierId => $retHpp) {
-                if ($retHpp <= 0) continue;
+                if ($retHpp <= 0) {
+                    continue;
+                }
 
-                $actualSupplierId = !empty($supplierId) ? (int)$supplierId : null;
-                if (!$actualSupplierId) continue;
-                
-                $supplier = \App\Models\Supplier::find($actualSupplierId);
-                if (!$supplier) continue;
-                
+                $actualSupplierId = ! empty($supplierId) ? (int) $supplierId : null;
+                if (! $actualSupplierId) {
+                    continue;
+                }
+
+                $supplier = Supplier::find($actualSupplierId);
+                if (! $supplier) {
+                    continue;
+                }
+
                 $period = $this->getPeriodForDate($date, $userId, $supplier);
-                if (!$period) continue;
+                if (! $period) {
+                    continue;
+                }
 
                 $recordedSupplierIds[] = $actualSupplierId;
 
                 $existingEvent = PayableEvent::where('source_id', $orderSn)
                     ->where('source_type', $type)
                     ->where(function ($q) use ($actualSupplierId) {
-                        if ($actualSupplierId) $q->where('supplier_id', $actualSupplierId);
-                        else $q->whereNull('supplier_id');
+                        if ($actualSupplierId) {
+                            $q->where('supplier_id', $actualSupplierId);
+                        } else {
+                            $q->whereNull('supplier_id');
+                        }
                     })
                     ->first();
 
-                $periodId = ($existingEvent && $existingEvent->is_manual_moved) 
-                    ? $existingEvent->payable_period_id 
+                $periodId = ($existingEvent && $existingEvent->is_manual_moved)
+                    ? $existingEvent->payable_period_id
                     : $period->id;
 
                 PayableEvent::updateOrCreate(
@@ -479,7 +545,7 @@ class PayableService
                         'platform' => $return->platform,
                         'event_date' => $date,
                         'amount' => -$retHpp, // negative
-                        'notes' => $return->external_return_id ? ('Return ID: ' . $return->external_return_id) : null,
+                        'notes' => $return->external_return_id ? ('Return ID: '.$return->external_return_id) : null,
                     ]
                 );
             }
@@ -487,10 +553,10 @@ class PayableService
             // Clean up any stale return events for this return/order
             $cleanup = PayableEvent::where('source_id', $orderSn)
                 ->where('source_type', $type);
-            if (!in_array(null, $recordedSupplierIds, true)) {
+            if (! in_array(null, $recordedSupplierIds, true)) {
                 $cleanup->where(function ($q) use ($recordedSupplierIds) {
                     $q->whereNotIn('supplier_id', $recordedSupplierIds)
-                      ->orWhereNull('supplier_id');
+                        ->orWhereNull('supplier_id');
                 })->delete();
             } else {
                 $nonNull = array_filter($recordedSupplierIds);
@@ -498,7 +564,41 @@ class PayableService
             }
         }
     }
-    
+
+    private function resolveReturnListing(mixed $skuId, ?Order $order, int $userId): array
+    {
+        $skuId = trim((string) $skuId);
+        if ($skuId === '') {
+            return [null, null];
+        }
+
+        $scopeToOwner = function ($query) use ($order, $userId) {
+            if ($order?->store_id) {
+                $query->where('store_id', $order->store_id);
+            } else {
+                $query->whereHas('store', fn ($storeQuery) => $storeQuery->where('user_id', $userId));
+            }
+        };
+
+        $variant = VariantProduct::query()
+            ->where(function ($query) use ($skuId) {
+                $query->where('model_id', $skuId)
+                    ->orWhereRaw('LOWER(model_sku) = ?', [mb_strtolower($skuId)]);
+            })
+            ->whereHas('product', $scopeToOwner)
+            ->with('product.store')
+            ->first();
+
+        if ($variant) {
+            return [$variant, $variant->product];
+        }
+
+        $productQuery = Product::query()->where('product_id', $skuId);
+        $scopeToOwner($productQuery);
+
+        return [null, $productQuery->first()];
+    }
+
     /**
      * Record a cancellation event.
      *
@@ -518,13 +618,14 @@ class PayableService
             PayableEvent::where('source_id', $order->order_sn)
                 ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
                 ->delete();
-            Log::info("PayableService: Deleted payable events for truly cancelled order " . $order->order_sn);
+            Log::info('PayableService: Deleted payable events for truly cancelled order '.$order->order_sn);
+
             return;
         }
 
         // Below: handle FAILED_DELIVERY on a shipped/completed order only
         $hasFailedPackage = $order->packages()->where('normalized_logistics_status', 'DELIVERY_FAILED')->exists();
-        if (!$hasFailedPackage) {
+        if (! $hasFailedPackage) {
             return;
         }
 
@@ -537,6 +638,7 @@ class PayableService
             PayableEvent::where('source_id', $order->order_sn)
                 ->where('source_type', $type)
                 ->delete();
+
             return;
         }
 
@@ -549,34 +651,45 @@ class PayableService
             return;
         }
 
-        $userId = $order->store?->user_id ?? \App\Models\Store::where('id', $order->store_id)->value('user_id');
-        if (!$userId) return;
+        $userId = $order->store?->user_id ?? Store::where('id', $order->store_id)->value('user_id');
+        if (! $userId) {
+            return;
+        }
 
         $date = $order->updated_at;
         $recordedSupplierIds = [];
 
         foreach ($createEvents as $createEvent) {
-            $actualSupplierId = !empty($createEvent->supplier_id) ? (int)$createEvent->supplier_id : null;
-            if (!$actualSupplierId) continue;
-            
-            $supplier = \App\Models\Supplier::find($actualSupplierId);
-            if (!$supplier) continue;
-            
+            $actualSupplierId = ! empty($createEvent->supplier_id) ? (int) $createEvent->supplier_id : null;
+            if (! $actualSupplierId) {
+                continue;
+            }
+
+            $supplier = Supplier::find($actualSupplierId);
+            if (! $supplier) {
+                continue;
+            }
+
             $period = $this->getPeriodForDate($date, $userId, $supplier);
-            if (!$period) continue;
+            if (! $period) {
+                continue;
+            }
 
             $recordedSupplierIds[] = $actualSupplierId;
 
             $existingEvent = PayableEvent::where('source_id', $order->order_sn)
                 ->where('source_type', $type)
                 ->where(function ($q) use ($actualSupplierId) {
-                    if ($actualSupplierId) $q->where('supplier_id', $actualSupplierId);
-                    else $q->whereNull('supplier_id');
+                    if ($actualSupplierId) {
+                        $q->where('supplier_id', $actualSupplierId);
+                    } else {
+                        $q->whereNull('supplier_id');
+                    }
                 })
                 ->first();
 
-            $periodId = ($existingEvent && $existingEvent->is_manual_moved) 
-                ? $existingEvent->payable_period_id 
+            $periodId = ($existingEvent && $existingEvent->is_manual_moved)
+                ? $existingEvent->payable_period_id
                 : $period->id;
 
             PayableEvent::updateOrCreate(
@@ -591,7 +704,7 @@ class PayableService
                     'store_id' => $order->store_id,
                     'platform' => $order->platform,
                     'event_date' => $date,
-                    'amount' => -abs((float)$createEvent->amount),
+                    'amount' => -abs((float) $createEvent->amount),
                 ]
             );
         }
@@ -599,10 +712,10 @@ class PayableService
         // Clean up any stale cancellation events for this order
         $cleanup = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', $type);
-        if (!in_array(null, $recordedSupplierIds, true)) {
+        if (! in_array(null, $recordedSupplierIds, true)) {
             $cleanup->where(function ($q) use ($recordedSupplierIds) {
                 $q->whereNotIn('supplier_id', $recordedSupplierIds)
-                  ->orWhereNull('supplier_id');
+                    ->orWhereNull('supplier_id');
             })->delete();
         } else {
             $nonNull = array_filter($recordedSupplierIds);
@@ -616,9 +729,11 @@ class PayableService
     public function syncPayableForUser(int $userId, ?string $startDate = null): void
     {
         $start = $startDate ? Carbon::parse($startDate) : null;
-        
-        $userStores = \App\Models\Store::where('user_id', $userId)->pluck('id');
-        if ($userStores->isEmpty()) return;
+
+        $userStores = Store::where('user_id', $userId)->pluck('id');
+        if ($userStores->isEmpty()) {
+            return;
+        }
 
         // Clear assignments created by the old implicit fallback. Explicit UI
         // mappings always have a supplier_product_mappings row for the product.
@@ -653,7 +768,7 @@ class PayableService
         }
 
         // Step 1: Pre-create ALL consecutive periods for this user's suppliers
-        $suppliers = \App\Models\Supplier::where('user_id', $userId)->get();
+        $suppliers = Supplier::where('user_id', $userId)->get();
         foreach ($suppliers as $supplier) {
             $supplierStart = $supplier->first_period_start;
             if ($supplierStart) {
@@ -665,12 +780,12 @@ class PayableService
         $ordersQuery = Order::with('orderProducts')
             ->whereIn('store_id', $userStores)
             ->whereNotNull('order_status')
-            ->whereNotIn(\Illuminate\Support\Facades\DB::raw('UPPER(order_status)'), ['UNPAID', 'UNKNOWN', 'ON_HOLD', '']);
-            
+            ->whereNotIn(DB::raw('UPPER(order_status)'), ['UNPAID', 'UNKNOWN', 'ON_HOLD', '']);
+
         if ($start) {
             $ordersQuery->where('order_time', '>=', $start);
         }
-        
+
         $orders = $ordersQuery->get();
 
         foreach ($orders as $order) {
@@ -685,13 +800,13 @@ class PayableService
             })
             ->where(function ($q) {
                 $q->whereNotNull('updated_at_platform')
-                  ->orWhereNotNull('created_at_platform');
+                    ->orWhereNotNull('created_at_platform');
             })
             ->get();
 
         foreach ($returns as $return) {
             $date = $return->created_at_platform ?? $return->updated_at_platform ?? $return->created_at;
-            if (!$start || Carbon::parse($date)->gte($start)) {
+            if (! $start || Carbon::parse($date)->gte($start)) {
                 $this->recordReturnEvent($return);
             }
         }

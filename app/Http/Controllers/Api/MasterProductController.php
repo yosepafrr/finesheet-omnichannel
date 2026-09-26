@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncMasterProductVariantsJob;
+use App\Jobs\SyncPayableHistoryJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
+use App\Models\Supplier;
 use App\Services\MasterSkuSyncService;
 use App\Services\StockSyncService;
 use Illuminate\Database\Eloquent\Builder;
@@ -173,6 +175,16 @@ class MasterProductController extends Controller
 
         $createdCount = count($result['createdSkus']);
         $skippedCount = count($result['skippedSkus']);
+        $payableStart = $createdCount > 0
+            ? Supplier::query()
+                ->where('user_id', $user->id)
+                ->whereNotNull('first_period_start')
+                ->min('first_period_start')
+            : null;
+
+        if ($payableStart) {
+            SyncPayableHistoryJob::dispatch((string) $payableStart, $user->id)->onQueue('orders');
+        }
 
         return response()->json([
             'message' => $createdCount > 0
@@ -184,6 +196,7 @@ class MasterProductController extends Controller
             'created_skus' => $result['createdSkus'],
             'skipped_skus' => $result['skippedSkus'],
             'sync_queued' => $createdCount > 0,
+            'payable_sync_queued' => (bool) $payableStart,
         ], $createdCount > 0 ? 201 : 200);
     }
 

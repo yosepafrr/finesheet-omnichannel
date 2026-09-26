@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Jobs\SyncMasterProductVariantsJob;
+use App\Jobs\SyncPayableHistoryJob;
 use App\Jobs\SyncStockToMarketplaceJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\Product;
 use App\Models\Store;
+use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -175,6 +177,12 @@ class MasterProductTest extends TestCase
             $this->createStore($user, 'Shopee', 'Toko A', 'SHOP-BULK-A'),
             $this->createStore($user, 'Tiktokshop', 'Toko B', 'SHOP-BULK-B'),
         ];
+        Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Bulk',
+            'period_length_days' => 14,
+            'first_period_start' => now()->subMonth(),
+        ]);
 
         foreach ($stores as $storeIndex => $store) {
             foreach (['SKU-BULK-A', 'SKU-BULK-B'] as $skuIndex => $sku) {
@@ -198,7 +206,8 @@ class MasterProductTest extends TestCase
             ->assertJsonPath('requested_count', 1)
             ->assertJsonPath('created_count', 1)
             ->assertJsonPath('skipped_count', 0)
-            ->assertJsonPath('sync_queued', true);
+            ->assertJsonPath('sync_queued', true)
+            ->assertJsonPath('payable_sync_queued', true);
         $this->assertDatabaseHas('master_products', [
             'user_id' => $user->id,
             'name' => 'Kemeja Bulk',
@@ -220,6 +229,7 @@ class MasterProductTest extends TestCase
         Bus::assertDispatched(SyncMasterProductVariantsJob::class, function ($job) {
             return count($job->variantIds) === 1;
         });
+        Bus::assertDispatched(SyncPayableHistoryJob::class);
     }
 
     public function test_bulk_add_skips_skus_that_are_not_in_the_users_detected_list(): void

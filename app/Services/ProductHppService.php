@@ -204,9 +204,12 @@ class ProductHppService
 
     private function details(?MasterProductVariant $masterVariant, float $localHpp): array
     {
+        $masterHpp = (float) ($masterVariant?->hpp ?? 0);
+        $usesMasterHpp = $masterVariant && $masterHpp > 0;
+
         return [
-            'hpp' => $masterVariant ? (float) $masterVariant->hpp : $localHpp,
-            'source' => $masterVariant ? 'master' : 'marketplace',
+            'hpp' => $usesMasterHpp ? $masterHpp : $localHpp,
+            'source' => $usesMasterHpp ? 'master' : 'marketplace',
             'master_variant_id' => $masterVariant?->id,
         ];
     }
