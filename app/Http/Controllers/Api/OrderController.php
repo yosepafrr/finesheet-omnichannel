@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Order;
+use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
+use App\Services\OrderFinancialBreakdownService;
 use Illuminate\Support\Facades\Auth;
 
 class OrderController extends Controller
@@ -237,7 +239,7 @@ class OrderController extends Controller
                     'tracking_number' => $order->platform === 'Shopee' 
                         ? ($order->raw_data['tracking_no'] ?? null) 
                         : ($order->raw_data['tracking_number'] ?? null),
-                    'packages' => $order->packages->map(function ($pkg) {
+                    'packages' => $order->packages->map(function ($pkg) use ($logisticsStatusNormalizer) {
                         return [
                             'package_id' => $pkg->package_id,
                             'tracking_number' => $pkg->tracking_number,
@@ -250,7 +252,13 @@ class OrderController extends Controller
         ]);
     }
 
-    public function show(Request $request, $id, OrderEscrowService $escrowService)
+    public function show(
+        Request $request,
+        $id,
+        OrderEscrowService $escrowService,
+        OrderFinancialBreakdownService $financialBreakdownService,
+        LogisticsStatusNormalizer $logisticsStatusNormalizer
+    )
     {
         $user = Auth::user();
         $stores = $user->stores()->pluck('id');
@@ -299,6 +307,7 @@ class OrderController extends Controller
             'order_selling_price' => $order->order_selling_price,
             'escrow_amount' => $escrowService->amount($order),
             'fee_details' => $order->fee_details,
+            'financial_breakdown' => $financialBreakdownService->forOrder($order),
             'cancel_source' => $order->cancel_source,
             'cancel_reason' => $order->cancel_reason,
             'buyer_cancel_reason' => $order->buyer_cancel_reason,
@@ -351,6 +360,8 @@ class OrderController extends Controller
                     'tracking_number' => $pkg->tracking_number,
                     'logistics_status' => $pkg->logistics_status,
                     'normalized_logistics_status' => $pkg->normalized_logistics_status,
+                    'failed_at' => $pkg->failed_at?->toIso8601String(),
+                    'history' => $logisticsStatusNormalizer->history($pkg->raw_data ?? []),
                     'raw_data' => $pkg->raw_data,
                 ];
             }),

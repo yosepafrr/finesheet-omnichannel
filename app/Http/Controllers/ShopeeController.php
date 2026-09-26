@@ -396,6 +396,7 @@ class ShopeeController extends Controller
                                     'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
                                     'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
                                     'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
+                                    'fee_details' => $escrow['order_income'] ?? null,
 
                                 ]
                             );

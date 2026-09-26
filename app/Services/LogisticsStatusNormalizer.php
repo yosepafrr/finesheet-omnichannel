@@ -148,6 +148,60 @@ class LogisticsStatusNormalizer
             return null;
         }
 
+        return $this->dateFromTimestamp((int) $timestamp);
+    }
+
+    /**
+     * @return array<int, array{
+     *     description: string,
+     *     action_code: int|string|null,
+     *     occurred_at: string|null,
+     *     timestamp: int,
+     *     is_failed_delivery: bool
+     * }>
+     */
+    public function history(array $payload): array
+    {
+        $events = [];
+        $this->collectEvents($payload, $events);
+
+        usort($events, fn (array $left, array $right) => $right['time'] <=> $left['time']);
+
+        $seen = [];
+        $history = [];
+
+        foreach ($events as $event) {
+            $description = trim((string) $event['description']);
+            $key = strtolower($description).'|'.$event['time'].'|'.($event['action_code'] ?? '');
+
+            if ($description === '' || isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $failedAction = $event['action_code'] !== null
+                && in_array((int) $event['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true);
+            $occurredAt = $event['time'] > 0
+                ? $this->dateFromTimestamp((int) $event['time'])
+                : null;
+
+            $history[] = [
+                'description' => $description,
+                'action_code' => $event['action_code'],
+                'occurred_at' => $occurredAt?->toIso8601String(),
+                'timestamp' => (int) $event['time'],
+                'is_failed_delivery' => $failedAction || $this->containsPhrase(
+                    $this->normalizeText($description),
+                    self::FAILED_DELIVERY_PHRASES
+                ),
+            ];
+        }
+
+        return $history;
+    }
+
+    private function dateFromTimestamp(int $timestamp): Carbon
+    {
         $date = $timestamp > 100_000_000_000
             ? Carbon::createFromTimestampMs($timestamp, 'UTC')
             : Carbon::createFromTimestamp($timestamp, 'UTC');
@@ -174,11 +228,11 @@ class LogisticsStatusNormalizer
         if (is_scalar($description) && trim((string) $description) !== '') {
             $events[] = [
                 'description' => trim((string) $description),
-                'time' => (int) ($value['update_time_millis']
+                'time' => $this->eventTimestamp($value['update_time_millis']
                     ?? $value['update_time']
                     ?? $value['event_time']
                     ?? $value['create_time']
-                    ?? 0),
+                    ?? null),
                 'action_code' => $value['action_code'] ?? null,
             ];
         }
@@ -187,6 +241,23 @@ class LogisticsStatusNormalizer
             if (is_array($child)) {
                 $this->collectEvents($child, $events);
             }
+        }
+    }
+
+    private function eventTimestamp(mixed $value): int
+    {
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return 0;
+        }
+
+        try {
+            return Carbon::parse($value, 'UTC')->getTimestamp();
+        } catch (\Throwable) {
+            return 0;
         }
     }
 

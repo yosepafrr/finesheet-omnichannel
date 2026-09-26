@@ -105,4 +105,37 @@ class LogisticsStatusNormalizerTest extends TestCase
         $this->assertNotNull($date);
         $this->assertSame(1_789_018_876, $date->getTimestamp());
     }
+
+    public function test_it_builds_a_unique_newest_first_tracking_history(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $payload = [
+            'tracking' => [
+                [
+                    'action_code' => 40101,
+                    'description' => 'Package arrived at delivery hub.',
+                    'update_time' => '2026-09-10T08:00:00+07:00',
+                ],
+                [
+                    'action_code' => 40601,
+                    'description' => 'Package can no longer be delivered.',
+                    'update_time_millis' => 1_789_018_876_000,
+                ],
+                [
+                    'action_code' => 40601,
+                    'description' => 'Package can no longer be delivered.',
+                    'update_time_millis' => 1_789_018_876_000,
+                ],
+            ],
+        ];
+
+        $history = $normalizer->history($payload);
+
+        $this->assertCount(2, $history);
+        $this->assertSame('Package can no longer be delivered.', $history[0]['description']);
+        $this->assertTrue($history[0]['is_failed_delivery']);
+        $this->assertNotNull($history[0]['occurred_at']);
+        $this->assertFalse($history[1]['is_failed_delivery']);
+        $this->assertStringContainsString('2026-09-10', $history[1]['occurred_at']);
+    }
 }

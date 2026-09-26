@@ -187,7 +187,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                         'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? $orderModel->order_selling_price,
                         'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? $orderModel->escrow_amount,
                         'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? $orderModel->escrow_amount_after_adjustment,
-                        'fee_details' => $escrow['income_details'] ?? $orderModel->fee_details,
+                        'fee_details' => $escrow['order_income'] ?? $orderModel->fee_details,
                     ]);
                 }
             } catch (\Throwable $escrowException) {

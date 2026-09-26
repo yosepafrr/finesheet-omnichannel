@@ -7,6 +7,35 @@ function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
 }
 
+function formatDateTime(value) {
+    if (!value) return "Waktu tidak tersedia";
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(date);
+}
+
+function formatPercentage(value) {
+    return Number(value || 0).toLocaleString("id-ID", {
+        maximumFractionDigits: 2,
+    }) + "%";
+}
+
+function logisticsStatusLabel(status) {
+    if (status === "DELIVERY_FAILED") return "PENGANTARAN GAGAL";
+    if (status === "DELIVERED") return "TERKIRIM";
+    if (status === "IN_TRANSIT") return "DALAM PENGIRIMAN";
+
+    return status || "BELUM DIKETAHUI";
+}
+
 const STATUS_CONFIG_SHOPEE = {
     UNPAID: { label: "Belum Bayar" },
     READY_TO_SHIP: { label: "Perlu Dikirim" },
@@ -199,6 +228,21 @@ export default function OrderDetail({ routeParams }) {
         );
     }
 
+    const returns = order.returns || [];
+    const packages = order.packages || [];
+    const failedPackages = packages.filter(
+        (pkg) => pkg.normalized_logistics_status === "DELIVERY_FAILED"
+    );
+    const hasReturnStatus = ["TO_RETURN", "RETURNED"].includes(order.order_status);
+    const showReturnHistory = returns.length > 0 || failedPackages.length > 0 || hasReturnStatus;
+    const financialBreakdown = order.financial_breakdown || {
+        gross_amount: order.order_selling_price,
+        escrow_amount: order.escrow_amount,
+        components: [],
+        is_affiliate: false,
+        affiliate_percentage: null,
+    };
+
     return (
         <AppLayout>
             <div className="w-full space-y-6 pb-20">
@@ -234,6 +278,15 @@ export default function OrderDetail({ routeParams }) {
                                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
                                     {order.platform}
                                 </span>
+                                {financialBreakdown.is_affiliate && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
+                                        <span className="material-symbols-rounded text-sm">campaign</span>
+                                        Pesanan Affiliate
+                                        {financialBreakdown.affiliate_percentage !== null && (
+                                            <span>{formatPercentage(financialBreakdown.affiliate_percentage)}</span>
+                                        )}
+                                    </span>
+                                )}
                             </div>
                             <div className="ml-9 text-sm text-gray-500 dark:text-slate-400 flex flex-col sm:flex-row sm:gap-6">
                                 <p><span className="font-semibold">Store:</span> {order.store_name}</p>
@@ -347,16 +400,47 @@ export default function OrderDetail({ routeParams }) {
                             </div>
                         </div>
 
-                        {/* 8. Return / Refund Section */}
-                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
-                            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                                <span className="material-symbols-rounded text-rose-500">assignment_return</span>
-                                Riwayat Pengembalian (Return/Refund)
-                            </h2>
-                            
-                            {order.returns && order.returns.length > 0 ? (
+                        {/* 8. Return / Refund and Failed Delivery Section */}
+                        {showReturnHistory && (
+                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
+                                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-rounded text-rose-500">assignment_return</span>
+                                    Riwayat Pengembalian & Pengantaran Gagal
+                                </h2>
+
                                 <div className="space-y-4">
-                                    {order.returns.map((ret) => (
+                                    {failedPackages.map((pkg, idx) => {
+                                        const failureEvent = (pkg.history || []).find((event) => event.is_failed_delivery);
+
+                                        return (
+                                            <div key={`failed-${pkg.package_id || idx}`} className="bg-red-50/50 dark:bg-red-900/10 rounded-xl p-5 border border-red-100 dark:border-red-900/30">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                                                            <span className="text-xs font-bold text-red-700 dark:text-red-300">Pengantaran Gagal</span>
+                                                            <span className="text-xs text-gray-500 bg-white dark:bg-slate-800 px-2 py-1 rounded border border-red-100 dark:border-red-900/30">
+                                                                Paket {pkg.package_id || idx + 1}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm font-medium text-gray-800 dark:text-slate-200 break-words">
+                                                            {failureEvent?.description || pkg.logistics_status || "Paket tidak berhasil diantarkan"}
+                                                        </p>
+                                                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                                                            Resi: <span className="font-mono break-all">{pkg.tracking_number || "-"}</span>
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-left sm:text-right">
+                                                        <p className="text-xs text-gray-500">Terdeteksi pada</p>
+                                                        <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                                                            {formatDateTime(pkg.failed_at || failureEvent?.occurred_at)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {returns.map((ret) => (
                                         <div key={ret.id} className="bg-rose-50/30 dark:bg-rose-900/10 rounded-xl p-5 border border-rose-100 dark:border-rose-900/30">
                                             <div className="flex flex-wrap justify-between gap-4 mb-4 pb-4 border-b border-rose-100 dark:border-rose-900/30">
                                                 <div>
@@ -366,17 +450,17 @@ export default function OrderDetail({ routeParams }) {
                                                         <span className="text-xs text-gray-500 bg-white dark:bg-slate-800 px-2 py-1 rounded border border-gray-200 dark:border-slate-600">Platform: {ret.platform_status || ret.return_status}</span>
                                                         {ret.return_type && (
                                                             <span className="text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded border border-indigo-100 dark:border-indigo-800">
-                                                                Type: {ret.return_type}
+                                                                Tipe: {ret.return_type}
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div className="text-right min-w-[120px]">
-                                                    <p className="text-xs text-gray-500">Refund Amount</p>
+                                                <div className="text-left sm:text-right min-w-[120px]">
+                                                    <p className="text-xs text-gray-500">Nilai Refund</p>
                                                     <p className="font-bold text-rose-600 dark:text-rose-400 text-lg">{formatRp(ret.refund_amount)}</p>
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                                 <div>
                                                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Alasan Pengembalian</p>
@@ -387,31 +471,38 @@ export default function OrderDetail({ routeParams }) {
                                                 <div>
                                                     <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Waktu (Platform)</p>
                                                     <p className="text-xs text-gray-600 dark:text-slate-400">Diajukan: {ret.created_at_platform || '-'}</p>
-                                                    <p className="text-xs text-gray-600 dark:text-slate-400">Diupdate: {ret.updated_at_platform || '-'}</p>
+                                                    <p className="text-xs text-gray-600 dark:text-slate-400">Diperbarui: {ret.updated_at_platform || '-'}</p>
                                                 </div>
                                             </div>
 
-                                            <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-rose-50 dark:border-slate-700">
-                                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Item yang dikembalikan:</p>
-                                                <ul className="space-y-2">
-                                                    {ret.items.map((item, idx) => (
-                                                        <li key={idx} className="flex justify-between items-center text-sm border-b border-gray-50 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
-                                                            <span className="text-gray-700 dark:text-slate-300 line-clamp-1 flex-1 pr-4 font-medium break-words">{item.product_name || "Item"}</span>
-                                                            <span className="font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded text-xs whitespace-nowrap">Qty: {item.quantity}</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
+                                            {ret.items?.length > 0 && (
+                                                <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-rose-50 dark:border-slate-700">
+                                                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Item yang dikembalikan</p>
+                                                    <ul className="space-y-2">
+                                                        {ret.items.map((item, idx) => (
+                                                            <li key={idx} className="flex justify-between items-center text-sm border-b border-gray-50 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
+                                                                <span className="text-gray-700 dark:text-slate-300 line-clamp-1 flex-1 pr-4 font-medium break-words">{item.product_name || "Item"}</span>
+                                                                <span className="font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded text-xs whitespace-nowrap">Qty: {item.quantity}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
+
+                                    {hasReturnStatus && returns.length === 0 && failedPackages.length === 0 && (
+                                        <div className="flex items-start gap-3 rounded-xl border border-rose-100 bg-rose-50/30 p-4 dark:border-rose-900/30 dark:bg-rose-900/10">
+                                            <span className="material-symbols-rounded text-rose-500">assignment_return</span>
+                                            <div>
+                                                <p className="text-sm font-semibold text-gray-800 dark:text-slate-200">Pesanan sedang dalam proses pengembalian</p>
+                                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Detail pengembalian dari platform belum tersedia.</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            ) : (
-                                <div className="text-center py-8 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
-                                    <span className="material-symbols-rounded text-4xl text-gray-300 dark:text-slate-600 mb-2">task_alt</span>
-                                    <p className="text-gray-500 dark:text-slate-400 font-medium">Tidak ada return / refund</p>
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* RIGHT COLUMN: Sidebar Info */}
@@ -468,13 +559,18 @@ export default function OrderDetail({ routeParams }) {
                             <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
                                 <h2 className="text-sm font-bold text-gray-900 dark:text-white mb-3 uppercase tracking-wider flex items-center gap-2 border-b border-gray-100 dark:border-slate-700 pb-2">
                                     <span className="material-symbols-rounded text-gray-400 text-lg">inventory</span>
-                                    Status Logistik & Paket
+                                    Riwayat Logistik & Paket
                                 </h2>
                                 <div className="space-y-4">
                                     {order.packages.map((pkg, idx) => (
                                         <div key={idx} className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="text-xs font-bold text-gray-500 uppercase break-all pr-2">Paket: {pkg.package_id || (idx + 1)}</span>
+                                            <div className="flex justify-between items-start gap-2 mb-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-gray-500 uppercase break-all">Paket: {pkg.package_id || (idx + 1)}</p>
+                                                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400 break-all">
+                                                        Resi: <span className="font-mono font-semibold text-gray-700 dark:text-slate-300">{pkg.tracking_number || '-'}</span>
+                                                    </p>
+                                                </div>
                                                 <span className={`text-xs font-bold px-2 py-1 rounded-md whitespace-nowrap ${
                                                     pkg.normalized_logistics_status === 'DELIVERY_FAILED' 
                                                     ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' 
@@ -482,13 +578,41 @@ export default function OrderDetail({ routeParams }) {
                                                     ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
                                                     : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
                                                 }`}>
-                                                    {pkg.normalized_logistics_status === 'DELIVERY_FAILED' ? 'PENGIRIMAN GAGAL' : (pkg.normalized_logistics_status || 'UNKNOWN')}
+                                                    {logisticsStatusLabel(pkg.normalized_logistics_status)}
                                                 </span>
                                             </div>
-                                            <div className="text-sm">
-                                                <p className="text-gray-600 dark:text-slate-400 break-words"><span className="font-semibold text-gray-700 dark:text-slate-300">Resi (Tracking):</span> {pkg.tracking_number || '-'}</p>
-                                                <p className="text-gray-600 dark:text-slate-400 mt-1 break-words"><span className="font-semibold text-gray-700 dark:text-slate-300">Detail Status:</span> {pkg.logistics_status || '-'}</p>
-                                            </div>
+
+                                            {pkg.history?.length > 0 ? (
+                                                <ol className="relative ml-1 border-l border-slate-200 dark:border-slate-700">
+                                                    {pkg.history.map((event, eventIdx) => (
+                                                        <li key={`${event.timestamp}-${event.action_code}-${eventIdx}`} className="relative ml-4 pb-4 last:pb-0">
+                                                            <span className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-slate-50 dark:ring-slate-900 ${
+                                                                event.is_failed_delivery
+                                                                    ? 'bg-red-500'
+                                                                    : eventIdx === 0
+                                                                    ? 'bg-[#304674] dark:bg-blue-400'
+                                                                    : 'bg-slate-300 dark:bg-slate-600'
+                                                            }`}></span>
+                                                            <p className={`text-xs leading-relaxed break-words ${
+                                                                event.is_failed_delivery
+                                                                    ? 'font-semibold text-red-700 dark:text-red-300'
+                                                                    : 'text-gray-700 dark:text-slate-300'
+                                                            }`}>
+                                                                {event.description}
+                                                            </p>
+                                                            <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-400 dark:text-slate-500 flex-wrap">
+                                                                <span>{formatDateTime(event.occurred_at)}</span>
+                                                                {event.action_code && <span className="font-mono">#{event.action_code}</span>}
+                                                            </div>
+                                                        </li>
+                                                    ))}
+                                                </ol>
+                                            ) : (
+                                                <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-3">
+                                                    <p className="text-xs font-medium text-gray-700 dark:text-slate-300 break-words">{pkg.logistics_status || 'Riwayat tracking belum tersedia'}</p>
+                                                    <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">Status terakhir dari platform</p>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -497,32 +621,53 @@ export default function OrderDetail({ routeParams }) {
 
                         {/* 5, 6, 7. Summary, Fees & Settlement */}
                         <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
-                            <h2 className="text-sm font-bold text-gray-900 dark:text-white mb-3 uppercase tracking-wider flex items-center gap-2 border-b border-gray-100 dark:border-slate-700 pb-2">
-                                <span className="material-symbols-rounded text-gray-400 text-lg">receipt_long</span>
-                                Rincian Keuangan
-                            </h2>
-                            
-                            <div className="space-y-3 text-sm">
-                                <div className="flex justify-between text-gray-600 dark:text-slate-400">
-                                    <span>Total Pembayaran Pembeli</span>
-                                    <span className="font-medium text-gray-800 dark:text-slate-200">{formatRp(order.order_selling_price)}</span>
-                                </div>
-                                
-                                {order.fee_details && (
-                                    <div className="pt-2 border-t border-dashed border-gray-200 dark:border-slate-700">
-                                        <p className="text-xs font-bold text-gray-500 uppercase mb-2">Potongan & Fee Platform</p>
-                                        <div className="bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg max-h-48 overflow-y-auto custom-scrollbar">
-                                            <pre className="text-[10px] text-gray-600 dark:text-slate-400 font-mono whitespace-pre-wrap break-all">
-                                                {typeof order.fee_details === 'string' ? order.fee_details : JSON.stringify(order.fee_details, null, 2)}
-                                            </pre>
-                                        </div>
-                                    </div>
+                            <div className="mb-3 flex items-center justify-between gap-2 border-b border-gray-100 pb-2 dark:border-slate-700">
+                                <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-900 dark:text-white">
+                                    <span className="material-symbols-rounded text-lg text-gray-400">receipt_long</span>
+                                    Rincian Keuangan
+                                </h2>
+                                {financialBreakdown.is_affiliate && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                                        Affiliate {formatPercentage(financialBreakdown.affiliate_percentage)}
+                                    </span>
                                 )}
+                            </div>
 
-                                <div className="pt-3 mt-3 border-t-2 border-gray-100 dark:border-slate-700">
-                                    <div className="flex justify-between font-bold text-gray-900 dark:text-white text-base">
-                                        <span>Estimasi Penghasilan Bersih</span>
-                                        <span className="text-[#304674] dark:text-blue-400">{formatRp(order.escrow_amount)}</span>
+                            <div className="text-sm">
+                                <div className="flex items-start justify-between gap-4 py-2 text-gray-700 dark:text-slate-300">
+                                    <span className="font-semibold">Penghasilan kotor</span>
+                                    <span className="font-semibold tabular-nums">{formatRp(financialBreakdown.gross_amount)}</span>
+                                </div>
+
+                                {financialBreakdown.components?.map((component) => (
+                                    <div key={component.key} className="flex items-start justify-between gap-3 py-2 text-gray-600 dark:text-slate-400">
+                                        <div className="min-w-0">
+                                            <span className="break-words">{component.label}</span>
+                                            {component.is_affiliate && component.percentage !== null && (
+                                                <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                                    {formatPercentage(component.percentage)}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={`shrink-0 font-medium tabular-nums ${
+                                            component.operator === '-'
+                                                ? 'text-rose-600 dark:text-rose-400'
+                                                : 'text-emerald-600 dark:text-emerald-400'
+                                        }`}>
+                                            {component.operator} {formatRp(component.amount)}
+                                        </span>
+                                    </div>
+                                ))}
+
+                                <div className="mt-2 border-t-2 border-gray-200 pt-3 dark:border-slate-600">
+                                    <div className="flex items-center justify-between gap-4 rounded-lg bg-blue-50 px-3 py-3 dark:bg-blue-900/20">
+                                        <div>
+                                            <p className="font-bold text-gray-900 dark:text-white">Escrow</p>
+                                            <p className="text-[11px] text-gray-500 dark:text-slate-400">Penghasilan bersih dari platform</p>
+                                        </div>
+                                        <span className="text-base font-bold tabular-nums text-[#304674] dark:text-blue-300">
+                                            {formatRp(financialBreakdown.escrow_amount)}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
