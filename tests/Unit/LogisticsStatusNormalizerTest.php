@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\LogisticsStatusNormalizer;
+use Carbon\Carbon;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -100,6 +101,43 @@ class LogisticsStatusNormalizerTest extends TestCase
         $this->assertSame('DELIVERED', $normalizer->normalize($payload, 'DELIVERY_FAILED'));
         $this->assertFalse($normalizer->isFailedDelivery($payload));
         $this->assertNull($normalizer->failedDeliveryOccurredAt($payload));
+    }
+
+    public function test_retry_timestamp_is_replaced_by_first_final_failure_and_then_stays_fixed(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $payload = [
+            'tracking' => [
+                [
+                    'action_code' => 70202,
+                    'description' => 'Return package left the delivery station.',
+                    'update_time_millis' => 1_801_154_160_000,
+                ],
+                [
+                    'action_code' => 70201,
+                    'description' => 'Your package is being returned to the seller.',
+                    'update_time_millis' => 1_801_094_280_000,
+                ],
+                [
+                    'action_code' => 40601,
+                    'description' => 'An attempt to deliver your package failed. Our carrier will try to deliver it again.',
+                    'update_time_millis' => 1_801_000_920_000,
+                ],
+            ],
+        ];
+
+        $retryDate = Carbon::createFromTimestampMs(1_801_000_920_000);
+        $firstFinalDate = Carbon::createFromTimestampMs(1_801_094_280_000);
+
+        $this->assertTrue($normalizer->isRetryableDeliveryTimestamp($payload, $retryDate));
+        $this->assertSame(
+            $firstFinalDate->getTimestamp(),
+            $normalizer->resolveFailedDeliveryOccurredAt($payload, $retryDate)?->getTimestamp()
+        );
+        $this->assertSame(
+            $firstFinalDate->getTimestamp(),
+            $normalizer->resolveFailedDeliveryOccurredAt($payload, $firstFinalDate)?->getTimestamp()
+        );
     }
 
     public function test_regular_buyer_cancellation_is_not_failed_delivery(): void

@@ -21,11 +21,22 @@ class OrderPackage extends Model
 
             $package->loadMissing('order');
             $normalizer = app(LogisticsStatusNormalizer::class);
-            $detectedAt = $normalizer->failedDeliveryOccurredAt($package->raw_data ?? [])
-                ?? $normalizer->failedDeliveryOccurredAt($package->order?->raw_data ?? []);
+            $packagePayload = $package->raw_data ?? [];
+            $orderPayload = $package->order?->raw_data ?? [];
+            $resolvedAt = $normalizer->resolveFailedDeliveryOccurredAt(
+                $packagePayload,
+                $package->failed_at
+            );
 
-            if ($detectedAt && (! $package->failed_at || $detectedAt->lt($package->failed_at))) {
-                $package->failed_at = $detectedAt;
+            if (! $normalizer->failedDeliveryOccurredAt($packagePayload)) {
+                $resolvedAt = $normalizer->resolveFailedDeliveryOccurredAt(
+                    $orderPayload,
+                    $resolvedAt
+                );
+            }
+
+            if ($resolvedAt) {
+                $package->failed_at = $resolvedAt;
             } elseif (! $package->failed_at) {
                 $package->failed_at = now();
             }

@@ -195,6 +195,47 @@ class LogisticsStatusNormalizer
         return $this->dateFromTimestamp((int) $timestamp);
     }
 
+    public function resolveFailedDeliveryOccurredAt(array $payload, mixed $current): ?Carbon
+    {
+        $detected = $this->failedDeliveryOccurredAt($payload);
+        $currentDate = $current ? Carbon::parse($current) : null;
+
+        if (! $detected) {
+            return $currentDate;
+        }
+
+        if (! $currentDate
+            || $detected->lt($currentDate)
+            || $this->isRetryableDeliveryTimestamp($payload, $currentDate)) {
+            return $detected;
+        }
+
+        return $currentDate;
+    }
+
+    public function isRetryableDeliveryTimestamp(array $payload, mixed $occurredAt): bool
+    {
+        if (! $occurredAt) {
+            return false;
+        }
+
+        $timestamp = Carbon::parse($occurredAt)->getTimestamp();
+        $events = [];
+        $this->collectEvents($payload, $events);
+
+        foreach ($events as $event) {
+            if ($event['time'] <= 0 || ! $this->isRetryableDeliveryEvent($event)) {
+                continue;
+            }
+
+            if (abs($this->timestampInSeconds((int) $event['time']) - $timestamp) <= 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<int, array{
      *     description: string,
@@ -270,6 +311,23 @@ class LogisticsStatusNormalizer
         }
 
         return $description !== '' ? 'IN_TRANSIT' : null;
+    }
+
+    private function isRetryableDeliveryEvent(array $event): bool
+    {
+        $actionCode = $event['action_code'] !== null ? (int) $event['action_code'] : null;
+        $description = $this->normalizeText((string) ($event['description'] ?? ''));
+
+        return $actionCode !== null
+            && in_array($actionCode, self::POTENTIALLY_FAILED_DELIVERY_ACTION_CODES, true)
+            && $this->containsPhrase($description, self::RETRYABLE_DELIVERY_PHRASES);
+    }
+
+    private function timestampInSeconds(int $timestamp): int
+    {
+        return $timestamp > 100_000_000_000
+            ? intdiv($timestamp, 1000)
+            : $timestamp;
     }
 
     private function dateFromTimestamp(int $timestamp): Carbon
