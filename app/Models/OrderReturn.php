@@ -2,7 +2,11 @@
 
 namespace App\Models;
 
+use App\Events\OrderUpdated;
+use App\Services\PayableService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 class OrderReturn extends Model
 {
@@ -11,23 +15,23 @@ class OrderReturn extends Model
     protected static function booted()
     {
         static::saved(function ($return) {
-            app(\App\Services\PayableService::class)->recordReturnEvent($return);
+            app(PayableService::class)->recordReturnEvent($return);
             try {
                 if ($return->order) {
-                    broadcast(new \App\Events\OrderUpdated($return->order));
+                    broadcast(new OrderUpdated($return->order));
                 }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderUpdated on OrderReturn: " . $e->getMessage());
+                Log::warning('Failed to broadcast OrderUpdated on OrderReturn: '.$e->getMessage());
             }
         });
 
         static::deleted(function ($return) {
             try {
                 if ($return->order) {
-                    broadcast(new \App\Events\OrderUpdated($return->order));
+                    broadcast(new OrderUpdated($return->order));
                 }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderUpdated on OrderReturn delete: " . $e->getMessage());
+                Log::warning('Failed to broadcast OrderUpdated on OrderReturn delete: '.$e->getMessage());
             }
         });
     }
@@ -62,6 +66,18 @@ class OrderReturn extends Model
         $this->attributes['platform_status'] = $value;
         if (empty($this->attributes['return_status'])) {
             $this->attributes['return_status'] = $value;
+        }
+    }
+
+    public function preserveEarliestPlatformCreatedAt(mixed $value): void
+    {
+        if (! $value) {
+            return;
+        }
+
+        $incoming = Carbon::parse($value);
+        if (! $this->created_at_platform || $incoming->lt($this->created_at_platform)) {
+            $this->created_at_platform = $incoming;
         }
     }
 

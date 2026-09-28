@@ -672,7 +672,14 @@ export default function OrderDetail({ routeParams }) {
                                             </div>
                                             <div className="mt-3 flex items-end justify-between gap-3">
                                                 <div className="text-[11px] text-gray-500 dark:text-slate-400">
-                                                    <p>Diajukan: {ret.created_at_platform || '-'}</p>
+                                                    {ret.uses_logistics_failure_date ? (
+                                                        <>
+                                                            <p>Pengantaran gagal sejak: {ret.effective_event_at}</p>
+                                                            <p>Tercatat platform: {ret.created_at_platform || '-'}</p>
+                                                        </>
+                                                    ) : (
+                                                        <p>Diajukan: {ret.effective_event_at || ret.created_at_platform || '-'}</p>
+                                                    )}
                                                     <p>Diperbarui: {ret.updated_at_platform || '-'}</p>
                                                 </div>
                                                 <div className="shrink-0 text-right">

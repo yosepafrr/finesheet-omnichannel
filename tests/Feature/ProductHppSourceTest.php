@@ -5,10 +5,12 @@ namespace Tests\Feature;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\Order;
+use App\Models\OrderPackage;
 use App\Models\OrderProduct;
 use App\Models\OrderReturn;
 use App\Models\OrderReturnItem;
 use App\Models\PayableEvent;
+use App\Models\PayablePeriod;
 use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\SkuSyncMember;
@@ -181,6 +183,102 @@ class ProductHppSourceTest extends TestCase
             $returnCreatedAt->format('Y-m-d H:i:s'),
             $event->fresh()->event_date->format('Y-m-d H:i:s')
         );
+    }
+
+    public function test_tiktok_logistics_return_keeps_first_failure_date_and_manual_period(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $product->store->update(['platform' => 'Tiktokshop']);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'TikTok Supplier',
+            'period_length_days' => 14,
+            'first_period_start' => now()->subDays(40)->startOfDay(),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Tiktokshop',
+            'order_sn' => 'TIKTOK-LOGISTICS-RETURN',
+            'order_status' => 'DELIVERED',
+            'order_time' => now()->subDays(20),
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $failedAt = now()->subDays(11)->startOfMinute();
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'package_id' => $order->order_sn,
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+            'failed_at' => $failedAt,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $payable->recordCancellationEvent($order->fresh('store'));
+
+        $failedEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'FAILED_DELIVERY')
+            ->firstOrFail();
+        $manualPeriod = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'name' => 'Manual Previous Period',
+            'start_date' => now()->subDays(30),
+            'end_date' => now()->subDays(16),
+            'is_manual' => true,
+        ]));
+        $failedEvent->update([
+            'original_period_id' => $failedEvent->payable_period_id,
+            'payable_period_id' => $manualPeriod->id,
+            'is_manual_moved' => true,
+        ]);
+
+        $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'external_return_id' => 'TIKTOK-RETURN-1',
+            'return_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'created_at_platform' => now()->subDay(),
+        ]));
+        OrderReturnItem::withoutEvents(fn () => OrderReturnItem::create([
+            'order_return_id' => $return->id,
+            'external_line_item_id' => 'TIKTOK-RETURN-LINE-1',
+            'sku_id' => $variant->model_sku,
+            'product_name' => $product->product_name,
+            'quantity' => 1,
+        ]));
+
+        $payable->recordReturnEvent($return->fresh(['items', 'order.store']));
+
+        $returnEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->firstOrFail();
+        $this->assertSame($manualPeriod->id, $returnEvent->payable_period_id);
+        $this->assertTrue($returnEvent->is_manual_moved);
+        $this->assertSame($failedAt->format('Y-m-d H:i:s'), $returnEvent->event_date->format('Y-m-d H:i:s'));
+        $this->assertDatabaseMissing('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'FAILED_DELIVERY',
+        ]);
     }
 
     private function createLinkedVariant(int $localHpp, int $masterHpp): array

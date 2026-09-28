@@ -20,7 +20,9 @@ class SyncTiktokReturnJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected $storeId;
+
     protected $timeFrom;
+
     protected $timeTo;
 
     public function __construct(Store|int $store, $timeFrom = null, $timeTo = null)
@@ -34,8 +36,9 @@ class SyncTiktokReturnJob implements ShouldQueue
     {
         try {
             $store = Store::find($this->storeId);
-            if (!$store) {
+            if (! $store) {
                 Log::warning("SyncTiktokReturnJob skipped: Store {$this->storeId} not found");
+
                 return;
             }
 
@@ -56,31 +59,33 @@ class SyncTiktokReturnJob implements ShouldQueue
                         ]);
 
                         $this->release(300);
+
                         return;
                     }
 
-                    Log::error("TikTok return list error", ['response' => $response]);
+                    Log::error('TikTok return list error', ['response' => $response]);
                     break;
                 }
 
                 $data = $response['data'] ?? [];
                 $returns = $data['return_orders'] ?? $data['returns'] ?? [];
                 $pageToken = $data['next_page_token'] ?? '';
-                $hasMore = !empty($pageToken);
+                $hasMore = ! empty($pageToken);
 
                 foreach ($returns as $returnItem) {
                     try {
                         $returnId = $returnItem['return_id'] ?? $returnItem['reverse_order_id'] ?? null;
                         $orderId = $returnItem['order_id'] ?? null;
 
-                        if (!$returnId || !$orderId) {
+                        if (! $returnId || ! $orderId) {
                             continue;
                         }
 
                         $order = Order::where('platform', 'Tiktokshop')->where('order_sn', $orderId)->first();
-                        
-                        if (!$order) {
+
+                        if (! $order) {
                             Log::warning("Order {$orderId} not found for TikTok return {$returnId}");
+
                             continue;
                         }
 
@@ -94,26 +99,29 @@ class SyncTiktokReturnJob implements ShouldQueue
                             $refundAmount = floatval($returnItem['refund_total']);
                         }
 
-                        $orderReturn = OrderReturn::updateOrCreate(
-                            [
-                                'platform' => 'Tiktokshop',
-                                'external_return_id' => $returnId,
-                            ],
-                            [
-                                'order_id' => $order->id,
-                                'return_status' => $platformStatus,
-                                'platform_status' => $platformStatus,
-                                'normalized_status' => $normalizedStatus,
-                                'return_type' => $returnItem['return_type'] ?? $returnItem['reverse_type'] ?? null,
-                                'refund_amount' => $refundAmount,
-                                'return_reason' => $returnItem['return_reason'] ?? $returnItem['reverse_reason'] ?? null,
-                                'text_reason' => $returnItem['return_reason_text'] ?? $returnItem['reverse_reason_text'] ?? null,
-                                'tracking_number' => $returnItem['tracking_number'] ?? $returnItem['return_tracking_number'] ?? null,
-                                'created_at_platform' => isset($returnItem['create_time']) ? Carbon::createFromTimestamp($returnItem['create_time'])->setTimezone(config('app.timezone')) : null,
-                                'updated_at_platform' => isset($returnItem['update_time']) ? Carbon::createFromTimestamp($returnItem['update_time'])->setTimezone(config('app.timezone')) : null,
-                                'raw_data' => $returnItem,
-                            ]
+                        $orderReturn = OrderReturn::firstOrNew([
+                            'platform' => 'Tiktokshop',
+                            'external_return_id' => $returnId,
+                        ]);
+                        $orderReturn->fill([
+                            'order_id' => $order->id,
+                            'return_status' => $platformStatus,
+                            'platform_status' => $platformStatus,
+                            'normalized_status' => $normalizedStatus,
+                            'return_type' => $returnItem['return_type'] ?? $returnItem['reverse_type'] ?? null,
+                            'refund_amount' => $refundAmount,
+                            'return_reason' => $returnItem['return_reason'] ?? $returnItem['reverse_reason'] ?? null,
+                            'text_reason' => $returnItem['return_reason_text'] ?? $returnItem['reverse_reason_text'] ?? null,
+                            'tracking_number' => $returnItem['tracking_number'] ?? $returnItem['return_tracking_number'] ?? null,
+                            'updated_at_platform' => isset($returnItem['update_time']) ? Carbon::createFromTimestamp($returnItem['update_time'])->setTimezone(config('app.timezone')) : null,
+                            'raw_data' => $returnItem,
+                        ]);
+                        $orderReturn->preserveEarliestPlatformCreatedAt(
+                            isset($returnItem['create_time'])
+                                ? Carbon::createFromTimestamp($returnItem['create_time'])->setTimezone(config('app.timezone'))
+                                : null
                         );
+                        $orderReturn->save();
 
                         // Sync Items
                         if (isset($returnItem['return_line_items']) && is_array($returnItem['return_line_items'])) {
@@ -134,12 +142,12 @@ class SyncTiktokReturnJob implements ShouldQueue
                             }
                         }
                     } catch (\Exception $e) {
-                        Log::error("Error processing TikTok return " . ($returnItem['return_id'] ?? 'unknown') . ": " . $e->getMessage());
+                        Log::error('Error processing TikTok return '.($returnItem['return_id'] ?? 'unknown').': '.$e->getMessage());
                     }
                 }
             }
         } catch (\Exception $e) {
-            Log::error("SyncTiktokReturnJob failed for Store ID: {$this->storeId} - " . $e->getMessage());
+            Log::error("SyncTiktokReturnJob failed for Store ID: {$this->storeId} - ".$e->getMessage());
         }
     }
 

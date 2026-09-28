@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Order;
+use App\Models\OrderPackage;
 use App\Services\LogisticsSyncService;
 use App\Services\PayableService;
 use Illuminate\Console\Command;
@@ -31,11 +33,24 @@ class SyncLogisticsCommand extends Command
             (bool) $this->option('force'),
             (bool) $this->option('repair-failed')
         );
+        $orderIds = OrderPackage::whereIn('id', $packageIds)
+            ->distinct()
+            ->pluck('order_id');
 
         $this->info('Memproses '.count($packageIds).' paket.');
 
         foreach (array_chunk($packageIds, 25) as $chunk) {
             $logistics->syncPackages($chunk);
+        }
+
+        if ($orderSn || $this->option('repair-failed')) {
+            Order::whereIn('id', $orderIds)
+                ->with('store')
+                ->chunkById(100, function ($orders) use ($payables) {
+                    foreach ($orders as $order) {
+                        $payables->reconcileOrderLogistics($order);
+                    }
+                });
         }
 
         if ($this->option('repair-failed')) {

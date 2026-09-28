@@ -490,6 +490,11 @@ class PayableService
         }
 
         if ($orderSn && ! empty($returnsBySupplier)) {
+            $failedDeliveryEvents = PayableEvent::where('source_id', (string) $orderSn)
+                ->where('source_type', 'FAILED_DELIVERY')
+                ->get()
+                ->keyBy(fn (PayableEvent $event) => (string) ($event->supplier_id ?? ''));
+
             // Delete legacy event where source_id was external_return_id
             if ($return->external_return_id && $return->external_return_id !== $orderSn) {
                 PayableEvent::where('source_id', (string) $return->external_return_id)
@@ -536,8 +541,16 @@ class PayableService
                     })
                     ->first();
 
-                $periodId = ($existingEvent && $existingEvent->is_manual_moved)
-                    ? $existingEvent->payable_period_id
+                $failedDeliveryEvent = $failedDeliveryEvents->get((string) $actualSupplierId);
+                $manualEvent = collect([$existingEvent, $failedDeliveryEvent])
+                    ->first(fn (?PayableEvent $event) => $event?->is_manual_moved);
+                $dateSource = $existingEvent ?? $failedDeliveryEvent;
+                $eventDate = $dateSource?->event_date && $dateSource->event_date->lt($date)
+                    ? $dateSource->event_date
+                    : $date;
+
+                $periodId = $manualEvent
+                    ? $manualEvent->payable_period_id
                     : $period->id;
 
                 PayableEvent::updateOrCreate(
@@ -551,8 +564,10 @@ class PayableService
                         'payable_period_id' => $periodId,
                         'store_id' => $order?->store_id ?? $return->order?->store_id,
                         'platform' => $return->platform,
-                        'event_date' => $date,
+                        'event_date' => $eventDate,
                         'amount' => -$retHpp, // negative
+                        'is_manual_moved' => (bool) $manualEvent,
+                        'original_period_id' => $manualEvent?->original_period_id,
                         'notes' => $return->external_return_id ? ('Return ID: '.$return->external_return_id) : null,
                     ]
                 );
@@ -607,9 +622,34 @@ class PayableService
         return [null, $productQuery->first()];
     }
 
-    private function returnEventDate(OrderReturn $return): Carbon
+    public function returnEventDate(OrderReturn $return): Carbon
     {
-        return Carbon::parse($return->created_at_platform ?? $return->created_at ?? now());
+        $date = Carbon::parse($return->created_at_platform ?? $return->created_at ?? now());
+
+        if (strcasecmp((string) $return->platform, 'Tiktokshop') !== 0) {
+            return $date;
+        }
+
+        $order = $return->relationLoaded('order')
+            ? $return->order
+            : Order::find($return->order_id);
+
+        if (! $order) {
+            return $date;
+        }
+
+        $failedAt = $order->packages()
+            ->where('normalized_logistics_status', 'DELIVERY_FAILED')
+            ->whereNotNull('failed_at')
+            ->min('failed_at');
+
+        if (! $failedAt) {
+            return $date;
+        }
+
+        $failedDate = Carbon::parse($failedAt);
+
+        return $failedDate->lt($date) ? $failedDate : $date;
     }
 
     private function failedDeliveryEventDate(Order $order): Carbon
@@ -731,6 +771,9 @@ class PayableService
             $periodId = ($existingEvent && $existingEvent->is_manual_moved)
                 ? $existingEvent->payable_period_id
                 : $period->id;
+            $eventDate = $existingEvent?->event_date && $existingEvent->event_date->lt($date)
+                ? $existingEvent->event_date
+                : $date;
 
             PayableEvent::updateOrCreate(
                 [
@@ -743,7 +786,7 @@ class PayableService
                     'payable_period_id' => $periodId,
                     'store_id' => $order->store_id,
                     'platform' => $order->platform,
-                    'event_date' => $date,
+                    'event_date' => $eventDate,
                     'amount' => -abs((float) $createEvent->amount),
                 ]
             );
@@ -761,6 +804,18 @@ class PayableService
             $nonNull = array_filter($recordedSupplierIds);
             $cleanup->whereNotNull('supplier_id')->whereNotIn('supplier_id', $nonNull)->delete();
         }
+    }
+
+    public function reconcileOrderLogistics(Order $order): void
+    {
+        $return = $order->returns()->first();
+        if ($return) {
+            $this->recordReturnEvent($return->loadMissing(['items', 'order.store']));
+
+            return;
+        }
+
+        $this->recordCancellationEvent($order);
     }
 
     public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int

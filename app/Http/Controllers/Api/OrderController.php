@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncTiktokEscrowJob;
-use Illuminate\Http\Request;
 use App\Models\Order;
+use App\Models\VariantProduct;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
+use App\Services\PayableService;
 use App\Services\TiktokEscrowAmountResolver;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class OrderController extends Controller
@@ -19,8 +21,7 @@ class OrderController extends Controller
         Request $request,
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService
-    )
-    {
+    ) {
         $user = Auth::user();
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
@@ -28,7 +29,7 @@ class OrderController extends Controller
         $baseQuery = Order::whereIn('store_id', $storeIds);
 
         // Filter by store
-        if ($request->has('store_id') && !empty($request->store_id)) {
+        if ($request->has('store_id') && ! empty($request->store_id)) {
             $baseQuery->where('store_id', $request->store_id);
         }
 
@@ -56,7 +57,7 @@ class OrderController extends Controller
         $applyShippingProcessFilter = function ($query, string $filter) use ($shippingProcessFilters) {
             $statuses = $shippingProcessFilters[$filter] ?? null;
 
-            if (!$statuses) {
+            if (! $statuses) {
                 return $query;
             }
 
@@ -135,12 +136,12 @@ class OrderController extends Controller
         }
 
         // Filter by status
-        if ($request->has('statuses') && !empty($request->statuses)) {
+        if ($request->has('statuses') && ! empty($request->statuses)) {
             $statuses = is_array($request->statuses) ? $request->statuses : explode(',', $request->statuses);
             $query->whereIn('order_status', $statuses);
 
             // Exclude DELIVERY_FAILED from regular status filters (like CANCELLED) so they only show in Pengiriman Gagal tab
-            if (!($request->has('is_failed_delivery') && $request->is_failed_delivery === 'true')) {
+            if (! ($request->has('is_failed_delivery') && $request->is_failed_delivery === 'true')) {
                 if (in_array('CANCELLED', $statuses) || in_array('CANCEL', $statuses) || in_array('IN_CANCEL', $statuses)) {
                     $query->whereDoesntHave('packages', function ($q) {
                         $q->where('normalized_logistics_status', 'DELIVERY_FAILED');
@@ -206,11 +207,12 @@ class OrderController extends Controller
                     'cancel_reason' => $order->cancel_reason,
                     'buyer_cancel_reason' => $order->buyer_cancel_reason,
                     'normalized_cancel_category' => $order->normalized_cancel_category,
-                    'first_product' => $firstProduct ? (function() use ($firstProduct) {
+                    'first_product' => $firstProduct ? (function () use ($firstProduct) {
                         $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $firstProduct->model_name);
-                        $variant = \App\Models\VariantProduct::where('product_id', $firstProduct->product?->id)
+                        $variant = VariantProduct::where('product_id', $firstProduct->product?->id)
                             ->where('model_name', $normalizedModelName)
                             ->first();
+
                         return [
                             'product_name' => $firstProduct->product_name,
                             'model_name' => $firstProduct->model_name,
@@ -222,9 +224,10 @@ class OrderController extends Controller
                     'product_count' => $order->orderProducts->count(),
                     'products' => $order->orderProducts->map(function ($product) {
                         $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $product->model_name);
-                        $variant = \App\Models\VariantProduct::where('product_id', $product->product?->id)
+                        $variant = VariantProduct::where('product_id', $product->product?->id)
                             ->where('model_name', $normalizedModelName)
                             ->first();
+
                         return [
                             'product_name' => $product->product_name,
                             'model_name' => $product->model_name,
@@ -244,11 +247,11 @@ class OrderController extends Controller
                             'normalized_status' => $ret->normalized_status,
                         ];
                     }),
-                    'shipping_provider' => $order->platform === 'Shopee' 
-                        ? ($order->raw_data['shipping_carrier'] ?? null) 
+                    'shipping_provider' => $order->platform === 'Shopee'
+                        ? ($order->raw_data['shipping_carrier'] ?? null)
                         : ($order->raw_data['shipping_provider'] ?? null),
-                    'tracking_number' => $order->platform === 'Shopee' 
-                        ? ($order->raw_data['tracking_no'] ?? null) 
+                    'tracking_number' => $order->platform === 'Shopee'
+                        ? ($order->raw_data['tracking_no'] ?? null)
                         : ($order->raw_data['tracking_number'] ?? null),
                     'packages' => $order->packages->map(function ($pkg) {
                         return [
@@ -269,9 +272,9 @@ class OrderController extends Controller
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService,
         LogisticsStatusNormalizer $logisticsStatusNormalizer,
-        TiktokEscrowAmountResolver $tiktokEscrowResolver
-    )
-    {
+        TiktokEscrowAmountResolver $tiktokEscrowResolver,
+        PayableService $payableService
+    ) {
         $user = Auth::user();
         $stores = $user->stores()->pluck('id');
 
@@ -281,7 +284,7 @@ class OrderController extends Controller
 
         $customerInfo = null;
         $shippingInfo = null;
-        
+
         $rawData = $order->raw_data;
         if ($rawData) {
             if ($order->platform === 'Shopee') {
@@ -294,7 +297,7 @@ class OrderController extends Controller
                     'tracking_number' => $rawData['tracking_no'] ?? null,
                     'address' => $rawData['recipient_address']['full_address'] ?? null,
                 ];
-            } else if ($order->platform === 'Tiktokshop') {
+            } elseif ($order->platform === 'Tiktokshop') {
                 $customerInfo = [
                     'name' => $rawData['recipient_address']['name'] ?? null,
                     'phone' => $rawData['recipient_address']['phone_number'] ?? null,
@@ -356,9 +359,10 @@ class OrderController extends Controller
             'raw_data' => $rawData, // For developer mode
             'products' => $order->orderProducts->map(function ($product) {
                 $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $product->model_name);
-                $variant = \App\Models\VariantProduct::where('product_id', $product->product?->id)
+                $variant = VariantProduct::where('product_id', $product->product?->id)
                     ->where('model_name', $normalizedModelName)
                     ->first();
+
                 return [
                     'product_name' => $product->product_name,
                     'model_name' => $product->model_name,
@@ -370,7 +374,10 @@ class OrderController extends Controller
                     'variant_image' => $variant ? $variant->variant_image : null,
                 ];
             }),
-            'returns' => $order->returns->map(function ($ret) {
+            'returns' => $order->returns->map(function ($ret) use ($payableService) {
+                $effectiveEventAt = $payableService->returnEventDate($ret);
+                $platformCreatedAt = $ret->created_at_platform;
+
                 return [
                     'id' => $ret->id,
                     'platform' => $ret->platform,
@@ -385,6 +392,9 @@ class OrderController extends Controller
                     'tracking_number' => $ret->tracking_number,
                     'created_at_platform' => $ret->created_at_platform?->format('d M Y, H:i'),
                     'updated_at_platform' => $ret->updated_at_platform?->format('d M Y, H:i'),
+                    'effective_event_at' => $effectiveEventAt->format('d M Y, H:i'),
+                    'uses_logistics_failure_date' => $platformCreatedAt
+                        && ! $effectiveEventAt->equalTo($platformCreatedAt),
                     'items' => $ret->items->map(function ($item) {
                         return [
                             'product_name' => $item->product_name,

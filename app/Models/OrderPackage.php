@@ -19,21 +19,26 @@ class OrderPackage extends Model
                 return;
             }
 
-            if ($package->failed_at) {
-                return;
-            }
-
             $package->loadMissing('order');
             $normalizer = app(LogisticsStatusNormalizer::class);
-            $package->failed_at = $normalizer->failedDeliveryOccurredAt($package->raw_data ?? [])
-                ?? $normalizer->failedDeliveryOccurredAt($package->order?->raw_data ?? [])
-                ?? now();
+            $detectedAt = $normalizer->failedDeliveryOccurredAt($package->raw_data ?? [])
+                ?? $normalizer->failedDeliveryOccurredAt($package->order?->raw_data ?? []);
+
+            if ($detectedAt && (! $package->failed_at || $detectedAt->lt($package->failed_at))) {
+                $package->failed_at = $detectedAt;
+            } elseif (! $package->failed_at) {
+                $package->failed_at = now();
+            }
         });
 
         static::saved(function ($package) {
             $shouldBroadcast = $package->wasChanged('normalized_logistics_status');
+            $shouldReconcilePayable = $package->wasChanged([
+                'normalized_logistics_status',
+                'failed_at',
+            ]);
 
-            if (! $shouldBroadcast) {
+            if (! $shouldBroadcast && ! $shouldReconcilePayable) {
                 return;
             }
 
@@ -42,16 +47,20 @@ class OrderPackage extends Model
                 return;
             }
 
-            try {
-                app(PayableService::class)->recordCancellationEvent($order);
-            } catch (\Throwable $e) {
-                Log::warning('Failed to reconcile payable after logistics status change: '.$e->getMessage());
+            if ($shouldReconcilePayable) {
+                try {
+                    app(PayableService::class)->reconcileOrderLogistics($order);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to reconcile payable after logistics status change: '.$e->getMessage());
+                }
             }
 
-            try {
-                broadcast(new OrderUpdated($order));
-            } catch (\Throwable $e) {
-                Log::warning('Failed to broadcast OrderUpdated on OrderPackage: '.$e->getMessage());
+            if ($shouldBroadcast) {
+                try {
+                    broadcast(new OrderUpdated($order));
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to broadcast OrderUpdated on OrderPackage: '.$e->getMessage());
+                }
             }
         });
     }
