@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Events\OrderUpdated;
 use App\Services\LogisticsStatusNormalizer;
+use App\Services\PayableService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 
@@ -32,12 +33,23 @@ class OrderPackage extends Model
         static::saved(function ($package) {
             $shouldBroadcast = $package->wasChanged('normalized_logistics_status');
 
-            if (! $shouldBroadcast || ! $package->order) {
+            if (! $shouldBroadcast) {
+                return;
+            }
+
+            $order = $package->order;
+            if (! $order) {
                 return;
             }
 
             try {
-                broadcast(new OrderUpdated($package->order));
+                app(PayableService::class)->recordCancellationEvent($order);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to reconcile payable after logistics status change: '.$e->getMessage());
+            }
+
+            try {
+                broadcast(new OrderUpdated($order));
             } catch (\Throwable $e) {
                 Log::warning('Failed to broadcast OrderUpdated on OrderPackage: '.$e->getMessage());
             }

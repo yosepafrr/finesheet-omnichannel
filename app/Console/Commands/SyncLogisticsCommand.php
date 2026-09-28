@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\LogisticsSyncService;
+use App\Services\PayableService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -16,7 +17,7 @@ class SyncLogisticsCommand extends Command
 
     protected $description = 'Sync logistics and tracking info for active packages';
 
-    public function handle(LogisticsSyncService $logistics): int
+    public function handle(LogisticsSyncService $logistics, PayableService $payables): int
     {
         Log::info('SyncLogisticsCommand started');
 
@@ -35,6 +36,11 @@ class SyncLogisticsCommand extends Command
 
         foreach (array_chunk($packageIds, 25) as $chunk) {
             $logistics->syncPackages($chunk);
+        }
+
+        if ($this->option('repair-failed')) {
+            $removedEvents = $payables->cleanupStaleFailedDeliveryEvents();
+            $this->info("Membersihkan {$removedEvents} riwayat payable yang sudah tidak valid.");
         }
 
         Log::info('SyncLogisticsCommand finished');

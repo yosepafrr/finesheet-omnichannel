@@ -662,6 +662,10 @@ class PayableService
         // Below: handle FAILED_DELIVERY on a shipped/completed order only
         $hasFailedPackage = $order->packages()->where('normalized_logistics_status', 'DELIVERY_FAILED')->exists();
         if (! $hasFailedPackage) {
+            PayableEvent::where('source_id', $order->order_sn)
+                ->where('source_type', $type)
+                ->delete();
+
             return;
         }
 
@@ -759,12 +763,29 @@ class PayableService
         }
     }
 
+    public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int
+    {
+        return PayableEvent::query()
+            ->where('source_type', 'FAILED_DELIVERY')
+            ->when($userId, fn ($query, $id) => $query->where('user_id', $id))
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('orders')
+                    ->join('order_packages', 'order_packages.order_id', '=', 'orders.id')
+                    ->whereColumn('orders.order_sn', 'payable_events.source_id')
+                    ->where('order_packages.normalized_logistics_status', 'DELIVERY_FAILED');
+            })
+            ->delete();
+    }
+
     /**
      * Synchronously sync all payable events for a user
      */
     public function syncPayableForUser(int $userId, ?string $startDate = null): void
     {
         $start = $startDate ? Carbon::parse($startDate) : null;
+
+        $this->cleanupStaleFailedDeliveryEvents($userId);
 
         $userStores = Store::where('user_id', $userId)->pluck('id');
         if ($userStores->isEmpty()) {
