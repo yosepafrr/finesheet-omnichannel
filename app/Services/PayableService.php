@@ -544,10 +544,6 @@ class PayableService
                 $failedDeliveryEvent = $failedDeliveryEvents->get((string) $actualSupplierId);
                 $manualEvent = collect([$existingEvent, $failedDeliveryEvent])
                     ->first(fn (?PayableEvent $event) => $event?->is_manual_moved);
-                $dateSource = $existingEvent ?? $failedDeliveryEvent;
-                $eventDate = $dateSource?->event_date && $dateSource->event_date->lt($date)
-                    ? $dateSource->event_date
-                    : $date;
 
                 $periodId = $manualEvent
                     ? $manualEvent->payable_period_id
@@ -564,7 +560,7 @@ class PayableService
                         'payable_period_id' => $periodId,
                         'store_id' => $order?->store_id ?? $return->order?->store_id,
                         'platform' => $return->platform,
-                        'event_date' => $eventDate,
+                        'event_date' => $date,
                         'amount' => -$retHpp, // negative
                         'is_manual_moved' => (bool) $manualEvent,
                         'original_period_id' => $manualEvent?->original_period_id,
@@ -771,9 +767,6 @@ class PayableService
             $periodId = ($existingEvent && $existingEvent->is_manual_moved)
                 ? $existingEvent->payable_period_id
                 : $period->id;
-            $eventDate = $existingEvent?->event_date && $existingEvent->event_date->lt($date)
-                ? $existingEvent->event_date
-                : $date;
 
             PayableEvent::updateOrCreate(
                 [
@@ -786,7 +779,7 @@ class PayableService
                     'payable_period_id' => $periodId,
                     'store_id' => $order->store_id,
                     'platform' => $order->platform,
-                    'event_date' => $eventDate,
+                    'event_date' => $date,
                     'amount' => -abs((float) $createEvent->amount),
                 ]
             );

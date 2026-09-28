@@ -237,6 +237,7 @@ class ProductHppSourceTest extends TestCase
         $failedEvent = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'FAILED_DELIVERY')
             ->firstOrFail();
+        $retryAttemptAt = $failedAt->copy()->subDay();
         $manualPeriod = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
             'user_id' => $user->id,
             'supplier_id' => $supplier->id,
@@ -249,6 +250,7 @@ class ProductHppSourceTest extends TestCase
             'original_period_id' => $failedEvent->payable_period_id,
             'payable_period_id' => $manualPeriod->id,
             'is_manual_moved' => true,
+            'event_date' => $retryAttemptAt,
         ]);
 
         $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
