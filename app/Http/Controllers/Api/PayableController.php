@@ -764,8 +764,15 @@ class PayableController extends Controller
             }
         }
 
-        $events->transform(function ($event) use ($orders, $returnOrders) {
+        $postShipmentAdjustmentIds = PayableEvent::where('user_id', $userId)
+            ->whereIn('source_id', $sourceIds)
+            ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
+            ->pluck('source_id')
+            ->flip();
+
+        $events->transform(function ($event) use ($orders, $returnOrders, $postShipmentAdjustmentIds) {
             $order = $orders->get($event->source_id) ?? $returnOrders->get($event->source_id);
+            $event->has_post_shipment_adjustment = $postShipmentAdjustmentIds->has($event->source_id);
             $event->supplier_info = $event->supplier ? [
                 'id' => $event->supplier->id,
                 'name' => $event->supplier->name,

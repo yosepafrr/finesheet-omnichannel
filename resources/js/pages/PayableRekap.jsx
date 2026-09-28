@@ -866,13 +866,24 @@ export default function PayableRekap() {
         window.open(url, "_blank");
     };
 
-    const EXCLUDED_ORDER_STATUSES = ['UNPAID', 'UNKNOWN', 'ON_HOLD', 'CANCEL', 'CANCELLED', 'IN_CANCEL'];
+    const payableEvents = periodDetails?.events || [];
+    const EXCLUDED_ORDER_STATUSES = ['UNPAID', 'UNKNOWN', 'ON_HOLD'];
+    const CANCELLED_ORDER_STATUSES = ['CANCEL', 'CANCELLED', 'IN_CANCEL'];
+    const postShipmentAdjustmentOrderIds = new Set(
+        payableEvents
+            .filter(ev => ['RETURN_ORDER', 'FAILED_DELIVERY'].includes(ev.source_type))
+            .map(ev => ev.source_id)
+            .filter(Boolean)
+    );
 
-    const orderEvents = (periodDetails?.events || []).filter(ev => {
+    const orderEvents = payableEvents.filter(ev => {
         if (ev.source_type !== 'CREATE_ORDER') return false;
         const statusUpper = (ev.order_status || '').toUpperCase().trim();
         if (!statusUpper || EXCLUDED_ORDER_STATUSES.includes(statusUpper)) {
             return false;
+        }
+        if (CANCELLED_ORDER_STATUSES.includes(statusUpper)) {
+            return ev.has_post_shipment_adjustment || postShipmentAdjustmentOrderIds.has(ev.source_id);
         }
         const statusLabel = getOrderStatusLabel(ev.order_status, ev.platform);
         if (statusLabel === 'Batal' || statusLabel === 'Pengajuan Batal') {
@@ -891,7 +902,7 @@ export default function PayableRekap() {
         }
     }, [availableOrderStatuses, orderStatusFilter]);
 
-    const returnEvents = (periodDetails?.events || []).filter(ev => ev.source_type !== 'CREATE_ORDER');
+    const returnEvents = payableEvents.filter(ev => ev.source_type !== 'CREATE_ORDER');
 
     const filteredOrderEvents = orderEvents.filter(ev => {
         if (orderStatusFilter !== 'ALL' && ev.order_status !== orderStatusFilter) {
