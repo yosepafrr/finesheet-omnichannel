@@ -15,7 +15,9 @@ class OrderReturn extends Model
     protected static function booted()
     {
         static::saved(function ($return) {
-            app(PayableService::class)->recordReturnEvent($return);
+            if ($return->order) {
+                app(PayableService::class)->reconcileOrderLogistics($return->order);
+            }
             try {
                 if ($return->order) {
                     broadcast(new OrderUpdated($return->order));

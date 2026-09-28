@@ -207,7 +207,8 @@ class ProductHppSourceTest extends TestCase
             'store_id' => $product->store_id,
             'platform' => 'Tiktokshop',
             'order_sn' => 'TIKTOK-LOGISTICS-RETURN',
-            'order_status' => 'DELIVERED',
+            // TikTok can mark a shipped order CANCELLED after final delivery failure.
+            'order_status' => 'CANCELLED',
             'order_time' => now()->subDays(20),
         ]));
         OrderProduct::withoutEvents(fn () => OrderProduct::create([
@@ -221,6 +222,13 @@ class ProductHppSourceTest extends TestCase
             'price' => 50000,
         ]));
 
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $this->assertDatabaseMissing('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'CREATE_ORDER',
+        ]);
+
         $failedAt = now()->subDays(11)->startOfMinute();
         OrderPackage::withoutEvents(fn () => OrderPackage::create([
             'order_id' => $order->id,
@@ -230,9 +238,13 @@ class ProductHppSourceTest extends TestCase
             'failed_at' => $failedAt,
         ]));
 
-        $payable = app(PayableService::class);
-        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
-        $payable->recordCancellationEvent($order->fresh('store'));
+        $payable->reconcileOrderLogistics($order->fresh(['orderProducts', 'store']));
+
+        $this->assertDatabaseHas('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'CREATE_ORDER',
+            'supplier_id' => $supplier->id,
+        ]);
 
         $failedEvent = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'FAILED_DELIVERY')

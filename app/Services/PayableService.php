@@ -250,10 +250,11 @@ class PayableService
         Log::info('PayableService::recordOrderEvent called for Order '.$order->order_sn);
 
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
+        $isCancelled = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL']);
 
-        // If order is cancelled, remove the CREATE_ORDER event entirely (as if it never happened).
-        // Only orders that have actually been shipped/completed are valid payable debts.
-        if (in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
+        // Marketplace order statuses can become CANCELLED after a shipped package is
+        // returned. Only remove the debt for a genuine pre-shipment cancellation.
+        if ($isCancelled && ! $this->hasPostShipmentAdjustment($order)) {
             PayableEvent::where('source_id', $order->order_sn)
                 ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
                 ->delete();
@@ -675,15 +676,24 @@ class PayableService
      * Record a cancellation event.
      *
      * LOGIC:
-     * - True cancellation (CANCEL/CANCELLED/IN_CANCEL): The order never reached the supplier,
-     *   so we DELETE the CREATE_ORDER event entirely. No reduction event is created.
+     * - True pre-shipment cancellation: DELETE CREATE_ORDER entirely.
+     * - CANCELLED with a final failed package/return: keep CREATE_ORDER because the
+     *   marketplace status represents a post-shipment adjustment.
      * - Failed delivery (DELIVERY_FAILED on a SHIPPED/COMPLETED order): The order WAS shipped,
      *   so the CREATE_ORDER event stays and we add a FAILED_DELIVERY reduction.
      */
     public function recordCancellationEvent(Order $order, string $type = 'FAILED_DELIVERY')
     {
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
-        $isTrueCancellation = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL']);
+        $hasFailedPackage = $order->packages()
+            ->where('normalized_logistics_status', 'DELIVERY_FAILED')
+            ->exists();
+        $hasReturn = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->exists() || $order->returns()->exists();
+        $isTrueCancellation = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
+            && ! $hasFailedPackage
+            && ! $hasReturn;
 
         if ($isTrueCancellation) {
             // True cancellation: remove CREATE_ORDER completely (order never materialized into a debt)
@@ -695,8 +705,6 @@ class PayableService
             return;
         }
 
-        // Below: handle FAILED_DELIVERY on a shipped/completed order only
-        $hasFailedPackage = $order->packages()->where('normalized_logistics_status', 'DELIVERY_FAILED')->exists();
         if (! $hasFailedPackage) {
             PayableEvent::where('source_id', $order->order_sn)
                 ->where('source_type', $type)
@@ -719,10 +727,6 @@ class PayableService
         }
 
         // If order already has a return, return takes precedence over failed delivery
-        $hasReturn = PayableEvent::where('source_id', $order->order_sn)
-            ->where('source_type', 'RETURN_ORDER')
-            ->exists() || OrderReturn::where('order_id', $order->id)->exists();
-
         if ($hasReturn) {
             return;
         }
@@ -801,6 +805,12 @@ class PayableService
 
     public function reconcileOrderLogistics(Order $order): void
     {
+        // A post-shipment cancellation may previously have removed CREATE_ORDER.
+        // Restore it before calculating the failed-delivery/return reduction.
+        if ($this->hasPostShipmentAdjustment($order)) {
+            $this->recordOrderEvent($order->loadMissing(['orderProducts', 'store']));
+        }
+
         $return = $order->returns()->first();
         if ($return) {
             $this->recordReturnEvent($return->loadMissing(['items', 'order.store']));
@@ -809,6 +819,13 @@ class PayableService
         }
 
         $this->recordCancellationEvent($order);
+    }
+
+    private function hasPostShipmentAdjustment(Order $order): bool
+    {
+        return $order->packages()
+            ->where('normalized_logistics_status', 'DELIVERY_FAILED')
+            ->exists() || $order->returns()->exists();
     }
 
     public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int
