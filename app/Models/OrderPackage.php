@@ -12,7 +12,13 @@ class OrderPackage extends Model
     protected static function booted()
     {
         static::saving(function ($package) {
-            if ($package->normalized_logistics_status !== 'DELIVERY_FAILED' || $package->failed_at) {
+            if ($package->normalized_logistics_status !== 'DELIVERY_FAILED') {
+                $package->failed_at = null;
+
+                return;
+            }
+
+            if ($package->failed_at) {
                 return;
             }
 
@@ -24,8 +30,7 @@ class OrderPackage extends Model
         });
 
         static::saved(function ($package) {
-            $shouldBroadcast = $package->wasChanged('normalized_logistics_status')
-                && $package->normalized_logistics_status === 'DELIVERY_FAILED';
+            $shouldBroadcast = $package->wasChanged('normalized_logistics_status');
 
             if (! $shouldBroadcast || ! $package->order) {
                 return;

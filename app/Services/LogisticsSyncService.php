@@ -12,23 +12,27 @@ class LogisticsSyncService
         private readonly LogisticsStatusNormalizer $normalizer,
         private readonly ShopeeService $shopee,
         private readonly TiktokService $tiktok
-    ) {
-    }
+    ) {}
 
     public function prepare(?int $storeId = null, ?string $orderSn = null): void
     {
         if ($orderSn) {
             $this->ensureOrderHasPackage($orderSn);
+
             return;
         }
 
         $this->backfillTiktokPackages($storeId);
     }
 
-    public function packageIds(?int $storeId = null, ?string $orderSn = null, bool $force = false): array
-    {
+    public function packageIds(
+        ?int $storeId = null,
+        ?string $orderSn = null,
+        bool $force = false,
+        bool $repairFailed = false
+    ): array {
         return OrderPackage::query()
-            ->when(!$orderSn, function ($query) {
+            ->when(! $orderSn && ! $repairFailed, function ($query) {
                 $query->where(function ($statusQuery) {
                     $statusQuery->whereNotIn('normalized_logistics_status', ['DELIVERED', 'DELIVERY_FAILED'])
                         ->orWhereNull('normalized_logistics_status');
@@ -36,7 +40,11 @@ class LogisticsSyncService
                     $orderQuery->whereIn('order_status', ['SHIPPED', 'IN_TRANSIT', 'TO_CONFIRM_RECEIVE']);
                 });
             })
-            ->when(!$orderSn && !$force, function ($query) {
+            ->when($repairFailed, function ($query) {
+                $query->where('platform', 'Tiktokshop')
+                    ->where('normalized_logistics_status', 'DELIVERY_FAILED');
+            })
+            ->when(! $orderSn && ! $force && ! $repairFailed, function ($query) {
                 $query->where(function ($freshnessQuery) {
                     $freshnessQuery->where('platform', '!=', 'Tiktokshop')
                         ->orWhereNull('raw_data')
@@ -66,7 +74,7 @@ class LogisticsSyncService
         foreach ($packages as $package) {
             try {
                 $order = $package->order;
-                if (!$order || !$order->store) {
+                if (! $order || ! $order->store) {
                     continue;
                 }
 
@@ -96,7 +104,7 @@ class LogisticsSyncService
     private function ensureOrderHasPackage(string $orderSn): void
     {
         $order = Order::where('order_sn', $orderSn)->first();
-        if (!$order) {
+        if (! $order) {
             return;
         }
 
@@ -142,7 +150,7 @@ class LogisticsSyncService
             ->when($storeId, fn ($query, $id) => $query->where('store_id', $id))
             ->chunkById(200, function ($orders) {
                 foreach ($orders as $order) {
-                    if (!$this->normalizer->isFailedDelivery([$order->cancel_reason, $order->raw_data])) {
+                    if (! $this->normalizer->isFailedDelivery([$order->cancel_reason, $order->raw_data])) {
                         continue;
                     }
 
@@ -192,12 +200,13 @@ class LogisticsSyncService
         $response = $this->tiktok->getTrackingInfo($order->store, $order->order_sn);
         $tracking = $response['data'] ?? [];
 
-        if (empty($tracking) || !is_array($tracking)) {
+        if (empty($tracking) || ! is_array($tracking)) {
             Log::warning('TikTok tracking response has no data', [
                 'order_sn' => $order->order_sn,
                 'code' => $response['code'] ?? null,
                 'message' => $response['message'] ?? null,
             ]);
+
             return;
         }
 

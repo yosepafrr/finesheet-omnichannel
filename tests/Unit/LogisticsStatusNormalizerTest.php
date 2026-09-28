@@ -62,6 +62,46 @@ class LogisticsStatusNormalizerTest extends TestCase
         $this->assertSame('Package return in progress', $normalizer->latestDescription($payload));
     }
 
+    public function test_retryable_delivery_attempt_is_not_a_final_failure(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $payload = [
+            'tracking' => [[
+                'action_code' => 40601,
+                'description' => 'An attempt to deliver your package failed for the following reason: Customer could not be contacted. Our carrier will try to deliver it again.',
+                'update_time_millis' => 1_790_160_600_000,
+            ]],
+        ];
+
+        $this->assertSame('IN_TRANSIT', $normalizer->normalize($payload));
+        $this->assertFalse($normalizer->isFailedDelivery($payload));
+        $this->assertNull($normalizer->failedDeliveryOccurredAt($payload));
+        $this->assertFalse($normalizer->history($payload)[0]['is_failed_delivery']);
+    }
+
+    public function test_newer_delivered_event_corrects_a_failed_attempt_and_stale_status(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $payload = [
+            'tracking' => [
+                [
+                    'action_code' => 40601,
+                    'description' => 'Delivery attempt failed. Our carrier will try to deliver it again.',
+                    'update_time_millis' => 100,
+                ],
+                [
+                    'action_code' => 50101,
+                    'description' => 'Your package was delivered.',
+                    'update_time_millis' => 200,
+                ],
+            ],
+        ];
+
+        $this->assertSame('DELIVERED', $normalizer->normalize($payload, 'DELIVERY_FAILED'));
+        $this->assertFalse($normalizer->isFailedDelivery($payload));
+        $this->assertNull($normalizer->failedDeliveryOccurredAt($payload));
+    }
+
     public function test_regular_buyer_cancellation_is_not_failed_delivery(): void
     {
         $normalizer = new LogisticsStatusNormalizer;

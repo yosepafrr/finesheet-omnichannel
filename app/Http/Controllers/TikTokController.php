@@ -284,7 +284,11 @@ class TikTokController extends Controller
                     );
 
                     $logisticsNormalizer = app(LogisticsStatusNormalizer::class);
-                    if ($logisticsNormalizer->isFailedDelivery($order)) {
+                    if (in_array(strtoupper((string) $incomingStatus), ['DELIVERED', 'COMPLETED'], true)) {
+                        $orderPackage->update([
+                            'normalized_logistics_status' => 'DELIVERED',
+                        ]);
+                    } elseif ($logisticsNormalizer->isFailedDelivery($order)) {
                         $orderPackage->update([
                             'logistics_status' => $cancelReason ?: 'Pengiriman paket gagal',
                             'normalized_logistics_status' => 'DELIVERY_FAILED',

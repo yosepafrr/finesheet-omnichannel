@@ -6,12 +6,15 @@ use Carbon\Carbon;
 
 class LogisticsStatusNormalizer
 {
-    private const FAILED_DELIVERY_ACTION_CODES = [
-        40601,
+    private const FINAL_FAILED_DELIVERY_ACTION_CODES = [
         70201,
         70202,
         70203,
         70204,
+    ];
+
+    private const POTENTIALLY_FAILED_DELIVERY_ACTION_CODES = [
+        40601,
     ];
 
     private const FAILED_DELIVERY_PHRASES = [
@@ -55,14 +58,53 @@ class LogisticsStatusNormalizer
         'tidak dapat dikirim',
     ];
 
+    private const RETRYABLE_DELIVERY_PHRASES = [
+        'will try to deliver it again',
+        'will try to deliver again',
+        'will attempt delivery again',
+        'delivery will be attempted again',
+        'another delivery attempt will be made',
+        'akan mencoba mengantar kembali',
+        'akan mencoba mengirim kembali',
+        'akan dicoba antar kembali',
+        'akan dicoba dikirim kembali',
+        'pengantaran akan dicoba kembali',
+        'pengiriman akan dicoba kembali',
+    ];
+
+    private const DELIVERED_PHRASES = [
+        'delivered',
+        'delivery completed',
+        'delivery done',
+        'paket telah diterima',
+        'paket sudah diterima',
+    ];
+
     public function normalize(array $payload, ?string $currentStatus = null): ?string
     {
-        if ($currentStatus === 'DELIVERY_FAILED' || $this->isFailedDelivery($payload)) {
-            return 'DELIVERY_FAILED';
+        $events = $this->timelineEvents($payload);
+
+        if ($events !== []) {
+            $latest = $events[0];
+            $eventStatus = $this->eventStatus($latest);
+
+            if ($eventStatus !== null) {
+                return $eventStatus;
+            }
         }
 
         $text = $this->flattenText($payload);
-        if ($this->containsPhrase($text, ['delivered'])) {
+
+        if ($this->containsPhrase($text, self::RETRYABLE_DELIVERY_PHRASES)) {
+            return 'IN_TRANSIT';
+        }
+
+        if ($this->containsFinalFailedActionCode($payload)
+            || $this->containsPhrase($text, self::FAILED_DELIVERY_PHRASES)) {
+            return 'DELIVERY_FAILED';
+        }
+
+        if ($this->containsPhrase($text, self::DELIVERED_PHRASES)) {
             return 'DELIVERED';
         }
 
@@ -71,24 +113,28 @@ class LogisticsStatusNormalizer
 
     public function isFailedDelivery(array|string|null $value): bool
     {
-        if (is_array($value) && $this->containsFailedActionCode($value)) {
-            return true;
+        if (is_array($value)) {
+            return $this->normalize($value) === 'DELIVERY_FAILED';
         }
 
-        $text = is_array($value) ? $this->flattenText($value) : $this->normalizeText((string) $value);
+        $text = $this->normalizeText((string) $value);
+
+        if ($this->containsPhrase($text, self::RETRYABLE_DELIVERY_PHRASES)) {
+            return false;
+        }
 
         return $this->containsPhrase($text, self::FAILED_DELIVERY_PHRASES);
     }
 
-    private function containsFailedActionCode(array $value): bool
+    private function containsFinalFailedActionCode(array $value): bool
     {
         if (isset($value['action_code'])
-            && in_array((int) $value['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true)) {
+            && in_array((int) $value['action_code'], self::FINAL_FAILED_DELIVERY_ACTION_CODES, true)) {
             return true;
         }
 
         foreach ($value as $child) {
-            if (is_array($child) && $this->containsFailedActionCode($child)) {
+            if (is_array($child) && $this->containsFinalFailedActionCode($child)) {
                 return true;
             }
         }
@@ -128,19 +174,17 @@ class LogisticsStatusNormalizer
 
     public function failedDeliveryOccurredAt(array $payload): ?Carbon
     {
+        if ($this->normalize($payload) !== 'DELIVERY_FAILED') {
+            return null;
+        }
+
         $events = [];
         $this->collectEvents($payload, $events);
 
         $timestamp = collect($events)
             ->filter(function (array $event) {
-                $failedAction = $event['action_code'] !== null
-                    && in_array((int) $event['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true);
-
                 return $event['time'] > 0
-                    && ($failedAction || $this->containsPhrase(
-                        $this->normalizeText($event['description']),
-                        self::FAILED_DELIVERY_PHRASES
-                    ));
+                    && $this->eventStatus($event) === 'DELIVERY_FAILED';
             })
             ->min('time');
 
@@ -179,8 +223,6 @@ class LogisticsStatusNormalizer
             }
 
             $seen[$key] = true;
-            $failedAction = $event['action_code'] !== null
-                && in_array((int) $event['action_code'], self::FAILED_DELIVERY_ACTION_CODES, true);
             $occurredAt = $event['time'] > 0
                 ? $this->dateFromTimestamp((int) $event['time'])
                 : null;
@@ -190,14 +232,44 @@ class LogisticsStatusNormalizer
                 'action_code' => $event['action_code'],
                 'occurred_at' => $occurredAt?->toIso8601String(),
                 'timestamp' => (int) $event['time'],
-                'is_failed_delivery' => $failedAction || $this->containsPhrase(
-                    $this->normalizeText($description),
-                    self::FAILED_DELIVERY_PHRASES
-                ),
+                'is_failed_delivery' => $this->eventStatus($event) === 'DELIVERY_FAILED',
             ];
         }
 
         return $history;
+    }
+
+    private function timelineEvents(array $payload): array
+    {
+        $events = [];
+        $this->collectEvents($payload, $events);
+
+        usort($events, fn (array $left, array $right) => $right['time'] <=> $left['time']);
+
+        return $events;
+    }
+
+    private function eventStatus(array $event): ?string
+    {
+        $description = $this->normalizeText((string) ($event['description'] ?? ''));
+        $actionCode = $event['action_code'] !== null ? (int) $event['action_code'] : null;
+
+        if ($this->containsPhrase($description, self::RETRYABLE_DELIVERY_PHRASES)) {
+            return 'IN_TRANSIT';
+        }
+
+        if (($actionCode !== null && in_array($actionCode, self::FINAL_FAILED_DELIVERY_ACTION_CODES, true))
+            || $this->containsPhrase($description, self::FAILED_DELIVERY_PHRASES)
+            || ($actionCode !== null
+                && in_array($actionCode, self::POTENTIALLY_FAILED_DELIVERY_ACTION_CODES, true))) {
+            return 'DELIVERY_FAILED';
+        }
+
+        if ($this->containsPhrase($description, self::DELIVERED_PHRASES)) {
+            return 'DELIVERED';
+        }
+
+        return $description !== '' ? 'IN_TRANSIT' : null;
     }
 
     private function dateFromTimestamp(int $timestamp): Carbon
