@@ -32,6 +32,10 @@ class LogisticsStatusNormalizerTest extends TestCase
                 ]],
             ]],
             'machine status' => [['logistics_status' => 'DELIVERY_FAILED']],
+            'Shopee logistics status' => [['logistics_status' => 'LOGISTICS_DELIVERY_FAILED']],
+            'Shopee failed-delivery cancellation reason' => [[
+                'cancel_reason' => 'Parcel delivery failed and was returned to seller',
+            ]],
             'Indonesian cancellation reason' => [['cancel_reason' => 'Pengiriman paket gagal']],
             'Indonesian tracking warning' => [['description' => 'Dikembalikan kepada penjual']],
             'TikTok failed delivery action code' => [[

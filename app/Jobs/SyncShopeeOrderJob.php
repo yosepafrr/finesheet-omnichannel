@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Events\OrderStockSyncRequested;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
+use App\Services\LogisticsStatusNormalizer;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
@@ -71,7 +72,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
         ];
     }
 
-    public function handle()
+    public function handle(LogisticsStatusNormalizer $logisticsNormalizer)
     {
         Log::info('SyncShopeeOrderJob started', ['time' => now(), 'daysToSync' => $this->daysToSync]);
 
@@ -232,11 +233,10 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                     foreach ($detail['package_list'] as $pkg) {
                                         $packageNumber = $pkg['package_number'] ?? $orderModel->order_sn;
                                         $logisticsStatus = $pkg['logistics_status'] ?? null;
-                                        $normalizedLogisticsStatus = match ($logisticsStatus) {
-                                            'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
-                                            'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
-                                            default => null,
-                                        };
+                                        $normalizedLogisticsStatus = $logisticsNormalizer->normalize([
+                                            'package' => $pkg,
+                                            'cancel_reason' => $cancelReason,
+                                        ]);
 
                                         if ($packageNumber !== $orderModel->order_sn) {
                                             $realPackageNumbers[] = $packageNumber;

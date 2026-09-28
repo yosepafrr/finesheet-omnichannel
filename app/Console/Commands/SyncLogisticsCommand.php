@@ -15,7 +15,7 @@ class SyncLogisticsCommand extends Command
         {--store_id= : Only sync logistics for one store}
         {--order_sn= : Only sync logistics for one order}
         {--force : Ignore the TikTok eight-hour refresh interval}
-        {--repair-failed : Recheck TikTok packages currently marked as delivery failed}';
+        {--repair-failed : Recheck marketplace packages currently marked as delivery failed}';
 
     protected $description = 'Sync logistics and tracking info for active packages';
 

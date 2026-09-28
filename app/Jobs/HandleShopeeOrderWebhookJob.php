@@ -9,6 +9,7 @@ use App\Models\OrderProduct;
 use App\Events\OrderStockSyncRequested;
 use Illuminate\Bus\Queueable;
 use App\Services\ShopeeService;
+use App\Services\LogisticsStatusNormalizer;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
@@ -39,7 +40,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         return $this->shopId.':'.$this->orderSn;
     }
 
-    public function handle(ShopeeService $shopee)
+    public function handle(ShopeeService $shopee, LogisticsStatusNormalizer $logisticsNormalizer)
     {
         Log::info("HandleShopeeOrderWebhookJob started for Order: {$this->orderSn}");
 
@@ -111,11 +112,10 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 foreach ($detail['package_list'] as $package) {
                     $packageNumber = $package['package_number'] ?? $orderModel->order_sn;
                     $logisticsStatus = $package['logistics_status'] ?? null;
-                    $normalizedLogisticsStatus = match ($logisticsStatus) {
-                        'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
-                        'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
-                        default => null,
-                    };
+                    $normalizedLogisticsStatus = $logisticsNormalizer->normalize([
+                        'package' => $package,
+                        'cancel_reason' => $cancelReason,
+                    ]);
 
                     if ($packageNumber !== $orderModel->order_sn) {
                         $realPackageNumbers[] = $packageNumber;

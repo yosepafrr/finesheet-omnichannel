@@ -23,6 +23,7 @@ class LogisticsSyncService
         }
 
         $this->backfillTiktokPackages($storeId);
+        $this->backfillShopeeFailedDeliveryPackages($storeId);
     }
 
     public function packageIds(
@@ -41,8 +42,7 @@ class LogisticsSyncService
                 });
             })
             ->when($repairFailed, function ($query) {
-                $query->where('platform', 'Tiktokshop')
-                    ->where('normalized_logistics_status', 'DELIVERY_FAILED');
+                $query->where('normalized_logistics_status', 'DELIVERY_FAILED');
             })
             ->when(! $orderSn && ! $force && ! $repairFailed, function ($query) {
                 $query->where(function ($freshnessQuery) {
@@ -167,6 +167,45 @@ class LogisticsSyncService
             });
     }
 
+    private function backfillShopeeFailedDeliveryPackages(?int $storeId): void
+    {
+        Order::where('platform', 'Shopee')
+            ->whereIn('order_status', ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
+            ->whereDoesntHave('packages', function ($query) {
+                $query->where('normalized_logistics_status', 'DELIVERY_FAILED');
+            })
+            ->when($storeId, fn ($query, $id) => $query->where('store_id', $id))
+            ->chunkById(200, function ($orders) {
+                foreach ($orders as $order) {
+                    if (! $this->normalizer->isFailedDelivery([
+                        'cancel_reason' => $order->cancel_reason,
+                        'order' => $order->raw_data ?? [],
+                    ])) {
+                        continue;
+                    }
+
+                    $packagePayload = collect($order->raw_data['package_list'] ?? [])
+                        ->first(fn ($package) => $this->normalizer->isFailedDelivery($package)) ?? [];
+                    $package = OrderPackage::firstOrCreate(
+                        [
+                            'order_id' => $order->id,
+                            'package_id' => $packagePayload['package_number'] ?? $order->order_sn,
+                        ],
+                        ['platform' => 'Shopee']
+                    );
+
+                    $package->update([
+                        'tracking_number' => $packagePayload['tracking_number'] ?? $package->tracking_number,
+                        'logistics_status' => $packagePayload['logistics_status']
+                            ?? $order->cancel_reason
+                            ?? 'Pengiriman paket gagal',
+                        'normalized_logistics_status' => 'DELIVERY_FAILED',
+                        'raw_data' => $packagePayload ?: ($package->raw_data ?? []),
+                    ]);
+                }
+            });
+    }
+
     private function syncShopeePackage(OrderPackage $package, Order $order): void
     {
         $packageNumber = $package->package_id !== $order->order_sn ? $package->package_id : '';
@@ -178,14 +217,10 @@ class LogisticsSyncService
 
         $status = $response['response']['logistics_status'] ?? null;
         $trackingNumber = $response['response']['tracking_number'] ?? null;
-        $normalized = $package->normalized_logistics_status;
-
-        $normalized = match ($status) {
-            'LOGISTICS_DELIVERY_FAILED' => 'DELIVERY_FAILED',
-            'LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE' => 'DELIVERED',
-            null, '' => $normalized,
-            default => 'IN_TRANSIT',
-        };
+        $normalized = $this->normalizer->normalize([
+            'tracking' => $response['response'],
+            'cancel_reason' => $order->cancel_reason,
+        ], $package->normalized_logistics_status);
 
         $package->update([
             'tracking_number' => $trackingNumber ?: $package->tracking_number,
