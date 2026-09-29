@@ -3,23 +3,27 @@
 namespace App\Jobs;
 
 use App\Events\PayableUpdated;
+use App\Models\User;
+use App\Services\PayableService;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use App\Models\Order;
-use App\Models\OrderReturn;
-use App\Models\Setting;
-use App\Services\PayableService;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
-class SyncPayableHistoryJob implements ShouldQueue
+class SyncPayableHistoryJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $timeout = 300;
+
+    public int $uniqueFor = 1200;
+
     protected $startDate;
+
     protected $userId;
 
     /**
@@ -27,8 +31,13 @@ class SyncPayableHistoryJob implements ShouldQueue
      */
     public function __construct(string $startDate, ?int $userId = null)
     {
-        $this->startDate = $startDate;
+        $this->startDate = Carbon::parse($startDate)->format('Y-m-d H:i:s');
         $this->userId = $userId;
+    }
+
+    public function uniqueId(): string
+    {
+        return ($this->userId ?? 'all').':'.$this->startDate;
     }
 
     /**
@@ -36,7 +45,7 @@ class SyncPayableHistoryJob implements ShouldQueue
      */
     public function handle(PayableService $payableService): void
     {
-        $userIds = $this->userId ? [$this->userId] : \App\Models\User::pluck('id')->toArray();
+        $userIds = $this->userId ? [$this->userId] : User::pluck('id')->toArray();
 
         foreach ($userIds as $uid) {
             $payableService->syncPayableForUser($uid, $this->startDate);
@@ -51,6 +60,6 @@ class SyncPayableHistoryJob implements ShouldQueue
             }
         }
 
-        Log::info("SyncPayableHistoryJob completed from {$this->startDate} for user " . ($this->userId ?? 'ALL'));
+        Log::info("SyncPayableHistoryJob completed from {$this->startDate} for user ".($this->userId ?? 'ALL'));
     }
 }

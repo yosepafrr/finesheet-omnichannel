@@ -6,6 +6,7 @@ use App\Jobs\HandleShopeeOrderWebhookJob;
 use App\Jobs\HandleShopeeProductWebhookJob;
 use App\Jobs\HandleTiktokOrderWebhookJob;
 use App\Jobs\SyncMasterProductStocksJob;
+use App\Jobs\SyncPayableHistoryJob;
 use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncShopeeOrderJob;
 use App\Jobs\SyncStoreLogisticsChunkJob;
@@ -106,5 +107,17 @@ class QueueUniquenessTest extends TestCase
         $this->assertInstanceOf(ShouldBeUnique::class, $job);
         $this->assertSame($job->uniqueId(), $sameChunk->uniqueId());
         $this->assertSame(300, $job->timeout);
+    }
+
+    public function test_payable_history_sync_is_unique_per_user_and_start_date(): void
+    {
+        $job = new SyncPayableHistoryJob('2026-09-01', 12);
+        $sameScope = new SyncPayableHistoryJob('2026-09-01 00:00:00', 12);
+
+        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame($job->uniqueId(), $sameScope->uniqueId());
+        $this->assertSame('12:2026-09-01 00:00:00', $job->uniqueId());
+        $this->assertSame(300, $job->timeout);
+        $this->assertSame(1200, $job->uniqueFor);
     }
 }
