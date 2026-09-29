@@ -131,33 +131,62 @@ function MatchStatus({ row }) {
 
 function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
     const [open, setOpen] = useState(false);
-    const ref = useRef(null);
+    const [position, setPosition] = useState({ left: 0, top: 0 });
+    const buttonRef = useRef(null);
+    const menuRef = useRef(null);
+
+    const toggle = () => {
+        if (!open && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            const menuWidth = 192;
+            const menuHeight = 218;
+            const showAbove = window.innerHeight - rect.bottom < menuHeight && rect.top > menuHeight;
+            setPosition({
+                left: Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8),
+                top: showAbove ? Math.max(8, rect.top - menuHeight - 4) : rect.bottom + 4,
+            });
+        }
+        setOpen((current) => !current);
+    };
 
     useEffect(() => {
         const close = (event) => {
-            if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+            if (!buttonRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) {
+                setOpen(false);
+            }
         };
+        const closeOnViewportChange = () => setOpen(false);
         document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
+        window.addEventListener("resize", closeOnViewportChange);
+        window.addEventListener("scroll", closeOnViewportChange, true);
+        return () => {
+            document.removeEventListener("mousedown", close);
+            window.removeEventListener("resize", closeOnViewportChange);
+            window.removeEventListener("scroll", closeOnViewportChange, true);
+        };
     }, []);
 
     return (
-        <div ref={ref} className="relative">
+        <div>
             <button
+                ref={buttonRef}
                 type="button"
-                onClick={() => setOpen((current) => !current)}
+                onClick={toggle}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-700 dark:hover:text-white"
                 aria-label="Pengaturan SKU master"
+                aria-expanded={open}
             >
                 <span className="material-symbols-rounded">more_vert</span>
             </button>
-            <AnimatePresence>
+            {createPortal(<AnimatePresence>
                 {open && (
                     <motion.div
+                        ref={menuRef}
                         initial={{ opacity: 0, y: 4, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 4, scale: 0.98 }}
-                        className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                        style={position}
+                        className="fixed z-[9998] w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
                     >
                         <button type="button" onClick={() => { setOpen(false); onEdit(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">edit</span>
@@ -181,7 +210,7 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
                         </button>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence>, document.body)}
         </div>
     );
 }
@@ -468,7 +497,7 @@ function BulkMasterSkuModal({ detected, onClose, onSaved }) {
 
 function MasterValueModal({ row, field, onClose, onSaved }) {
     const isStock = field === "stock";
-    const step = isStock ? 1 : 1000;
+    const increment = isStock ? 1 : 500;
     const [value, setValue] = useState(Number(row[field] || 0));
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
@@ -528,7 +557,7 @@ function MasterValueModal({ row, field, onClose, onSaved }) {
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
                         <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Nilai baru</p>
                         <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2">
-                            <button type="button" onClick={() => updateValue(value - step)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Kurangi ${isStock ? "stok" : "HPP"}`}>
+                            <button type="button" onClick={() => updateValue(value - increment)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Kurangi ${isStock ? "stok" : "HPP"}`}>
                                 <span className="material-symbols-rounded">remove</span>
                             </button>
                             <div className="relative min-w-0">
@@ -536,7 +565,7 @@ function MasterValueModal({ row, field, onClose, onSaved }) {
                                 <input
                                     type="number"
                                     min="0"
-                                    step={step}
+                                    step="1"
                                     required
                                     autoFocus
                                     value={value}
@@ -544,7 +573,7 @@ function MasterValueModal({ row, field, onClose, onSaved }) {
                                     className={`h-11 w-full rounded-lg border-slate-300 bg-white text-center text-lg font-bold text-slate-900 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-white ${isStock ? "px-3" : "pl-9 pr-3"}`}
                                 />
                             </div>
-                            <button type="button" onClick={() => updateValue(value + step)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Tambah ${isStock ? "stok" : "HPP"}`}>
+                            <button type="button" onClick={() => updateValue(value + increment)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label={`Tambah ${isStock ? "stok" : "HPP"}`}>
                                 <span className="material-symbols-rounded">add</span>
                             </button>
                         </div>
@@ -567,6 +596,122 @@ function MasterValueModal({ row, field, onClose, onSaved }) {
     );
 }
 
+function BulkValueModal({ count, field, onClose, onSaved }) {
+    const isStock = field === "stock";
+    const increment = isStock ? 1 : 500;
+    const [value, setValue] = useState(0);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+
+    useModalScrollLock(onClose);
+
+    const updateValue = (nextValue) => {
+        const normalized = Math.max(0, Number(nextValue) || 0);
+        setValue(isStock ? Math.floor(normalized) : normalized);
+    };
+
+    const submit = async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+        try {
+            await onSaved(value);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+            setSaving(false);
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overscroll-contain bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+            <motion.form
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                transition={{ duration: 0.18 }}
+                onSubmit={submit}
+                className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+            >
+                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-400">
+                            <span className="material-symbols-rounded">{isStock ? "inventory" : "payments"}</span>
+                        </div>
+                        <div>
+                            <h2 className="font-bold text-slate-900 dark:text-white">{isStock ? "Edit Stok Massal" : "Edit HPP Massal"}</h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Nilai baru diterapkan ke {count} SKU terpilih.</p>
+                        </div>
+                    </div>
+                    <button type="button" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup">
+                        <span className="material-symbols-rounded">close</span>
+                    </button>
+                </div>
+                <div className="p-5">
+                    {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Nilai baru</p>
+                        <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2">
+                            <button type="button" onClick={() => updateValue(value - increment)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label="Kurangi nilai"><span className="material-symbols-rounded">remove</span></button>
+                            <div className="relative min-w-0">
+                                {!isStock && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">Rp</span>}
+                                <input type="number" min="0" step="1" required autoFocus value={value} onChange={(event) => updateValue(event.target.value)} className={`h-11 w-full rounded-lg border-slate-300 bg-white text-center text-lg font-bold text-slate-900 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-white ${isStock ? "px-3" : "pl-9 pr-3"}`} />
+                            </div>
+                            <button type="button" onClick={() => updateValue(value + increment)} className="flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-label="Tambah nilai"><span className="material-symbols-rounded">add</span></button>
+                        </div>
+                        <p className="mt-3 text-center text-sm text-slate-500 dark:text-slate-400">{isStock ? `${value.toLocaleString("id-ID")} unit tersedia` : formatRp(value)}</p>
+                    </div>
+                </div>
+                <div className="flex gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800">
+                    <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Batal</button>
+                    <button type="submit" disabled={saving} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] disabled:opacity-60 dark:bg-blue-600">
+                        <span className={`material-symbols-rounded text-lg ${saving ? "animate-spin" : ""}`}>{saving ? "progress_activity" : "save"}</span>
+                        {saving ? "Menyimpan" : "Terapkan"}
+                    </button>
+                </div>
+            </motion.form>
+        </div>,
+        document.body,
+    );
+}
+
+function SelectionCheckbox({ checked, indeterminate = false, onChange, label }) {
+    const ref = useRef(null);
+
+    useEffect(() => {
+        if (ref.current) ref.current.indeterminate = indeterminate;
+    }, [indeterminate]);
+
+    return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="h-4 w-4 rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />;
+}
+
+function PageSizeDropdown({ value, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const close = (event) => {
+            if (!ref.current?.contains(event.target)) setOpen(false);
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+    }, []);
+
+    return (
+        <div ref={ref} className="relative">
+            <button type="button" onClick={() => setOpen((current) => !current)} className="inline-flex h-9 min-w-16 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" aria-expanded={open}>
+                {value}<span className="material-symbols-rounded text-lg">expand_more</span>
+            </button>
+            {open && (
+                <div className="absolute bottom-full left-0 z-20 mb-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                    {[30, 50, 100].map((option) => (
+                        <button key={option} type="button" onClick={() => { onChange(option); setOpen(false); }} className={`block w-full px-3 py-2 text-left text-sm ${option === value ? "bg-slate-100 font-bold text-[#304674] dark:bg-slate-700 dark:text-blue-300" : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"}`}>{option}</button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function LoadingRows() {
     return (
         <div className="animate-pulse divide-y divide-slate-100 dark:divide-slate-700">
@@ -580,18 +725,22 @@ export default function MasterProductPanel({ search = "" }) {
     const [detected, setDetected] = useState([]);
     const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(30);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [modal, setModal] = useState({ open: false, row: null, preset: null });
     const [valueModal, setValueModal] = useState({ open: false, row: null, field: null });
     const [bulkModalOpen, setBulkModalOpen] = useState(false);
+    const [bulkValueField, setBulkValueField] = useState(null);
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
+    const [bulkBusy, setBulkBusy] = useState(false);
     const [busyId, setBusyId] = useState(null);
     const [notice, setNotice] = useState("");
 
     const fetchRows = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            const response = await axios.get("/api/master-products", { params: { search, page, per_page: 20 } });
+            const response = await axios.get("/api/master-products", { params: { search, page, per_page: pageSize } });
             setRows(response.data.data || []);
             setMeta(response.data.meta || {});
             setError("");
@@ -600,7 +749,7 @@ export default function MasterProductPanel({ search = "" }) {
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [page, search]);
+    }, [page, pageSize, search]);
 
     const fetchDetected = useCallback(async () => {
         try {
@@ -612,6 +761,7 @@ export default function MasterProductPanel({ search = "" }) {
     }, []);
 
     useEffect(() => setPage(1), [search]);
+    useEffect(() => setSelectedIds(new Set()), [page, pageSize, search]);
     useEffect(() => {
         const timeout = setTimeout(() => fetchRows(), 250);
         return () => clearTimeout(timeout);
@@ -678,6 +828,55 @@ export default function MasterProductPanel({ search = "" }) {
         });
     };
 
+    const selectedRows = rows.filter((row) => selectedIds.has(row.id));
+    const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
+    const someRowsSelected = selectedRows.length > 0 && !allRowsSelected;
+
+    const toggleRow = (rowId) => {
+        setSelectedIds((current) => {
+            const next = new Set(current);
+            next.has(rowId) ? next.delete(rowId) : next.add(rowId);
+            return next;
+        });
+    };
+
+    const toggleAllRows = () => {
+        setSelectedIds(allRowsSelected ? new Set() : new Set(rows.map((row) => row.id)));
+    };
+
+    const bulkUpdate = async (value) => {
+        const response = await axios.put("/api/master-products/variants/bulk", {
+            variant_ids: [...selectedIds],
+            field: bulkValueField,
+            value,
+        });
+        setBulkValueField(null);
+        setSelectedIds(new Set());
+        setNotice(response.data.message);
+        await fetchRows();
+    };
+
+    const bulkPush = async () => {
+        setBulkBusy(true);
+        setError("");
+        try {
+            const response = await axios.post("/api/master-products/variants/bulk/push", {
+                variant_ids: [...selectedIds],
+            });
+            setNotice(response.data.message);
+            setSelectedIds(new Set());
+            await fetchRows(true);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setBulkBusy(false);
+        }
+    };
+
+    const openDetail = (productId) => {
+        window.location.hash = `/products/master/${productId}`;
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -719,6 +918,29 @@ export default function MasterProductPanel({ search = "" }) {
             {notice && <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"><span>{notice}</span><button type="button" onClick={() => setNotice("")} className="material-symbols-rounded" aria-label="Tutup pemberitahuan">close</button></div>}
             {error && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"><span>{error}</span><button type="button" onClick={() => setError("")} className="material-symbols-rounded">close</button></div>}
 
+            {selectedRows.length > 0 && (
+                <div className="flex flex-col gap-3 border-y border-blue-200 bg-blue-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-blue-500/20 dark:bg-blue-500/5">
+                    <div className="flex items-center gap-3">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#304674] text-white"><span className="material-symbols-rounded text-lg">checklist</span></span>
+                        <div>
+                            <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedRows.length} SKU dipilih</p>
+                            <button type="button" onClick={() => setSelectedIds(new Set())} className="text-xs font-semibold text-[#304674] hover:underline dark:text-blue-300">Batalkan pilihan</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 sm:flex">
+                        <button type="button" disabled={bulkBusy} onClick={bulkPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                            <span className={`material-symbols-rounded text-lg ${bulkBusy ? "animate-spin" : ""}`}>{bulkBusy ? "progress_activity" : "sync"}</span><span>Sinkronkan</span>
+                        </button>
+                        <button type="button" disabled={bulkBusy} onClick={() => setBulkValueField("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                            <span className="material-symbols-rounded text-lg">inventory</span><span>Edit stok</span>
+                        </button>
+                        <button type="button" disabled={bulkBusy} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                            <span className="material-symbols-rounded text-lg">payments</span><span>Edit HPP</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 {loading ? <LoadingRows /> : rows.length === 0 ? (
                     <div className="px-6 py-16 text-center">
@@ -731,13 +953,14 @@ export default function MasterProductPanel({ search = "" }) {
                         <div className="hidden overflow-x-auto md:block">
                             <table className="w-full min-w-[1040px] table-fixed text-left">
                                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                    <tr><th className="w-[27%] px-5 py-3">Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[9%] px-4 py-3 text-right">Stok</th><th className="w-[13%] px-4 py-3 text-right">HPP</th><th className="w-[15%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
+                                    <tr><th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th><th className="w-[24%] px-3 py-3">Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[9%] px-4 py-3 text-right">Stok</th><th className="w-[13%] px-4 py-3 text-right">HPP</th><th className="w-[14%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                     {rows.map((row) => (
-                                        <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
-                                            <td className="px-5 py-4"><a href={`#/products/master/${row.master_product_id}`} className="flex min-w-0 items-center gap-3"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></a></td>
-                                            <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{row.sku}</span>{row.barcode && <span className="block truncate text-xs text-slate-400">{row.barcode}</span>}</td>
+                                        <tr key={row.id} className={`${selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
+                                            <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>
+                                            <td className="px-3 py-4"><button type="button" onClick={() => openDetail(row.master_product_id)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></button></td>
+                                            <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span>{row.barcode && <span className="block truncate text-xs text-slate-400">{row.barcode}</span>}</td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "stock")} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] dark:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
@@ -753,18 +976,19 @@ export default function MasterProductPanel({ search = "" }) {
                             {rows.map((row) => (
                                 <article
                                     key={row.id}
-                                    className={`relative rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800 ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                                    className={`relative rounded-lg border bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:bg-slate-800 ${selectedIds.has(row.id) ? "border-[#304674] ring-1 ring-[#304674]/20 dark:border-blue-500" : "border-slate-300 dark:border-slate-700"} ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
                                 >
                                     <div className="flex items-start gap-4">
-                                        <a href={`#/products/master/${row.master_product_id}`} className="shrink-0">
+                                        <div className="pt-1"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></div>
+                                        <button type="button" onClick={() => openDetail(row.master_product_id)} className="shrink-0">
                                             <ProductImage row={row} size="lg" />
-                                        </a>
+                                        </button>
                                         <div className="min-w-0 flex-1">
-                                            <a href={`#/products/master/${row.master_product_id}`} className="line-clamp-2 text-sm font-bold leading-tight text-slate-900 dark:text-white">
+                                            <button type="button" onClick={() => openDetail(row.master_product_id)} className="line-clamp-2 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">
                                                 {row.name}
-                                            </a>
+                                            </button>
                                             <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                                {row.sku}
+                                                {String(row.sku || "").toUpperCase()}
                                             </p>
                                         </div>
                                         <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} />
@@ -795,13 +1019,17 @@ export default function MasterProductPanel({ search = "" }) {
                             ))}
                         </div>
 
-                        <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700"><p className="text-sm text-slate-500">{meta.from || 0}-{meta.to || 0} dari {meta.total || 0}</p><div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-30 dark:border-slate-600"><span className="material-symbols-rounded">chevron_left</span></button><span className="min-w-14 text-center text-sm font-semibold">{meta.current_page || 1} / {meta.last_page || 1}</span><button type="button" disabled={page >= (meta.last_page || 1)} onClick={() => setPage((current) => current + 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-30 dark:border-slate-600"><span className="material-symbols-rounded">chevron_right</span></button></div></div>
+                        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700">
+                            <div className="flex flex-wrap items-center gap-3"><span className="text-sm text-slate-500">Tampilkan maksimal:</span><PageSizeDropdown value={pageSize} onChange={(value) => { setPage(1); setPageSize(value); }} /><p className="text-sm text-slate-500">{meta.from || 0}-{meta.to || 0} dari {meta.total || 0}</p></div>
+                            <div className="flex items-center justify-end gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-30 dark:border-slate-600"><span className="material-symbols-rounded">chevron_left</span></button><span className="min-w-14 text-center text-sm font-semibold">{meta.current_page || 1} / {meta.last_page || 1}</span><button type="button" disabled={page >= (meta.last_page || 1)} onClick={() => setPage((current) => current + 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-30 dark:border-slate-600"><span className="material-symbols-rounded">chevron_right</span></button></div>
+                        </div>
                     </>
                 )}
             </div>
 
             <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
+            <AnimatePresence>{bulkValueField && <BulkValueModal count={selectedRows.length} field={bulkValueField} onClose={() => setBulkValueField(null)} onSaved={bulkUpdate} />}</AnimatePresence>
             <AnimatePresence>{bulkModalOpen && <BulkMasterSkuModal detected={detected} onClose={() => setBulkModalOpen(false)} onSaved={finishBulkCreate} />}</AnimatePresence>
         </div>
     );

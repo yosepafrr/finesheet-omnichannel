@@ -31,6 +31,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/master-products', [MasterProductController::class, 'index']);
         Route::post('/master-products', [MasterProductController::class, 'store']);
         Route::post('/master-products/bulk', [MasterProductController::class, 'bulkStore']);
+        Route::put('/master-products/variants/bulk', [MasterProductController::class, 'bulkUpdateVariants']);
+        Route::post('/master-products/variants/bulk/push', [MasterProductController::class, 'bulkPushVariants']);
         Route::get('/master-products/{id}', [MasterProductController::class, 'show']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
         Route::put('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'updateVariant']);

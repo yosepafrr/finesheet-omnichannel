@@ -272,6 +272,64 @@ class MasterProductTest extends TestCase
             ->assertJsonPath('meta.total', 0);
     }
 
+    public function test_master_variants_can_be_updated_and_pushed_in_bulk(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Toko Bulk', 'SHOP-BULK-UPDATE');
+        $variantIds = collect(['SKU-BULK-1', 'SKU-BULK-2'])->map(function (string $sku, int $index) use ($store, $user) {
+            Product::create([
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'product_id' => 7000 + $index,
+                'product_name' => "Produk {$sku}",
+                'product_sku' => $sku,
+                'stock' => 5,
+                'price' => 100000,
+            ]);
+            $payload = $this->payload();
+            $payload['name'] = "Master {$sku}";
+            $payload['variants'][0]['sku'] = $sku;
+
+            return $this->actingAs($user)
+                ->postJson('/api/master-products', $payload)
+                ->json('variants.0.id');
+        })->all();
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/bulk', [
+                'variant_ids' => $variantIds,
+                'field' => 'hpp',
+                'value' => 17500,
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 2);
+
+        $this->assertDatabaseCount('master_product_variants', 2);
+        $this->assertSame(2, MasterProductVariant::where('hpp', 17500)->count());
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/bulk', [
+                'variant_ids' => $variantIds,
+                'field' => 'stock',
+                'value' => 31,
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 2)
+            ->assertJsonPath('queued_count', 2);
+
+        $this->actingAs($user)
+            ->postJson('/api/master-products/variants/bulk/push', [
+                'variant_ids' => $variantIds,
+            ])
+            ->assertStatus(202)
+            ->assertJsonPath('processed_count', 2)
+            ->assertJsonPath('queued_count', 2);
+
+        $this->assertSame(2, MasterProductVariant::where('stock', 31)->count());
+        Bus::assertDispatchedTimes(SyncStockToMarketplaceJob::class, 4);
+    }
+
     private function payload(): array
     {
         return [

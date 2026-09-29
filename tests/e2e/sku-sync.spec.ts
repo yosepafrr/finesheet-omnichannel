@@ -39,7 +39,22 @@ async function mockMasterApis(page: Page, initialRows = [masterRow], initialDete
       return route.fulfill({
         json: {
           data: rows,
-          meta: { current_page: 1, last_page: 1, per_page: 20, total: rows.length, from: rows.length ? 1 : null, to: rows.length || null },
+          meta: { current_page: 1, last_page: 1, per_page: Number(url.searchParams.get('per_page') || 30), total: rows.length, from: rows.length ? 1 : null, to: rows.length || null },
+        },
+      });
+    }
+
+    if (request.method() === 'GET' && url.pathname === '/api/master-products/7') {
+      return route.fulfill({
+        json: {
+          id: 7,
+          name: masterRow.name,
+          brand: masterRow.brand,
+          category: masterRow.category,
+          description: masterRow.description,
+          image: masterRow.image,
+          status: masterRow.product_status,
+          variants: rows,
         },
       });
     }
@@ -101,6 +116,17 @@ async function mockMasterApis(page: Page, initialRows = [masterRow], initialDete
       return route.fulfill({ json: rows.find(row => row.id === 21) });
     }
 
+    if (request.method() === 'PUT' && url.pathname === '/api/master-products/variants/bulk') {
+      const payload = request.postDataJSON();
+      rows = rows.map(row => payload.variant_ids.includes(row.id) ? { ...row, [payload.field]: Number(payload.value) } : row);
+      return route.fulfill({ json: { message: `${payload.field.toUpperCase()} berhasil diperbarui.`, updated_count: payload.variant_ids.length, queued_count: payload.field === 'stock' ? 2 : 0 } });
+    }
+
+    if (request.method() === 'POST' && url.pathname === '/api/master-products/variants/bulk/push') {
+      const payload = request.postDataJSON();
+      return route.fulfill({ status: 202, json: { message: 'Sinkronisasi stok dijadwalkan.', processed_count: payload.variant_ids.length, queued_count: 2 } });
+    }
+
     if (request.method() === 'POST' && url.pathname.endsWith('/variants/21/push')) {
       return route.fulfill({ status: 202, json: { message: 'Sinkronisasi stok dijadwalkan.', queued_count: 2 } });
     }
@@ -156,6 +182,34 @@ test.describe('Master product and stock synchronization', () => {
     const pushPromise = page.waitForRequest(request => request.url().endsWith('/variants/21/push') && request.method() === 'POST');
     await page.getByRole('button', { name: 'Sinkronkan stok' }).click();
     await pushPromise;
+  });
+
+  test('supports detail navigation, Rp500 HPP, page size, and bulk actions', async ({ page }) => {
+    await mockMasterApis(page);
+    await page.goto('/#/products');
+
+    const pageSizePromise = page.waitForRequest(request => request.url().includes('/api/master-products?') && request.url().includes('per_page=50'));
+    await page.getByRole('button', { name: /^30/ }).click();
+    await page.getByRole('button', { name: '50', exact: true }).click();
+    await pageSizePromise;
+
+    await page.getByRole('button', { name: 'Pengaturan SKU master' }).first().click();
+    await page.getByRole('button', { name: 'Edit HPP' }).click();
+    const hppInput = page.getByRole('spinbutton');
+    await hppInput.fill('17500');
+    const hppRequest = page.waitForRequest(request => request.url().endsWith('/variants/21') && request.method() === 'PUT');
+    await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+    expect((await hppRequest).postDataJSON().hpp).toBe(17500);
+
+    await page.getByLabel('Pilih SKU SKU-OXFORD-L').first().check();
+    await expect(page.getByText('1 SKU dipilih')).toBeVisible();
+    const bulkPushRequest = page.waitForRequest(request => request.url().endsWith('/variants/bulk/push'));
+    await page.getByRole('button', { name: 'Sinkronkan', exact: true }).click();
+    expect((await bulkPushRequest).postDataJSON()).toEqual({ variant_ids: [21] });
+
+    await page.getByRole('button', { name: new RegExp(masterRow.name) }).first().click();
+    await expect(page).toHaveURL(/#\/products\/master\/7$/);
+    await expect(page.getByRole('heading', { name: masterRow.name })).toBeVisible();
   });
 
   test('adds all or selected detected SKUs in bulk', async ({ page }) => {

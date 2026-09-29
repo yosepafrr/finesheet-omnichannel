@@ -304,6 +304,77 @@ class MasterProductController extends Controller
         ], 202);
     }
 
+    public function bulkUpdateVariants(
+        Request $request,
+        MasterSkuSyncService $skuSync,
+        StockSyncService $stockSync
+    ) {
+        $data = $request->validate([
+            'variant_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'variant_ids.*' => ['required', 'integer', 'distinct'],
+            'field' => ['required', 'in:stock,hpp'],
+            'value' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        if ($data['field'] === 'stock' && filter_var($data['value'], FILTER_VALIDATE_INT) === false) {
+            throw ValidationException::withMessages(['value' => 'Stok harus berupa bilangan bulat.']);
+        }
+
+        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $value = $data['field'] === 'stock' ? (int) $data['value'] : (float) $data['value'];
+        $queued = 0;
+
+        if ($data['field'] === 'hpp') {
+            MasterProductVariant::query()
+                ->whereIn('id', $variants->pluck('id'))
+                ->update(['hpp' => $value]);
+        } else {
+            foreach ($variants as $variant) {
+                $variant->update(['stock' => $value]);
+                $group = $skuSync->syncVariant($variant->fresh());
+                if ($group) {
+                    $queued += $stockSync->setMasterStock($group, $value);
+                }
+            }
+        }
+
+        return response()->json([
+            'message' => $data['field'] === 'stock'
+                ? "Stok {$variants->count()} SKU diperbarui. {$queued} pembaruan marketplace dijadwalkan."
+                : "HPP {$variants->count()} SKU berhasil diperbarui.",
+            'updated_count' => $variants->count(),
+            'queued_count' => $queued,
+        ]);
+    }
+
+    public function bulkPushVariants(
+        Request $request,
+        MasterSkuSyncService $skuSync,
+        StockSyncService $stockSync
+    ) {
+        $data = $request->validate([
+            'variant_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'variant_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $queued = 0;
+
+        foreach ($variants as $variant) {
+            $group = $skuSync->syncVariant($variant);
+            if ($group) {
+                $queued += $stockSync->setMasterStock($group, (int) $variant->stock);
+            }
+        }
+
+        return response()->json([
+            'message' => $queued > 0
+                ? "Sinkronisasi stok dijadwalkan untuk {$queued} listing marketplace."
+                : 'Belum ada listing marketplace dengan SKU yang sama.',
+            'processed_count' => $variants->count(),
+            'queued_count' => $queued,
+        ], 202);
+    }
+
     public function destroy(Request $request, int $id)
     {
         $product = $this->ownedProduct($request, $id);
@@ -429,6 +500,24 @@ class MasterProductController extends Controller
             ->where('user_id', $request->user()->id)
             ->where('source', 'manual')
             ->findOrFail($id);
+    }
+
+    private function ownedVariants(Request $request, array $variantIds): Collection
+    {
+        $variants = MasterProductVariant::query()
+            ->where('user_id', $request->user()->id)
+            ->whereIn('id', $variantIds)
+            ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'))
+            ->with('masterProduct')
+            ->get();
+
+        if ($variants->count() !== count($variantIds)) {
+            throw ValidationException::withMessages([
+                'variant_ids' => 'Sebagian SKU master tidak ditemukan atau tidak dapat diakses.',
+            ]);
+        }
+
+        return $variants;
     }
 
     private function variantRelations(bool $withProduct = true): array
