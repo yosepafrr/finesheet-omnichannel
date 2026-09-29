@@ -210,9 +210,11 @@ test.describe('Master product and stock synchronization', () => {
     expect((await bulkPushRequest).postDataJSON()).toEqual({ variant_ids: [21] });
 
     await page.getByRole('button', { name: 'Selesai' }).click();
+    const detailPagePromise = page.waitForEvent('popup');
     await page.getByRole('button', { name: new RegExp(masterRow.name) }).first().click();
-    await expect(page).toHaveURL(/#\/products\/master\/7$/);
-    await expect(page.getByRole('heading', { name: masterRow.name })).toBeVisible();
+    const detailPage = await detailPagePromise;
+    await expect(detailPage).toHaveURL(/#\/products\/master\/7$/);
+    await expect(page).toHaveURL(/#\/products$/);
   });
 
   test('adds all or selected detected SKUs in bulk', async ({ page }) => {

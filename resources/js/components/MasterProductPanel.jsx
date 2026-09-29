@@ -681,7 +681,7 @@ function SelectionCheckbox({ checked, indeterminate = false, onChange, label }) 
         if (ref.current) ref.current.indeterminate = indeterminate;
     }, [indeterminate]);
 
-    return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="h-4 w-4 rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />;
+    return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />;
 }
 
 function PageSizeDropdown({ value, onChange }) {
@@ -880,7 +880,9 @@ export default function MasterProductPanel({ search = "" }) {
     };
 
     const openDetail = (productId) => {
-        window.location.assign(`#/products/master/${encodeURIComponent(productId)}`);
+        const detailUrl = new URL(window.location.href);
+        detailUrl.hash = `/products/master/${encodeURIComponent(productId)}`;
+        window.open(detailUrl.toString(), "_blank", "noopener,noreferrer");
     };
 
     const handleProductClick = (row) => {

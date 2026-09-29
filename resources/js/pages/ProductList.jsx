@@ -427,965 +427,965 @@ export default function ProductList() {
                             {/* Store Groups */}
                             {loading ? (
                                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-                            <SkeletonTable />
-                        </div>
-                    ) : !data?.stores?.length ? (
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center border border-dashed border-gray-300 dark:border-slate-600">
-                            <p className="text-gray-500 dark:text-slate-400">
-                                Tidak ada toko yang terhubung.
-                            </p>
-                        </div>
-                    ) : (
-                        data.stores
-                            .filter(store => selectedStore === "" || store.id == selectedStore)
-                            .map((store) => (
-                            <div
-                                key={store.id}
-                                className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden"
-                            >
-                                {/* Store Header */}
-                                <div className="bg-gray-50/80 dark:bg-slate-700/50 p-4 border-b border-gray-100 dark:border-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-4 backdrop-blur-sm">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-600 flex items-center justify-center">
-                                            <PlatformIcon
-                                                platform={store.platform}
-                                            />
-                                        </div>
-                                        <div>
-                                            <h2 className="font-bold text-gray-800 dark:text-white text-lg">
-                                                {store.store_name ||
-                                                    "Unknown Store"}
-                                            </h2>
-                                            <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-200 dark:bg-slate-600 px-2 py-0.5 rounded-full">
-                                                {store.platform}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-xs text-gray-400 dark:text-slate-500 hidden sm:block">
-                                            {store.product_count} Produk
-                                            Ditemukan
-                                        </span>
-                                        <button
-                                            onClick={() =>
-                                                handleSyncStore(store.id)
-                                            }
-                                            disabled={
-                                                syncingStoreId === store.id ||
-                                                syncing
-                                            }
-                                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                                        >
-                                            <span
-                                                className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id ? "animate-spin" : ""}`}
-                                            >
-                                                sync
-                                            </span>
-                                            {syncingStoreId === store.id
-                                                ? "Menyelaraskan..."
-                                                : "Sinkronkan Toko"}
-                                        </button>
-                                    </div>
+                                    <SkeletonTable />
                                 </div>
+                            ) : !data?.stores?.length ? (
+                                <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center border border-dashed border-gray-300 dark:border-slate-600">
+                                    <p className="text-gray-500 dark:text-slate-400">
+                                        Tidak ada toko yang terhubung.
+                                    </p>
+                                </div>
+                            ) : (
+                                data.stores
+                                    .filter(store => selectedStore === "" || store.id == selectedStore)
+                                    .map((store) => (
+                                        <div
+                                            key={store.id}
+                                            className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden"
+                                        >
+                                            {/* Store Header */}
+                                            <div className="bg-gray-50/80 dark:bg-slate-700/50 p-4 border-b border-gray-100 dark:border-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-4 backdrop-blur-sm">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-slate-600 flex items-center justify-center">
+                                                        <PlatformIcon
+                                                            platform={store.platform}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <h2 className="font-bold text-gray-800 dark:text-white text-lg">
+                                                            {store.store_name ||
+                                                                "Unknown Store"}
+                                                        </h2>
+                                                        <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-200 dark:bg-slate-600 px-2 py-0.5 rounded-full">
+                                                            {store.platform}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs text-gray-400 dark:text-slate-500 hidden sm:block">
+                                                        {store.product_count} Produk
+                                                        Ditemukan
+                                                    </span>
+                                                    <button
+                                                        onClick={() =>
+                                                            handleSyncStore(store.id)
+                                                        }
+                                                        disabled={
+                                                            syncingStoreId === store.id ||
+                                                            syncing
+                                                        }
+                                                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#304674]/10 hover:bg-[#304674]/20 dark:bg-blue-600/20 dark:hover:bg-blue-600/30 text-[#304674] dark:text-blue-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                                                    >
+                                                        <span
+                                                            className={`material-symbols-rounded text-[16px] ${syncingStoreId === store.id ? "animate-spin" : ""}`}
+                                                        >
+                                                            sync
+                                                        </span>
+                                                        {syncingStoreId === store.id
+                                                            ? "Menyelaraskan..."
+                                                            : "Sinkronkan Toko"}
+                                                    </button>
+                                                </div>
+                                            </div>
 
-                                {/* Product Content */}
-                                {store.products.length === 0 ? (
-                                    <div className="p-12 text-center">
-                                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-50 dark:bg-slate-700 mb-4">
-                                            <span className="material-symbols-rounded text-3xl text-gray-300 dark:text-slate-500">
-                                                inventory_2
-                                            </span>
-                                        </div>
-                                        <p className="text-gray-500 dark:text-slate-400 font-medium">
-                                            Tidak ada data produk.
-                                        </p>
-                                        <p className="text-xs text-gray-400 dark:text-slate-500 mb-6">
-                                            Sinkronisasi data untuk mengambil
-                                            produk terbaru.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    (() => {
-                                        const totalProducts =
-                                            store.products.length;
-                                        const itemsPerPage =
-                                            limitByStore[store.id] || 30;
-                                        const totalPages = Math.ceil(
-                                            totalProducts / itemsPerPage,
-                                        );
-                                        const currentPage =
-                                            pageByStore[store.id] || 1;
-                                        const validPage = Math.min(
-                                            currentPage,
-                                            totalPages > 0 ? totalPages : 1,
-                                        );
-                                        const paginatedProducts =
-                                            store.products.slice(
-                                                (validPage - 1) * itemsPerPage,
-                                                validPage * itemsPerPage,
-                                            );
+                                            {/* Product Content */}
+                                            {store.products.length === 0 ? (
+                                                <div className="p-12 text-center">
+                                                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-50 dark:bg-slate-700 mb-4">
+                                                        <span className="material-symbols-rounded text-3xl text-gray-300 dark:text-slate-500">
+                                                            inventory_2
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-500 dark:text-slate-400 font-medium">
+                                                        Tidak ada data produk.
+                                                    </p>
+                                                    <p className="text-xs text-gray-400 dark:text-slate-500 mb-6">
+                                                        Sinkronisasi data untuk mengambil
+                                                        produk terbaru.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                (() => {
+                                                    const totalProducts =
+                                                        store.products.length;
+                                                    const itemsPerPage =
+                                                        limitByStore[store.id] || 30;
+                                                    const totalPages = Math.ceil(
+                                                        totalProducts / itemsPerPage,
+                                                    );
+                                                    const currentPage =
+                                                        pageByStore[store.id] || 1;
+                                                    const validPage = Math.min(
+                                                        currentPage,
+                                                        totalPages > 0 ? totalPages : 1,
+                                                    );
+                                                    const paginatedProducts =
+                                                        store.products.slice(
+                                                            (validPage - 1) * itemsPerPage,
+                                                            validPage * itemsPerPage,
+                                                        );
 
-                                        return (
-                                            <>
-                                                {/* Desktop Table */}
-                                                <div id={store.id === data.stores[0]?.id ? "tour-product-table" : undefined} className="hidden md:block overflow-x-auto">
-                                                    <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
-                                                        <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
-                                                            <tr>
-                                                                <th className="px-6 py-4 w-10"></th>
-                                                                <th className="px-6 py-4 w-24"></th>
-                                                                <th className="px-6 py-4 w-1/4">
-                                                                    Product Info
-                                                                </th>
-                                                                <th className="px-6 py-4 text-center">
-                                                                    Stock
-                                                                </th>
-                                                                <th className="px-6 py-4">
-                                                                    Price
-                                                                </th>
-                                                                <th className="px-6 py-4 w-72 text-left">
-                                                                    HPP (Modal)
-                                                                </th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                                                            {paginatedProducts.map(
-                                                                (product) => {
-                                                                    const variants =
-                                                                        product.variants ||
-                                                                        [];
-                                                                    const hasVariants =
-                                                                        variants.length >
-                                                                        0;
+                                                    return (
+                                                        <>
+                                                            {/* Desktop Table */}
+                                                            <div id={store.id === data.stores[0]?.id ? "tour-product-table" : undefined} className="hidden md:block overflow-x-auto">
+                                                                <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
+                                                                    <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 w-10"></th>
+                                                                            <th className="px-6 py-4 w-24"></th>
+                                                                            <th className="px-6 py-4 w-1/4">
+                                                                                Product Info
+                                                                            </th>
+                                                                            <th className="px-6 py-4 text-center">
+                                                                                Stock
+                                                                            </th>
+                                                                            <th className="px-6 py-4">
+                                                                                Price
+                                                                            </th>
+                                                                            <th className="px-6 py-4 w-72 text-left">
+                                                                                HPP (Modal)
+                                                                            </th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                                                                        {paginatedProducts.map(
+                                                                            (product) => {
+                                                                                const variants =
+                                                                                    product.variants ||
+                                                                                    [];
+                                                                                const hasVariants =
+                                                                                    variants.length >
+                                                                                    0;
 
-                                                                    let totalStock =
-                                                                        product.stock;
-                                                                    let priceDisplay =
-                                                                        formatRp(
-                                                                            product.price,
-                                                                        );
-                                                                    let hppDisplay =
-                                                                        product.hpp &&
-                                                                        product.hpp >
-                                                                            0
-                                                                            ? formatRp(
-                                                                                  product.hpp,
-                                                                              )
-                                                                            : "Belum diisi";
+                                                                                let totalStock =
+                                                                                    product.stock;
+                                                                                let priceDisplay =
+                                                                                    formatRp(
+                                                                                        product.price,
+                                                                                    );
+                                                                                let hppDisplay =
+                                                                                    product.hpp &&
+                                                                                        product.hpp >
+                                                                                        0
+                                                                                        ? formatRp(
+                                                                                            product.hpp,
+                                                                                        )
+                                                                                        : "Belum diisi";
 
-                                                                    if (
-                                                                        hasVariants
-                                                                    ) {
-                                                                        totalStock =
-                                                                            variants.reduce(
-                                                                                (
-                                                                                    sum,
-                                                                                    v,
-                                                                                ) =>
-                                                                                    sum +
-                                                                                    (v.stock ||
-                                                                                        0),
-                                                                                0,
-                                                                            );
-                                                                        const prices =
-                                                                            variants
-                                                                                .map(
-                                                                                    (
-                                                                                        v,
-                                                                                    ) =>
-                                                                                        v.price,
-                                                                                )
-                                                                                .filter(
-                                                                                    (
-                                                                                        p,
-                                                                                    ) =>
-                                                                                        p !=
-                                                                                        null,
-                                                                                );
-                                                                        if (
-                                                                            prices.length >
-                                                                            0
-                                                                        ) {
-                                                                            const minPrice =
-                                                                                Math.min(
-                                                                                    ...prices,
-                                                                                );
-                                                                            const maxPrice =
-                                                                                Math.max(
-                                                                                    ...prices,
-                                                                                );
-                                                                            priceDisplay =
-                                                                                minPrice ===
-                                                                                maxPrice
-                                                                                    ? formatRp(
-                                                                                          minPrice,
-                                                                                      )
-                                                                                    : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
-                                                                        }
-
-                                                                        const hpps =
-                                                                            variants
-                                                                                .map(
-                                                                                    (
-                                                                                        v,
-                                                                                    ) =>
-                                                                                        v.hpp,
-                                                                                )
-                                                                                .filter(
-                                                                                    (
-                                                                                        h,
-                                                                                    ) =>
-                                                                                        h !=
-                                                                                            null &&
-                                                                                        h >
+                                                                                if (
+                                                                                    hasVariants
+                                                                                ) {
+                                                                                    totalStock =
+                                                                                        variants.reduce(
+                                                                                            (
+                                                                                                sum,
+                                                                                                v,
+                                                                                            ) =>
+                                                                                                sum +
+                                                                                                (v.stock ||
+                                                                                                    0),
                                                                                             0,
-                                                                                );
-                                                                        if (
-                                                                            hpps.length >
-                                                                            0
-                                                                        ) {
-                                                                            const minHpp =
-                                                                                Math.min(
-                                                                                    ...hpps,
-                                                                                );
-                                                                            const maxHpp =
-                                                                                Math.max(
-                                                                                    ...hpps,
-                                                                                );
-                                                                            hppDisplay =
-                                                                                minHpp ===
-                                                                                maxHpp
-                                                                                    ? formatRp(
-                                                                                          minHpp,
-                                                                                      )
-                                                                                    : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
-                                                                        } else {
-                                                                            hppDisplay =
-                                                                                "Belum diisi";
-                                                                        }
-                                                                    }
-
-                                                                    return (
-                                                                        <Fragment
-                                                                            key={
-                                                                                product.id
-                                                                            }
-                                                                        >
-                                                                            <tr className="group hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
-                                                                                <td className="px-6 py-4 align-top">
-                                                                                    {hasVariants && (
-                                                                                        <button
-                                                                                            onClick={() =>
-                                                                                                toggleExpand(
-                                                                                                    product.id,
+                                                                                        );
+                                                                                    const prices =
+                                                                                        variants
+                                                                                            .map(
+                                                                                                (
+                                                                                                    v,
+                                                                                                ) =>
+                                                                                                    v.price,
+                                                                                            )
+                                                                                            .filter(
+                                                                                                (
+                                                                                                    p,
+                                                                                                ) =>
+                                                                                                    p !=
+                                                                                                    null,
+                                                                                            );
+                                                                                    if (
+                                                                                        prices.length >
+                                                                                        0
+                                                                                    ) {
+                                                                                        const minPrice =
+                                                                                            Math.min(
+                                                                                                ...prices,
+                                                                                            );
+                                                                                        const maxPrice =
+                                                                                            Math.max(
+                                                                                                ...prices,
+                                                                                            );
+                                                                                        priceDisplay =
+                                                                                            minPrice ===
+                                                                                                maxPrice
+                                                                                                ? formatRp(
+                                                                                                    minPrice,
                                                                                                 )
-                                                                                            }
-                                                                                            className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}
-                                                                                        >
-                                                                                            <span className="material-symbols-rounded">
-                                                                                                expand_more
-                                                                                            </span>
-                                                                                        </button>
-                                                                                    )}
-                                                                                </td>
-                                                                                <td className="px-6 py-4 align-top">
+                                                                                                : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
+                                                                                    }
+
+                                                                                    const hpps =
+                                                                                        variants
+                                                                                            .map(
+                                                                                                (
+                                                                                                    v,
+                                                                                                ) =>
+                                                                                                    v.hpp,
+                                                                                            )
+                                                                                            .filter(
+                                                                                                (
+                                                                                                    h,
+                                                                                                ) =>
+                                                                                                    h !=
+                                                                                                    null &&
+                                                                                                    h >
+                                                                                                    0,
+                                                                                            );
+                                                                                    if (
+                                                                                        hpps.length >
+                                                                                        0
+                                                                                    ) {
+                                                                                        const minHpp =
+                                                                                            Math.min(
+                                                                                                ...hpps,
+                                                                                            );
+                                                                                        const maxHpp =
+                                                                                            Math.max(
+                                                                                                ...hpps,
+                                                                                            );
+                                                                                        hppDisplay =
+                                                                                            minHpp ===
+                                                                                                maxHpp
+                                                                                                ? formatRp(
+                                                                                                    minHpp,
+                                                                                                )
+                                                                                                : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
+                                                                                    } else {
+                                                                                        hppDisplay =
+                                                                                            "Belum diisi";
+                                                                                    }
+                                                                                }
+
+                                                                                return (
+                                                                                    <Fragment
+                                                                                        key={
+                                                                                            product.id
+                                                                                        }
+                                                                                    >
+                                                                                        <tr className="group hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                                                                                            <td className="px-6 py-4 align-top">
+                                                                                                {hasVariants && (
+                                                                                                    <button
+                                                                                                        onClick={() =>
+                                                                                                            toggleExpand(
+                                                                                                                product.id,
+                                                                                                            )
+                                                                                                        }
+                                                                                                        className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}
+                                                                                                    >
+                                                                                                        <span className="material-symbols-rounded">
+                                                                                                            expand_more
+                                                                                                        </span>
+                                                                                                    </button>
+                                                                                                )}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-4 align-top">
+                                                                                                {product.image ? (
+                                                                                                    <img
+                                                                                                        src={
+                                                                                                            product.image
+                                                                                                        }
+                                                                                                        className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm"
+                                                                                                        alt=""
+                                                                                                    />
+                                                                                                ) : (
+                                                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                                                                                                        <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">
+                                                                                                            image
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-4 align-top">
+                                                                                                <p className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-snug line-clamp-2">
+                                                                                                    {product.product_name ||
+                                                                                                        "Unknown"}
+                                                                                                </p>
+                                                                                                <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
+                                                                                                    Product
+                                                                                                    SKU:{" "}
+                                                                                                    {product.product_sku ||
+                                                                                                        "-"}
+                                                                                                </p>
+                                                                                                <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
+                                                                                                    Product
+                                                                                                    ID:{" "}
+                                                                                                    {
+                                                                                                        product.platform_product_id
+                                                                                                    }
+                                                                                                </p>
+                                                                                                {hasVariants && (
+                                                                                                    <div className="mt-2 flex gap-2">
+                                                                                                        <button
+                                                                                                            onClick={() => toggleExpand(product.id)}
+                                                                                                            className="flex items-center gap-1 text-[10px] bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-slate-300 px-2 py-0.5 rounded transition-colors group/btn"
+                                                                                                        >
+                                                                                                            <span>{variants.length} Varian</span>
+                                                                                                            <span className={`material-symbols-rounded text-[14px] text-gray-400 group-hover/btn:text-[#304674] dark:group-hover/btn:text-blue-400 transition-all duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}>
+                                                                                                                expand_more
+                                                                                                            </span>
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </td>
+                                                                                            {hasVariants ? (
+                                                                                                <>
+                                                                                                    <td className="px-6 py-4 text-center">
+                                                                                                        <StockBadge
+                                                                                                            stock={
+                                                                                                                totalStock
+                                                                                                            }
+                                                                                                        />
+                                                                                                    </td>
+                                                                                                    <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
+                                                                                                        {
+                                                                                                            priceDisplay
+                                                                                                        }
+                                                                                                    </td>
+                                                                                                    <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
+                                                                                                        {hppDisplay ===
+                                                                                                            "Belum diisi" ? (
+                                                                                                            <span className="text-gray-400 dark:text-slate-500 italic text-xs">
+                                                                                                                Belum
+                                                                                                                diisi
+                                                                                                            </span>
+                                                                                                        ) : (
+                                                                                                            hppDisplay
+                                                                                                        )}
+                                                                                                        <div className="mt-1">
+                                                                                                            <button
+                                                                                                                onClick={() =>
+                                                                                                                    openBulkHppModal(
+                                                                                                                        product,
+                                                                                                                    )
+                                                                                                                }
+                                                                                                                className="text-xs text-[#4e6492] dark:text-blue-400 hover:text-[#153b8d] flex items-center gap-1"
+                                                                                                            >
+                                                                                                                <span className="material-symbols-rounded text-[14px]">
+                                                                                                                    edit_square
+                                                                                                                </span>
+                                                                                                                Edit
+                                                                                                                HPP
+                                                                                                                Massal
+                                                                                                            </button>
+                                                                                                        </div>
+                                                                                                    </td>
+                                                                                                </>
+                                                                                            ) : (
+                                                                                                <>
+                                                                                                    <td className="px-6 py-4 text-center">
+                                                                                                        <StockBadge
+                                                                                                            stock={
+                                                                                                                product.stock
+                                                                                                            }
+                                                                                                        />
+                                                                                                    </td>
+                                                                                                    <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
+                                                                                                        {formatRp(
+                                                                                                            product.price,
+                                                                                                        )}
+                                                                                                    </td>
+                                                                                                    <td className="px-6 py-4">
+                                                                                                        <HppEditor
+                                                                                                            type="item"
+                                                                                                            id={
+                                                                                                                product.id
+                                                                                                            }
+                                                                                                            hpp={
+                                                                                                                product.hpp
+                                                                                                            }
+                                                                                                            hppSource={product.hpp_source}
+                                                                                                            onSave={() =>
+                                                                                                                fetchData()
+                                                                                                            }
+                                                                                                            align="left"
+                                                                                                        />
+                                                                                                    </td>
+                                                                                                </>
+                                                                                            )}
+                                                                                        </tr>
+
+                                                                                        {/* Expanded Variant Details */}
+                                                                                        {hasVariants &&
+                                                                                            expandedProducts[
+                                                                                            product
+                                                                                                .id
+                                                                                            ] && (
+                                                                                                <tr
+                                                                                                    key={`${product.id}-detail`}
+                                                                                                    className="bg-gray-50/50 dark:bg-slate-900/30"
+                                                                                                >
+                                                                                                    <td
+                                                                                                        colSpan={
+                                                                                                            6
+                                                                                                        }
+                                                                                                        className="px-6 py-4"
+                                                                                                    >
+                                                                                                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm ml-10">
+                                                                                                            <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
+                                                                                                                Detail
+                                                                                                                Varian
+                                                                                                            </h4>
+
+                                                                                                            <div className="overflow-x-auto">
+                                                                                                                <table className="w-full text-left text-sm">
+                                                                                                                    <thead className="text-xs uppercase text-gray-400 dark:text-slate-500 border-b border-gray-100 dark:border-slate-700">
+                                                                                                                        <tr>
+                                                                                                                            <th className="pb-3 w-16"></th>
+                                                                                                                            <th className="pb-3 w-1/3">
+                                                                                                                                Varian
+                                                                                                                                /
+                                                                                                                                SKU
+                                                                                                                            </th>
+                                                                                                                            <th className="pb-3 text-center">
+                                                                                                                                Stock
+                                                                                                                            </th>
+                                                                                                                            <th className="pb-3">
+                                                                                                                                Price
+                                                                                                                            </th>
+                                                                                                                            <th className="pb-3 w-52">
+                                                                                                                                HPP
+                                                                                                                                (Modal)
+                                                                                                                            </th>
+                                                                                                                        </tr>
+                                                                                                                    </thead>
+                                                                                                                    <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                                                                                                                        {variants.map(
+                                                                                                                            (
+                                                                                                                                variant,
+                                                                                                                            ) => (
+                                                                                                                                <tr
+                                                                                                                                    key={
+                                                                                                                                        variant.id
+                                                                                                                                    }
+                                                                                                                                    className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors"
+                                                                                                                                >
+                                                                                                                                    <td className="px-6 py-4 align-top w-32">
+                                                                                                                                        {product.image ||
+                                                                                                                                            variant.variant_image ? (
+                                                                                                                                            <img
+                                                                                                                                                src={
+                                                                                                                                                    variant.variant_image ||
+                                                                                                                                                    product.image
+                                                                                                                                                }
+                                                                                                                                                className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm"
+                                                                                                                                                alt=""
+                                                                                                                                            />
+                                                                                                                                        ) : (
+                                                                                                                                            <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                                                                                                                                                <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">
+                                                                                                                                                    image
+                                                                                                                                                </span>
+                                                                                                                                            </div>
+                                                                                                                                        )}
+                                                                                                                                    </td>
+                                                                                                                                    <td className="py-3 align-middle pr-4">
+                                                                                                                                        <div className="flex flex-col">
+                                                                                                                                            <span className="font-medium text-gray-700 dark:text-slate-300 text-md">
+                                                                                                                                                {variant.variant_name ||
+                                                                                                                                                    variant.model_name}
+                                                                                                                                            </span>
+                                                                                                                                            <span className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-0.5">
+                                                                                                                                                Variant
+                                                                                                                                                SKU:{" "}
+                                                                                                                                                {variant.model_sku ||
+                                                                                                                                                    "-"}
+                                                                                                                                            </span>
+                                                                                                                                            <span className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-0.5">
+                                                                                                                                                Variant
+                                                                                                                                                ID:{" "}
+                                                                                                                                                {variant.platform_variant_id ||
+                                                                                                                                                    "-"}
+                                                                                                                                            </span>
+                                                                                                                                        </div>
+                                                                                                                                    </td>
+                                                                                                                                    <td className="py-3 text-center">
+                                                                                                                                        <StockBadge
+                                                                                                                                            stock={
+                                                                                                                                                variant.stock
+                                                                                                                                            }
+                                                                                                                                        />
+                                                                                                                                    </td>
+                                                                                                                                    <td className="py-3 font-medium text-gray-700 dark:text-slate-300">
+                                                                                                                                        {formatRp(
+                                                                                                                                            variant.price,
+                                                                                                                                        )}
+                                                                                                                                    </td>
+                                                                                                                                    <td className="py-3">
+                                                                                                                                        <HppEditor
+                                                                                                                                            type="variant"
+                                                                                                                                            id={
+                                                                                                                                                variant.id
+                                                                                                                                            }
+                                                                                                                                            hpp={
+                                                                                                                                                variant.hpp
+                                                                                                                                            }
+                                                                                                                                            hppSource={variant.hpp_source}
+                                                                                                                                            onSave={() =>
+                                                                                                                                                fetchData()
+                                                                                                                                            }
+                                                                                                                                            align="left"
+                                                                                                                                        />
+                                                                                                                                    </td>
+                                                                                                                                </tr>
+                                                                                                                            ),
+                                                                                                                        )}
+                                                                                                                    </tbody>
+                                                                                                                </table>
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    </td>
+                                                                                                </tr>
+                                                                                            )}
+                                                                                    </Fragment>
+                                                                                );
+                                                                            },
+                                                                        )}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+
+                                                            {/* Mobile Cards */}
+                                                            <div id={store.id === data.stores[0]?.id ? "tour-product-cards" : undefined} className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
+                                                                {paginatedProducts.map(
+                                                                    (product) => {
+                                                                        const variants =
+                                                                            product.variants ||
+                                                                            [];
+                                                                        const hasVariants =
+                                                                            variants.length >
+                                                                            0;
+
+                                                                        let totalStock =
+                                                                            product.stock;
+                                                                        let priceDisplay =
+                                                                            formatRp(
+                                                                                product.price,
+                                                                            );
+                                                                        let hppDisplay =
+                                                                            product.hpp &&
+                                                                                product.hpp > 0
+                                                                                ? formatRp(
+                                                                                    product.hpp,
+                                                                                )
+                                                                                : "Belum diisi";
+
+                                                                        if (hasVariants) {
+                                                                            totalStock =
+                                                                                variants.reduce(
+                                                                                    (
+                                                                                        sum,
+                                                                                        v,
+                                                                                    ) =>
+                                                                                        sum +
+                                                                                        (v.stock ||
+                                                                                            0),
+                                                                                    0,
+                                                                                );
+                                                                            const prices =
+                                                                                variants
+                                                                                    .map(
+                                                                                        (
+                                                                                            v,
+                                                                                        ) =>
+                                                                                            v.price,
+                                                                                    )
+                                                                                    .filter(
+                                                                                        (
+                                                                                            p,
+                                                                                        ) =>
+                                                                                            p !=
+                                                                                            null,
+                                                                                    );
+                                                                            if (
+                                                                                prices.length >
+                                                                                0
+                                                                            ) {
+                                                                                const minPrice =
+                                                                                    Math.min(
+                                                                                        ...prices,
+                                                                                    );
+                                                                                const maxPrice =
+                                                                                    Math.max(
+                                                                                        ...prices,
+                                                                                    );
+                                                                                priceDisplay =
+                                                                                    minPrice ===
+                                                                                        maxPrice
+                                                                                        ? formatRp(
+                                                                                            minPrice,
+                                                                                        )
+                                                                                        : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
+                                                                            }
+
+                                                                            const hpps =
+                                                                                variants
+                                                                                    .map(
+                                                                                        (
+                                                                                            v,
+                                                                                        ) =>
+                                                                                            v.hpp,
+                                                                                    )
+                                                                                    .filter(
+                                                                                        (
+                                                                                            h,
+                                                                                        ) =>
+                                                                                            h !=
+                                                                                            null &&
+                                                                                            h >
+                                                                                            0,
+                                                                                    );
+                                                                            if (
+                                                                                hpps.length >
+                                                                                0
+                                                                            ) {
+                                                                                const minHpp =
+                                                                                    Math.min(
+                                                                                        ...hpps,
+                                                                                    );
+                                                                                const maxHpp =
+                                                                                    Math.max(
+                                                                                        ...hpps,
+                                                                                    );
+                                                                                hppDisplay =
+                                                                                    minHpp ===
+                                                                                        maxHpp
+                                                                                        ? formatRp(
+                                                                                            minHpp,
+                                                                                        )
+                                                                                        : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
+                                                                            } else {
+                                                                                hppDisplay =
+                                                                                    "Belum diisi";
+                                                                            }
+                                                                        }
+
+                                                                        return (
+                                                                            <div
+                                                                                key={
+                                                                                    product.id
+                                                                                }
+                                                                                className="relative overflow-hidden rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800"
+                                                                            >
+                                                                                <div className="flex gap-4">
                                                                                     {product.image ? (
                                                                                         <img
                                                                                             src={
                                                                                                 product.image
                                                                                             }
-                                                                                            className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm"
+                                                                                            className="w-16 h-16 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shrink-0"
                                                                                             alt=""
                                                                                         />
                                                                                     ) : (
-                                                                                        <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                                                                                        <div className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
                                                                                             <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">
                                                                                                 image
                                                                                             </span>
                                                                                         </div>
                                                                                     )}
-                                                                                </td>
-                                                                                <td className="px-6 py-4 align-top">
-                                                                                    <p className="font-semibold text-gray-800 dark:text-slate-200 text-sm leading-snug line-clamp-2">
-                                                                                        {product.product_name ||
-                                                                                            "Unknown"}
-                                                                                    </p>
-                                                                                    <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
-                                                                                        Product
-                                                                                        SKU:{" "}
-                                                                                        {product.product_sku ||
-                                                                                            "-"}
-                                                                                    </p>
-                                                                                    <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
-                                                                                        Product
-                                                                                        ID:{" "}
-                                                                                        {
-                                                                                            product.platform_product_id
-                                                                                        }
-                                                                                    </p>
-                                                                                    {hasVariants && (
-                                                                                        <div className="mt-2 flex gap-2">
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <h3 className="text-sm font-bold text-gray-800 dark:text-white leading-tight line-clamp-2">
+                                                                                            {
+                                                                                                product.product_name
+                                                                                            }
+                                                                                        </h3>
+                                                                                        <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
+                                                                                            {product.product_sku ||
+                                                                                                "No SKU"}
+                                                                                        </p>
+
+                                                                                        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
+                                                                                            <div className="min-w-0">
+                                                                                                <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
+                                                                                                    Harga
+                                                                                                    Jual
+                                                                                                </p>
+                                                                                                <p className="text-xs sm:text-sm font-bold text-[#304674] dark:text-blue-400 truncate" title={priceDisplay}>
+                                                                                                    {
+                                                                                                        priceDisplay
+                                                                                                    }
+                                                                                                </p>
+                                                                                            </div>
+                                                                                            {hasVariants ? (
+                                                                                                <div className="px-1 text-center min-w-0">
+                                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
+                                                                                                        HPP
+                                                                                                        (Modal)
+                                                                                                    </p>
+                                                                                                    <p className="text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 truncate" title={hppDisplay}>
+                                                                                                        {hppDisplay ===
+                                                                                                            "Belum diisi" ? (
+                                                                                                            <span className="text-[10px] text-rose-500 italic font-normal">
+                                                                                                                Belum
+                                                                                                                diisi
+                                                                                                            </span>
+                                                                                                        ) : (
+                                                                                                            hppDisplay
+                                                                                                        )}
+                                                                                                    </p>
+                                                                                                    <button
+                                                                                                        onClick={() =>
+                                                                                                            openBulkHppModal(
+                                                                                                                product,
+                                                                                                            )
+                                                                                                        }
+                                                                                                        className="mt-1 text-[10px] text-[#304674] dark:text-blue-400 hover:flex items-center justify-center gap-1 mx-auto block w-full truncate"
+                                                                                                    >
+                                                                                                        Edit
+                                                                                                        HPP
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div></div>
+                                                                                            )}
+                                                                                            <div className="text-right min-w-0">
+                                                                                                <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
+                                                                                                    Stok
+                                                                                                    Total
+                                                                                                </p>
+                                                                                                <span
+                                                                                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium mt-1 inline-block truncate max-w-full ${totalStock > 0 ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"}`}
+                                                                                                >
+                                                                                                    {
+                                                                                                        totalStock
+                                                                                                    }
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {!hasVariants ? (
+                                                                                            <div className="mt-2 flex justify-end">
+                                                                                                <HppEditor
+                                                                                                    type="item"
+                                                                                                    id={
+                                                                                                        product.id
+                                                                                                    }
+                                                                                                    hpp={
+                                                                                                        product.hpp
+                                                                                                    }
+                                                                                                    hppSource={product.hpp_source}
+                                                                                                    onSave={() =>
+                                                                                                        fetchData()
+                                                                                                    }
+                                                                                                />
+                                                                                            </div>
+                                                                                        ) : (
                                                                                             <button
-                                                                                                onClick={() => toggleExpand(product.id)}
-                                                                                                className="flex items-center gap-1 text-[10px] bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-slate-300 px-2 py-0.5 rounded transition-colors group/btn"
+                                                                                                onClick={() =>
+                                                                                                    toggleExpand(
+                                                                                                        product.id,
+                                                                                                    )
+                                                                                                }
+                                                                                                className="mt-3 w-full py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-slate-700/50 dark:hover:bg-slate-700 text-xs font-medium text-[#304674] dark:text-blue-400 rounded-lg flex items-center justify-center gap-1 transition-colors"
                                                                                             >
-                                                                                                <span>{variants.length} Varian</span>
-                                                                                                <span className={`material-symbols-rounded text-[14px] text-gray-400 group-hover/btn:text-[#304674] dark:group-hover/btn:text-blue-400 transition-all duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}>
+                                                                                                <span>
+                                                                                                    {expandedProducts[
+                                                                                                        product
+                                                                                                            .id
+                                                                                                    ]
+                                                                                                        ? "Tutup Varian"
+                                                                                                        : `Lihat ${product.variants.length} Varian`}
+                                                                                                </span>
+                                                                                                <span
+                                                                                                    className={`material-symbols-rounded text-base transition-transform ${expandedProducts[product.id] ? "rotate-180" : ""}`}
+                                                                                                >
                                                                                                     expand_more
                                                                                                 </span>
                                                                                             </button>
-                                                                                        </div>
-                                                                                    )}
-                                                                                </td>
-                                                                                {hasVariants ? (
-                                                                                    <>
-                                                                                        <td className="px-6 py-4 text-center">
-                                                                                            <StockBadge
-                                                                                                stock={
-                                                                                                    totalStock
-                                                                                                }
-                                                                                            />
-                                                                                        </td>
-                                                                                        <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
-                                                                                            {
-                                                                                                priceDisplay
-                                                                                            }
-                                                                                        </td>
-                                                                                        <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
-                                                                                            {hppDisplay ===
-                                                                                            "Belum diisi" ? (
-                                                                                                <span className="text-gray-400 dark:text-slate-500 italic text-xs">
-                                                                                                    Belum
-                                                                                                    diisi
-                                                                                                </span>
-                                                                                            ) : (
-                                                                                                hppDisplay
-                                                                                            )}
-                                                                                            <div className="mt-1">
-                                                                                                <button
-                                                                                                    onClick={() =>
-                                                                                                        openBulkHppModal(
-                                                                                                            product,
-                                                                                                        )
-                                                                                                    }
-                                                                                                    className="text-xs text-[#4e6492] dark:text-blue-400 hover:text-[#153b8d] flex items-center gap-1"
-                                                                                                >
-                                                                                                    <span className="material-symbols-rounded text-[14px]">
-                                                                                                        edit_square
-                                                                                                    </span>
-                                                                                                    Edit
-                                                                                                    HPP
-                                                                                                    Massal
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <>
-                                                                                        <td className="px-6 py-4 text-center">
-                                                                                            <StockBadge
-                                                                                                stock={
-                                                                                                    product.stock
-                                                                                                }
-                                                                                            />
-                                                                                        </td>
-                                                                                        <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">
-                                                                                            {formatRp(
-                                                                                                product.price,
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td className="px-6 py-4">
-                                                                                            <HppEditor
-                                                                                                type="item"
-                                                                                                id={
-                                                                                                    product.id
-                                                                                                }
-                                                                                                hpp={
-                                                                                                    product.hpp
-                                                                                                }
-                                                                                                hppSource={product.hpp_source}
-                                                                                                onSave={() =>
-                                                                                                    fetchData()
-                                                                                                }
-                                                                                                align="left"
-                                                                                            />
-                                                                                        </td>
-                                                                                    </>
-                                                                                )}
-                                                                            </tr>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
 
-                                                                            {/* Expanded Variant Details */}
-                                                                            {hasVariants &&
-                                                                                expandedProducts[
+                                                                                {/* Expanded Variants (Mobile) */}
+                                                                                {product
+                                                                                    .variants
+                                                                                    ?.length >
+                                                                                    0 &&
+                                                                                    expandedProducts[
                                                                                     product
                                                                                         .id
-                                                                                ] && (
-                                                                                    <tr
-                                                                                        key={`${product.id}-detail`}
-                                                                                        className="bg-gray-50/50 dark:bg-slate-900/30"
-                                                                                    >
-                                                                                        <td
-                                                                                            colSpan={
-                                                                                                6
-                                                                                            }
-                                                                                            className="px-6 py-4"
-                                                                                        >
-                                                                                            <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm ml-10">
-                                                                                                <h4 className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
-                                                                                                    Detail
-                                                                                                    Varian
-                                                                                                </h4>
-
-                                                                                                <div className="overflow-x-auto">
-                                                                                                    <table className="w-full text-left text-sm">
-                                                                                                        <thead className="text-xs uppercase text-gray-400 dark:text-slate-500 border-b border-gray-100 dark:border-slate-700">
-                                                                                                            <tr>
-                                                                                                                <th className="pb-3 w-16"></th>
-                                                                                                                <th className="pb-3 w-1/3">
-                                                                                                                    Varian
-                                                                                                                    /
-                                                                                                                    SKU
-                                                                                                                </th>
-                                                                                                                <th className="pb-3 text-center">
-                                                                                                                    Stock
-                                                                                                                </th>
-                                                                                                                <th className="pb-3">
-                                                                                                                    Price
-                                                                                                                </th>
-                                                                                                                <th className="pb-3 w-52">
-                                                                                                                    HPP
-                                                                                                                    (Modal)
-                                                                                                                </th>
-                                                                                                            </tr>
-                                                                                                        </thead>
-                                                                                                        <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                                                                                                            {variants.map(
-                                                                                                                (
-                                                                                                                    variant,
-                                                                                                                ) => (
-                                                                                                                    <tr
-                                                                                                                        key={
+                                                                                    ] && (
+                                                                                        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 space-y-3 bg-gray-50 dark:bg-slate-900/50 -mx-4 px-4 pb-2">
+                                                                                            {product.variants.map(
+                                                                                                (
+                                                                                                    variant,
+                                                                                                ) => (
+                                                                                                    <div
+                                                                                                        key={
+                                                                                                            variant.id
+                                                                                                        }
+                                                                                                        className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm flex gap-3"
+                                                                                                    >
+                                                                                                        <div className="flex-1">
+                                                                                                            <div className="flex justify-between items-start mb-2">
+                                                                                                                <div>
+                                                                                                                    <p className="text-xs font-bold text-gray-700 dark:text-slate-200">
+                                                                                                                        {variant.variant_name ||
+                                                                                                                            variant.model_name}
+                                                                                                                    </p>
+                                                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 font-mono">
+                                                                                                                        {
+                                                                                                                            variant.model_sku
+                                                                                                                        }
+                                                                                                                    </p>
+                                                                                                                </div>
+                                                                                                                <span
+                                                                                                                    className={`text-[10px] px-2 py-0.5 rounded ${variant.stock > 0 ? "bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400"}`}
+                                                                                                                >
+                                                                                                                    Stok:{" "}
+                                                                                                                    {
+                                                                                                                        variant.stock
+                                                                                                                    }
+                                                                                                                </span>
+                                                                                                            </div>
+                                                                                                            <div className="flex items-center justify-between">
+                                                                                                                <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
+                                                                                                                    {formatRp(
+                                                                                                                        variant.price,
+                                                                                                                    )}
+                                                                                                                </span>
+                                                                                                                <div className="w-1/2 flex justify-end">
+                                                                                                                    <HppEditor
+                                                                                                                        type="variant"
+                                                                                                                        id={
                                                                                                                             variant.id
                                                                                                                         }
-                                                                                                                        className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors"
-                                                                                                                    >
-                                                                                                                        <td className="px-6 py-4 align-top w-32">
-                                                                                                                            {product.image ||
-                                                                                                                            variant.variant_image ? (
-                                                                                                                                <img
-                                                                                                                                    src={
-                                                                                                                                        variant.variant_image ||
-                                                                                                                                        product.image
-                                                                                                                                    }
-                                                                                                                                    className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shadow-sm"
-                                                                                                                                    alt=""
-                                                                                                                                />
-                                                                                                                            ) : (
-                                                                                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
-                                                                                                                                    <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">
-                                                                                                                                        image
-                                                                                                                                    </span>
-                                                                                                                                </div>
-                                                                                                                            )}
-                                                                                                                        </td>
-                                                                                                                        <td className="py-3 align-middle pr-4">
-                                                                                                                            <div className="flex flex-col">
-                                                                                                                                <span className="font-medium text-gray-700 dark:text-slate-300 text-md">
-                                                                                                                                    {variant.variant_name ||
-                                                                                                                                        variant.model_name}
-                                                                                                                                </span>
-                                                                                                                                <span className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-0.5">
-                                                                                                                                    Variant
-                                                                                                                                    SKU:{" "}
-                                                                                                                                    {variant.model_sku ||
-                                                                                                                                        "-"}
-                                                                                                                                </span>
-                                                                                                                                <span className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-0.5">
-                                                                                                                                    Variant
-                                                                                                                                    ID:{" "}
-                                                                                                                                    {variant.platform_variant_id ||
-                                                                                                                                        "-"}
-                                                                                                                                </span>
-                                                                                                                            </div>
-                                                                                                                        </td>
-                                                                                                                        <td className="py-3 text-center">
-                                                                                                                            <StockBadge
-                                                                                                                                stock={
-                                                                                                                                    variant.stock
-                                                                                                                                }
-                                                                                                                            />
-                                                                                                                        </td>
-                                                                                                                        <td className="py-3 font-medium text-gray-700 dark:text-slate-300">
-                                                                                                                            {formatRp(
-                                                                                                                                variant.price,
-                                                                                                                            )}
-                                                                                                                        </td>
-                                                                                                                        <td className="py-3">
-                                                                                                                            <HppEditor
-                                                                                                                                type="variant"
-                                                                                                                                id={
-                                                                                                                                    variant.id
-                                                                                                                                }
-                                                                                                                                hpp={
-                                                                                                                                    variant.hpp
-                                                                                                                                }
-                                                                                                                                hppSource={variant.hpp_source}
-                                                                                                                                onSave={() =>
-                                                                                                                                    fetchData()
-                                                                                                                                }
-                                                                                                                                align="left"
-                                                                                                                            />
-                                                                                                                        </td>
-                                                                                                                    </tr>
-                                                                                                                ),
-                                                                                                            )}
-                                                                                                        </tbody>
-                                                                                                    </table>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                )}
-                                                                        </Fragment>
-                                                                    );
-                                                                },
-                                                            )}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-
-                                                {/* Mobile Cards */}
-                                                <div id={store.id === data.stores[0]?.id ? "tour-product-cards" : undefined} className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
-                                                    {paginatedProducts.map(
-                                                        (product) => {
-                                                            const variants =
-                                                                product.variants ||
-                                                                [];
-                                                            const hasVariants =
-                                                                variants.length >
-                                                                0;
-
-                                                            let totalStock =
-                                                                product.stock;
-                                                            let priceDisplay =
-                                                                formatRp(
-                                                                    product.price,
-                                                                );
-                                                            let hppDisplay =
-                                                                product.hpp &&
-                                                                product.hpp > 0
-                                                                    ? formatRp(
-                                                                          product.hpp,
-                                                                      )
-                                                                    : "Belum diisi";
-
-                                                            if (hasVariants) {
-                                                                totalStock =
-                                                                    variants.reduce(
-                                                                        (
-                                                                            sum,
-                                                                            v,
-                                                                        ) =>
-                                                                            sum +
-                                                                            (v.stock ||
-                                                                                0),
-                                                                        0,
-                                                                    );
-                                                                const prices =
-                                                                    variants
-                                                                        .map(
-                                                                            (
-                                                                                v,
-                                                                            ) =>
-                                                                                v.price,
-                                                                        )
-                                                                        .filter(
-                                                                            (
-                                                                                p,
-                                                                            ) =>
-                                                                                p !=
-                                                                                null,
-                                                                        );
-                                                                if (
-                                                                    prices.length >
-                                                                    0
-                                                                ) {
-                                                                    const minPrice =
-                                                                        Math.min(
-                                                                            ...prices,
-                                                                        );
-                                                                    const maxPrice =
-                                                                        Math.max(
-                                                                            ...prices,
-                                                                        );
-                                                                    priceDisplay =
-                                                                        minPrice ===
-                                                                        maxPrice
-                                                                            ? formatRp(
-                                                                                  minPrice,
-                                                                              )
-                                                                            : `${formatRp(minPrice)} - ${formatRp(maxPrice)}`;
-                                                                }
-
-                                                                const hpps =
-                                                                    variants
-                                                                        .map(
-                                                                            (
-                                                                                v,
-                                                                            ) =>
-                                                                                v.hpp,
-                                                                        )
-                                                                        .filter(
-                                                                            (
-                                                                                h,
-                                                                            ) =>
-                                                                                h !=
-                                                                                    null &&
-                                                                                h >
-                                                                                    0,
-                                                                        );
-                                                                if (
-                                                                    hpps.length >
-                                                                    0
-                                                                ) {
-                                                                    const minHpp =
-                                                                        Math.min(
-                                                                            ...hpps,
-                                                                        );
-                                                                    const maxHpp =
-                                                                        Math.max(
-                                                                            ...hpps,
-                                                                        );
-                                                                    hppDisplay =
-                                                                        minHpp ===
-                                                                        maxHpp
-                                                                            ? formatRp(
-                                                                                  minHpp,
-                                                                              )
-                                                                            : `${formatRp(minHpp)} - ${formatRp(maxHpp)}`;
-                                                                } else {
-                                                                    hppDisplay =
-                                                                        "Belum diisi";
-                                                                }
-                                                            }
-
-                                                            return (
-                                                                <div
-                                                                    key={
-                                                                        product.id
-                                                                    }
-                                                                    className="relative overflow-hidden rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800"
-                                                                >
-                                                                    <div className="flex gap-4">
-                                                                        {product.image ? (
-                                                                            <img
-                                                                                src={
-                                                                                    product.image
-                                                                                }
-                                                                                className="w-16 h-16 rounded-lg object-cover border border-gray-100 dark:border-slate-600 shrink-0"
-                                                                                alt=""
-                                                                            />
-                                                                        ) : (
-                                                                            <div className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
-                                                                                <span className="material-symbols-rounded text-gray-300 dark:text-slate-500">
-                                                                                    image
-                                                                                </span>
-                                                                            </div>
-                                                                        )}
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <h3 className="text-sm font-bold text-gray-800 dark:text-white leading-tight line-clamp-2">
-                                                                                {
-                                                                                    product.product_name
-                                                                                }
-                                                                            </h3>
-                                                                            <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-1">
-                                                                                {product.product_sku ||
-                                                                                    "No SKU"}
-                                                                            </p>
-
-                                                                            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-dashed border-gray-100 dark:border-slate-700 pt-2">
-                                                                                <div className="min-w-0">
-                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
-                                                                                        Harga
-                                                                                        Jual
-                                                                                    </p>
-                                                                                    <p className="text-xs sm:text-sm font-bold text-[#304674] dark:text-blue-400 truncate" title={priceDisplay}>
-                                                                                        {
-                                                                                            priceDisplay
-                                                                                        }
-                                                                                    </p>
-                                                                                </div>
-                                                                                {hasVariants ? (
-                                                                                    <div className="px-1 text-center min-w-0">
-                                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
-                                                                                            HPP
-                                                                                            (Modal)
-                                                                                        </p>
-                                                                                        <p className="text-xs sm:text-sm font-bold text-gray-700 dark:text-slate-300 truncate" title={hppDisplay}>
-                                                                                            {hppDisplay ===
-                                                                                            "Belum diisi" ? (
-                                                                                                <span className="text-[10px] text-rose-500 italic font-normal">
-                                                                                                    Belum
-                                                                                                    diisi
-                                                                                                </span>
-                                                                                            ) : (
-                                                                                                hppDisplay
+                                                                                                                        hpp={
+                                                                                                                            variant.hpp
+                                                                                                                        }
+                                                                                                                        hppSource={variant.hpp_source}
+                                                                                                                        onSave={() =>
+                                                                                                                            fetchData()
+                                                                                                                        }
+                                                                                                                    />
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                ),
                                                                                             )}
-                                                                                        </p>
-                                                                                        <button
-                                                                                            onClick={() =>
-                                                                                                openBulkHppModal(
-                                                                                                    product,
-                                                                                                )
-                                                                                            }
-                                                                                            className="mt-1 text-[10px] text-[#304674] dark:text-blue-400 hover:flex items-center justify-center gap-1 mx-auto block w-full truncate"
-                                                                                        >
-                                                                                            Edit
-                                                                                            HPP
-                                                                                        </button>
-                                                                                    </div>
-                                                                                ) : (
-                                                                                    <div></div>
-                                                                                )}
-                                                                                <div className="text-right min-w-0">
-                                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider truncate">
-                                                                                        Stok
-                                                                                        Total
-                                                                                    </p>
-                                                                                    <span
-                                                                                        className={`text-[10px] px-1.5 py-0.5 rounded font-medium mt-1 inline-block truncate max-w-full ${totalStock > 0 ? "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400"}`}
-                                                                                    >
-                                                                                        {
-                                                                                            totalStock
-                                                                                        }
-                                                                                    </span>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            {!hasVariants ? (
-                                                                                <div className="mt-2 flex justify-end">
-                                                                                    <HppEditor
-                                                                                        type="item"
-                                                                                        id={
-                                                                                            product.id
-                                                                                        }
-                                                                                        hpp={
-                                                                                            product.hpp
-                                                                                        }
-                                                                                        hppSource={product.hpp_source}
-                                                                                        onSave={() =>
-                                                                                            fetchData()
-                                                                                        }
-                                                                                    />
-                                                                                </div>
-                                                                            ) : (
-                                                                                <button
-                                                                                    onClick={() =>
-                                                                                        toggleExpand(
-                                                                                            product.id,
-                                                                                        )
-                                                                                    }
-                                                                                    className="mt-3 w-full py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-slate-700/50 dark:hover:bg-slate-700 text-xs font-medium text-[#304674] dark:text-blue-400 rounded-lg flex items-center justify-center gap-1 transition-colors"
-                                                                                >
-                                                                                    <span>
-                                                                                        {expandedProducts[
-                                                                                            product
-                                                                                                .id
-                                                                                        ]
-                                                                                            ? "Tutup Varian"
-                                                                                            : `Lihat ${product.variants.length} Varian`}
-                                                                                    </span>
-                                                                                    <span
-                                                                                        className={`material-symbols-rounded text-base transition-transform ${expandedProducts[product.id] ? "rotate-180" : ""}`}
-                                                                                    >
-                                                                                        expand_more
-                                                                                    </span>
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {/* Expanded Variants (Mobile) */}
-                                                                    {product
-                                                                        .variants
-                                                                        ?.length >
-                                                                        0 &&
-                                                                        expandedProducts[
-                                                                            product
-                                                                                .id
-                                                                        ] && (
-                                                                            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 space-y-3 bg-gray-50 dark:bg-slate-900/50 -mx-4 px-4 pb-2">
-                                                                                {product.variants.map(
-                                                                                    (
-                                                                                        variant,
-                                                                                    ) => (
-                                                                                        <div
-                                                                                            key={
-                                                                                                variant.id
-                                                                                            }
-                                                                                            className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm flex gap-3"
-                                                                                        >
-                                                                                            <div className="flex-1">
-                                                                                                <div className="flex justify-between items-start mb-2">
-                                                                                                    <div>
-                                                                                                        <p className="text-xs font-bold text-gray-700 dark:text-slate-200">
-                                                                                                            {variant.variant_name ||
-                                                                                                                variant.model_name}
-                                                                                                        </p>
-                                                                                                        <p className="text-[10px] text-gray-400 dark:text-slate-500 font-mono">
-                                                                                                            {
-                                                                                                                variant.model_sku
-                                                                                                            }
-                                                                                                        </p>
-                                                                                                    </div>
-                                                                                                    <span
-                                                                                                        className={`text-[10px] px-2 py-0.5 rounded ${variant.stock > 0 ? "bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400"}`}
-                                                                                                    >
-                                                                                                        Stok:{" "}
-                                                                                                        {
-                                                                                                            variant.stock
-                                                                                                        }
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                                <div className="flex items-center justify-between">
-                                                                                                    <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
-                                                                                                        {formatRp(
-                                                                                                            variant.price,
-                                                                                                        )}
-                                                                                                    </span>
-                                                                                                    <div className="w-1/2 flex justify-end">
-                                                                                                        <HppEditor
-                                                                                                            type="variant"
-                                                                                                            id={
-                                                                                                                variant.id
-                                                                                                            }
-                                                                                                            hpp={
-                                                                                                                variant.hpp
-                                                                                                            }
-                                                                                                            hppSource={variant.hpp_source}
-                                                                                                            onSave={() =>
-                                                                                                                fetchData()
-                                                                                                            }
-                                                                                                        />
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            </div>
                                                                                         </div>
-                                                                                    ),
-                                                                                )}
+                                                                                    )}
                                                                             </div>
-                                                                        )}
-                                                                </div>
-                                                            );
-                                                        },
-                                                    )}
-                                                </div>
+                                                                        );
+                                                                    },
+                                                                )}
+                                                            </div>
 
-                                                {/* Pagination Controls */}
-                                                <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                                        <div className="flex items-center gap-1">
-                                                            <span className="text-sm text-gray-500 dark:text-slate-400">
-                                                                Tampilkan
-                                                                maksimal:
-                                                            </span>
-                                                            <LimitDropdown
-                                                                value={
-                                                                    itemsPerPage
-                                                                }
-                                                                onChange={(
-                                                                    val,
-                                                                ) => {
-                                                                    setLimitByStore(
-                                                                        (
-                                                                            prev,
-                                                                        ) => ({
-                                                                            ...prev,
-                                                                            [store.id]:
+                                                            {/* Pagination Controls */}
+                                                            <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                                                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="text-sm text-gray-500 dark:text-slate-400">
+                                                                            Tampilkan
+                                                                            maksimal:
+                                                                        </span>
+                                                                        <LimitDropdown
+                                                                            value={
+                                                                                itemsPerPage
+                                                                            }
+                                                                            onChange={(
                                                                                 val,
-                                                                        }),
-                                                                    );
-                                                                    setPageByStore(
-                                                                        (
-                                                                            prev,
-                                                                        ) => ({
-                                                                            ...prev,
-                                                                            [store.id]: 1,
-                                                                        }),
-                                                                    );
-                                                                }}
-                                                            />
-                                                        </div>
-                                                        <span className="text-sm text-gray-500 dark:text-slate-400">
-                                                            Menampilkan{" "}
-                                                            {(validPage - 1) *
-                                                                itemsPerPage +
-                                                                1}{" "}
-                                                            -{" "}
-                                                            {Math.min(
-                                                                validPage *
-                                                                    itemsPerPage,
-                                                                totalProducts,
-                                                            )}{" "}
-                                                            dari {totalProducts}{" "}
-                                                            produk
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() =>
-                                                                setPageByStore(
-                                                                    (p) => ({
-                                                                        ...p,
-                                                                        [store.id]:
-                                                                            validPage -
-                                                                            1,
-                                                                    }),
-                                                                )
-                                                            }
-                                                            disabled={
-                                                                validPage === 1
-                                                            }
-                                                            className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                                        >
-                                                            <span className="material-symbols-rounded text-xl">
-                                                                chevron_left
-                                                            </span>
-                                                        </button>
-                                                        <span className="text-sm font-medium text-gray-700 dark:text-slate-300 min-w-[60px] text-center">
-                                                            {validPage} /{" "}
-                                                            {totalPages}
-                                                        </span>
-                                                        <button
-                                                            onClick={() =>
-                                                                setPageByStore(
-                                                                    (p) => ({
-                                                                        ...p,
-                                                                        [store.id]:
-                                                                            validPage +
-                                                                            1,
-                                                                    }),
-                                                                )
-                                                            }
-                                                            disabled={
-                                                                validPage ===
-                                                                totalPages
-                                                            }
-                                                            className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                                        >
-                                                            <span className="material-symbols-rounded text-xl">
-                                                                chevron_right
-                                                            </span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        );
-                                    })()
-                                )}
-                            </div>
-                        ))
-                    )}
+                                                                            ) => {
+                                                                                setLimitByStore(
+                                                                                    (
+                                                                                        prev,
+                                                                                    ) => ({
+                                                                                        ...prev,
+                                                                                        [store.id]:
+                                                                                            val,
+                                                                                    }),
+                                                                                );
+                                                                                setPageByStore(
+                                                                                    (
+                                                                                        prev,
+                                                                                    ) => ({
+                                                                                        ...prev,
+                                                                                        [store.id]: 1,
+                                                                                    }),
+                                                                                );
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                    <span className="text-sm text-gray-500 dark:text-slate-400">
+                                                                        Menampilkan{" "}
+                                                                        {(validPage - 1) *
+                                                                            itemsPerPage +
+                                                                            1}{" "}
+                                                                        -{" "}
+                                                                        {Math.min(
+                                                                            validPage *
+                                                                            itemsPerPage,
+                                                                            totalProducts,
+                                                                        )}{" "}
+                                                                        dari {totalProducts}{" "}
+                                                                        produk
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            setPageByStore(
+                                                                                (p) => ({
+                                                                                    ...p,
+                                                                                    [store.id]:
+                                                                                        validPage -
+                                                                                        1,
+                                                                                }),
+                                                                            )
+                                                                        }
+                                                                        disabled={
+                                                                            validPage === 1
+                                                                        }
+                                                                        className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                                                    >
+                                                                        <span className="material-symbols-rounded text-xl">
+                                                                            chevron_left
+                                                                        </span>
+                                                                    </button>
+                                                                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300 min-w-[60px] text-center">
+                                                                        {validPage} /{" "}
+                                                                        {totalPages}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            setPageByStore(
+                                                                                (p) => ({
+                                                                                    ...p,
+                                                                                    [store.id]:
+                                                                                        validPage +
+                                                                                        1,
+                                                                                }),
+                                                                            )
+                                                                        }
+                                                                        disabled={
+                                                                            validPage ===
+                                                                            totalPages
+                                                                        }
+                                                                        className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                                                    >
+                                                                        <span className="material-symbols-rounded text-xl">
+                                                                            chevron_right
+                                                                        </span>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })()
+                                            )}
+                                        </div>
+                                    ))
+                            )}
                         </>
                     )}
                 </div>
