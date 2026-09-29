@@ -27,14 +27,6 @@ class OrderEscrowService
         'TO_CONFIRM_RECEIVE',
     ];
 
-    private const RETURN_CANCEL_STATUSES = [
-        'CANCEL',
-        'CANCELLED',
-        'IN_CANCEL',
-        'RETURNED',
-        'TO_RETURN',
-    ];
-
     private const INACTIVE_RETURN_STATUSES = [
         'REJECTED',
         'CANCELLED',
@@ -55,15 +47,10 @@ class OrderEscrowService
     {
         $status = strtoupper(trim((string) $order->order_status));
 
-        if (
-            in_array($status, self::RETURN_CANCEL_STATUSES, true)
-            || $this->hasRelevantReturn($order)
-        ) {
-            return self::CATEGORY_RETURN_CANCEL;
-        }
-
         if (in_array($status, self::SHIPPED_STATUSES, true)) {
-            return self::CATEGORY_SHIPPED;
+            return $this->hasReturnOrFailedDelivery($order)
+                ? self::CATEGORY_RETURN_CANCEL
+                : self::CATEGORY_SHIPPED;
         }
 
         if (in_array($status, self::NEEDS_SHIPPING_STATUSES, true)) {
@@ -98,6 +85,15 @@ class OrderEscrowService
             }
 
             $amount = $this->amount($order);
+
+            // Return/batal is a subset of the Order List "Dikirim" statuses.
+            // Keep the shipped metric inclusive while the selected totals remain
+            // mutually exclusive and therefore cannot count an order twice.
+            if ($category === self::CATEGORY_RETURN_CANCEL) {
+                $statusCounts[self::CATEGORY_SHIPPED]++;
+                $statusEscrow[self::CATEGORY_SHIPPED] += $amount;
+            }
+
             $statusCounts[$category]++;
             $statusEscrow[$category] += $amount;
 
@@ -115,21 +111,32 @@ class OrderEscrowService
         ];
     }
 
-    private function hasRelevantReturn(Order $order): bool
+    private function hasReturnOrFailedDelivery(Order $order): bool
     {
         if (! $order->relationLoaded('returns')) {
             $order->load('returns');
         }
 
-        return $order->returns->contains(function ($return) {
+        if ($order->returns->contains(function ($return) {
             $status = strtoupper(trim((string) $return->normalized_status));
 
             return ! in_array($status, self::INACTIVE_RETURN_STATUSES, true);
-        });
+        })) {
+            return true;
+        }
+
+        if (! $order->relationLoaded('packages')) {
+            $order->load('packages');
+        }
+
+        return $order->packages->contains(
+            fn ($package) => strtoupper(trim((string) $package->normalized_logistics_status)) === 'DELIVERY_FAILED'
+        );
     }
 
     /**
      * @template TValue of int|float
+     *
      * @param  TValue  $value
      * @return array<string, TValue>
      */

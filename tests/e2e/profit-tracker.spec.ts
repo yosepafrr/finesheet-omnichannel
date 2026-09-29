@@ -13,11 +13,12 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     // Locate the filter chip buttons
     const filterPerluDikirim = page.locator('button', { hasText: 'Perlu Dikirim' }).first();
     const filterDikirim = page.locator('button', { hasText: 'Dikirim' }).first();
-    const filterReturn = page.locator('button', { hasText: 'Return / Batal' }).first();
+    const filterReturn = page.getByRole('button', { name: 'Return / Batal Setelah Dikirim' });
     
     await expect(filterPerluDikirim).toBeVisible();
     await expect(filterDikirim).toBeVisible();
     await expect(filterReturn).toBeVisible();
+    await expect(page.getByText('Coming Soon', { exact: true })).toBeVisible();
 
     // Verify initial states (assuming default is Perlu Dikirim = ON, Dikirim = ON, Return = OFF)
     await expect(filterPerluDikirim).toHaveClass(/text-white/);

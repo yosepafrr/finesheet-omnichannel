@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\Order;
+use App\Models\OrderPackage;
 use App\Models\OrderReturn;
 use App\Services\OrderEscrowService;
 use Illuminate\Support\Collection;
@@ -35,11 +36,16 @@ class OrderEscrowServiceTest extends TestCase
 
     public function test_orders_are_grouped_into_the_profit_tracker_categories(): void
     {
+        $returnedOrder = $this->order('IN_TRANSIT', 300_000);
+        $returnedOrder->setRelation('returns', new Collection([
+            new OrderReturn(['normalized_status' => 'RETURN_PROCESSING']),
+        ]));
+
         $orders = new Collection([
             $this->order('READY_TO_SHIP', 100_000),
             $this->order('IN_TRANSIT', 200_000),
-            $this->order('CANCELLED', 300_000),
-            $this->order('COMPLETED', 400_000),
+            $returnedOrder,
+            $this->order('CANCELLED', 400_000),
         ]);
 
         $summary = $this->service->summarize($orders, [
@@ -51,7 +57,7 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertSame(2, $summary['total_orders']);
         $this->assertSame([
             'perlu_dikirim' => 1,
-            'dikirim' => 1,
+            'dikirim' => 2,
             'return_cancel' => 1,
         ], $summary['status_counts']);
     }
@@ -74,6 +80,31 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertSame(OrderEscrowService::CATEGORY_RETURN_CANCEL, $this->service->category($order));
     }
 
+    public function test_a_pre_shipment_cancellation_is_not_part_of_profit_tracker(): void
+    {
+        $this->assertNull($this->service->category($this->order('CANCELLED', 150_000)));
+    }
+
+    public function test_failed_delivery_with_a_shipped_status_is_a_return_cancel_subset(): void
+    {
+        $order = $this->order('IN_TRANSIT', 150_000);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage(['normalized_logistics_status' => 'DELIVERY_FAILED']),
+        ]));
+
+        $this->assertSame(OrderEscrowService::CATEGORY_RETURN_CANCEL, $this->service->category($order));
+    }
+
+    public function test_failed_delivery_outside_the_current_shipped_scope_is_ignored(): void
+    {
+        $order = $this->order('CANCELLED', 150_000);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage(['normalized_logistics_status' => 'DELIVERY_FAILED']),
+        ]));
+
+        $this->assertNull($this->service->category($order));
+    }
+
     private function order(string $status, ?float $escrow, ?float $adjusted = null): Order
     {
         $order = new Order([
@@ -82,6 +113,7 @@ class OrderEscrowServiceTest extends TestCase
             'escrow_amount_after_adjustment' => $adjusted,
         ]);
         $order->setRelation('returns', new Collection);
+        $order->setRelation('packages', new Collection);
 
         return $order;
     }

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\OrderReturn;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -36,37 +37,54 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('stores.1.escrow', 300_000)
             ->assertJsonPath('stores.1.status_counts.perlu_dikirim', 1)
             ->assertJsonPath('stores.1.status_counts.dikirim', 1)
-            ->assertJsonPath('stores.1.status_counts.return_cancel', 1);
+            ->assertJsonPath('stores.1.status_counts.return_cancel', 0);
 
         $storeTotal = collect($response->json('stores'))->sum('escrow');
         $this->assertSame((float) $response->json('total_escrow_amount'), (float) $storeTotal);
     }
 
-    public function test_return_cancel_filter_and_order_list_use_the_canonical_escrow_amount(): void
+    public function test_return_cancel_is_limited_to_the_order_list_shipped_scope(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Utama', 'shop-1');
 
-        $this->createOrder($store, 'SHOPEE-READY', 'READY_TO_SHIP', 100_000, 80_000);
-        $this->createOrder($store, 'SHOPEE-CANCELLED', 'CANCELLED', 300_000);
+        $this->createOrder($store, 'SHOPEE-SHIPPED', 'SHIPPED', 200_000);
+        $returnedOrder = $this->createOrder($store, 'SHOPEE-RETURNED', 'IN_TRANSIT', 300_000);
+        $this->createOrder($store, 'SHOPEE-CANCELLED', 'CANCELLED', 900_000);
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $returnedOrder->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'RETURN-SHIPPED-1',
+            'normalized_status' => 'RETURN_PROCESSING',
+        ]));
 
         $profitResponse = $this->actingAs($user)->getJson(
-            '/api/profit-tracker?include_perlu_dikirim=1&include_dikirim=0&include_return=1',
+            '/api/profit-tracker?include_perlu_dikirim=0&include_dikirim=1&include_return=1',
         );
 
         $profitResponse
             ->assertOk()
-            ->assertJsonPath('total_escrow_amount', 400_000)
-            ->assertJsonPath('stores.0.included_order_count', 2);
+            ->assertJsonPath('total_escrow_amount', 500_000)
+            ->assertJsonPath('stores.0.included_order_count', 2)
+            ->assertJsonPath('stores.0.status_counts.dikirim', 2)
+            ->assertJsonPath('stores.0.status_counts.return_cancel', 1);
 
         $ordersResponse = $this->actingAs($user)->getJson(
-            "/api/orders?store_id={$store->id}&statuses=READY_TO_SHIP",
+            "/api/orders?store_id={$store->id}&statuses=SHIPPED,IN_TRANSIT,DELIVERED,TO_CONFIRM_RECEIVE",
         );
 
         $ordersResponse
             ->assertOk()
-            ->assertJsonPath('totals.escrow_amount', 100_000)
-            ->assertJsonPath('orders.0.escrow_amount', 100_000);
+            ->assertJsonPath('totals.escrow_amount', 500_000)
+            ->assertJsonCount(2, 'orders');
+
+        $withoutReturns = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?include_perlu_dikirim=0&include_dikirim=1&include_return=0',
+        );
+        $withoutReturns
+            ->assertOk()
+            ->assertJsonPath('total_escrow_amount', 200_000)
+            ->assertJsonPath('stores.0.included_order_count', 1);
     }
 
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
@@ -86,9 +104,9 @@ class ProfitTrackerTest extends TestCase
         string $status,
         float $escrowAmount,
         ?float $adjustedEscrowAmount = null,
-    ): void {
-        Order::withoutEvents(function () use ($store, $orderSn, $status, $escrowAmount, $adjustedEscrowAmount) {
-            Order::create([
+    ): Order {
+        return Order::withoutEvents(function () use ($store, $orderSn, $status, $escrowAmount, $adjustedEscrowAmount) {
+            return Order::create([
                 'store_id' => $store->id,
                 'platform' => $store->platform,
                 'order_sn' => $orderSn,

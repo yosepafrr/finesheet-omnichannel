@@ -13,8 +13,8 @@ const PROFIT_TOUR_STEPS = [
     },
     {
         selector: "#tour-profit-summary > :first-child",
-        title: "Ringkasan Profit",
-        description: "Lihat total dana escrow (pemasukan yang masih tertahan di marketplace), dikurangi dengan estimasi HPP/tagihan supplier untuk mendapatkan perkiraan profit bersih.",
+        title: "Ringkasan Dana",
+        description: "Lihat total dana escrow yang masih tertahan di marketplace dan total kewajiban supplier.",
         position: "bottom",
     },
     {
@@ -143,7 +143,7 @@ export default function ProfitTracker() {
                                 : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                             }`}
                         >
-                            Return / Batal
+                            Return / Batal Setelah Dikirim
                         </button>
 
                         <div className="ml-auto flex items-center">
@@ -191,28 +191,17 @@ export default function ProfitTracker() {
                                     </div>
                                 </div>
 
-                                {/* Net Profit */}
-                                <div className="bg-gradient-to-br from-[#304674] to-[#1e2f50] p-6 rounded-2xl shadow-lg shadow-blue-900/20 relative overflow-hidden text-white group">
-                                    <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "20px 20px" }}></div>
-                                    <div className="absolute right-0 top-0 p-4 opacity-20 group-hover:opacity-30 transition-opacity transform group-hover:rotate-12 duration-500">
-                                        <span className="material-symbols-rounded text-8xl text-white">account_balance_wallet</span>
+                                {/* Net Profit - calculation is being redesigned */}
+                                <div className="relative overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white p-6 shadow-sm dark:border-slate-600 dark:bg-slate-800">
+                                    <div className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500">
+                                        <span className="material-symbols-rounded text-2xl">hourglass_top</span>
                                     </div>
                                     <div className="relative z-10">
-                                        <p className="text-xs font-bold text-blue-200 uppercase tracking-wider mb-1">Estimasi Profit Bersih</p>
-                                        <h3 className="text-3xl font-bold">
-                                            {formatRp(data.net_estimation)}
-                                        </h3>
-                                        <div className="mt-4 flex items-center gap-3">
-                                            <div className="bg-white/10 backdrop-blur-sm border border-white/20 px-3 py-1 rounded-lg flex items-center gap-2">
-                                                {data.total_escrow_amount > 0 ? (
-                                                    <>
-                                                        <span className="text-xs text-blue-100">Margin:</span>
-                                                        <span className="text-sm font-bold">{data.margin}%</span>
-                                                    </>
-                                                ) : (
-                                                    <span className="text-xs text-blue-100">Menunggu Data</span>
-                                                )}
-                                            </div>
+                                        <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Estimasi Profit Bersih</p>
+                                        <h3 className="text-3xl font-bold text-slate-800 dark:text-white">Coming Soon</h3>
+                                        <div className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                            <span className="material-symbols-rounded text-sm">construction</span>
+                                            Dalam pengembangan
                                         </div>
                                     </div>
                                 </div>
@@ -242,7 +231,7 @@ export default function ProfitTracker() {
                                             },
                                             escrowFilters.include_return === 1 && {
                                                 key: 'return_cancel',
-                                                label: 'Return / Batal',
+                                                label: 'Return / Batal Dikirim',
                                             },
                                         ].filter(Boolean);
 

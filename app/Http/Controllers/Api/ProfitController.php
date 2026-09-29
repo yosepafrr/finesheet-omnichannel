@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\Order;
+use App\Models\PayableEvent;
+use App\Models\PayablePayment;
 use App\Services\OrderEscrowService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class ProfitController extends Controller
@@ -16,7 +18,7 @@ class ProfitController extends Controller
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
 
-        $orders = Order::with('returns')->whereIn('store_id', $storeIds)
+        $orders = Order::with(['returns', 'packages'])->whereIn('store_id', $storeIds)
             ->orderByDesc('order_time')
             ->get()
             ->groupBy('store_id');
@@ -51,22 +53,30 @@ class ProfitController extends Controller
 
         $totalOrderSellingPrice = $orders->collapse()->sum('order_selling_price');
         $totalEscrowAmount = (float) $storeSummaries->sum('escrow');
-        
-        $totalDebt = \App\Models\PayableEvent::where('user_id', $user->id)
-            ->whereHas('period', function($q) { $q->where('payment_status', '!=', 'PAID'); })
+
+        $totalDebt = PayableEvent::where('user_id', $user->id)
+            ->whereHas('period', function ($q) {
+                $q->where('payment_status', '!=', 'PAID');
+            })
             ->where('amount', '>', 0)->sum('amount');
-            
-        $totalReduction = \App\Models\PayableEvent::where('user_id', $user->id)
-            ->whereHas('period', function($q) { $q->where('payment_status', '!=', 'PAID'); })
+
+        $totalReduction = PayableEvent::where('user_id', $user->id)
+            ->whereHas('period', function ($q) {
+                $q->where('payment_status', '!=', 'PAID');
+            })
             ->where('amount', '<', 0)->sum('amount');
-            
-        $totalPaid = \App\Models\PayablePayment::where('user_id', $user->id)
-            ->whereHas('period', function($q) { $q->where('payment_status', '!=', 'PAID'); })
+
+        $totalPaid = PayablePayment::where('user_id', $user->id)
+            ->whereHas('period', function ($q) {
+                $q->where('payment_status', '!=', 'PAID');
+            })
             ->sum('amount');
-            
+
         $totalSupplierDebt = ($totalDebt + $totalReduction) - $totalPaid;
-        if ($totalSupplierDebt < 0) $totalSupplierDebt = 0;
-            
+        if ($totalSupplierDebt < 0) {
+            $totalSupplierDebt = 0;
+        }
+
         $netEstimation = $totalEscrowAmount - $totalSupplierDebt;
 
         $storeSummaries = $storeSummaries
