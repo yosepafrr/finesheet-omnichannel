@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Product extends Model
 {
@@ -39,8 +38,8 @@ class Product extends Model
     public function variantProducts()
     {
         return $this->hasMany(VariantProduct::class, 'product_id', 'id')
-                    ->orderBy('tier_index->0')
-                    ->orderBy('tier_index->1');
+            ->orderBy('tier_index->0')
+            ->orderBy('tier_index->1');
     }
 
     public function skuSyncMember()
@@ -62,19 +61,21 @@ class Product extends Model
                 if ($product->store) {
                     $userId = $product->store->user_id;
                 } elseif ($product->store_id) {
-                    $userId = \App\Models\Store::where('id', $product->store_id)->value('user_id');
+                    $userId = Store::where('id', $product->store_id)->value('user_id');
                 }
                 if ($userId) {
                     $mapping = null;
-                    if (!empty($product->product_sku)) {
-                        $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
-                            ->where('sku', $product->product_sku)
-                            ->first();
+                    if (! empty($product->product_sku)) {
+                        $mappingQuery = SupplierProductMapping::where('user_id', $userId)
+                            ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $product->product_sku))]);
+                        $mapping = (clone $mappingQuery)->where('product_id', $product->id)->first()
+                            ?? (clone $mappingQuery)->whereNull('product_id')->first();
                     }
-                    if (!$mapping && !empty($product->product_id)) {
-                        $mapping = \App\Models\SupplierProductMapping::where('user_id', $userId)
-                            ->where('platform_product_id', (string)$product->product_id)
-                            ->first();
+                    if (! $mapping && ! empty($product->product_id)) {
+                        $mappingQuery = SupplierProductMapping::where('user_id', $userId)
+                            ->where('platform_product_id', (string) $product->product_id);
+                        $mapping = (clone $mappingQuery)->where('product_id', $product->id)->first()
+                            ?? (clone $mappingQuery)->whereNull('product_id')->first();
                     }
                     if ($mapping) {
                         $product->supplier_id = $mapping->supplier_id;

@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
 import MasterProductPanel from "../components/MasterProductPanel";
+import SupplierAssignmentModal from "../components/SupplierAssignmentModal";
 import OnboardingTour from "@/components/OnboardingTour";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -160,6 +161,8 @@ export default function ProductList() {
     const [bulkModalProduct, setBulkModalProduct] = useState(null);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState("master");
+    const [supplierModal, setSupplierModal] = useState({ open: false, products: [] });
+    const [supplierNotice, setSupplierNotice] = useState("");
 
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
@@ -212,6 +215,20 @@ export default function ProductList() {
     const openBulkHppModal = (product) => {
         setBulkModalProduct(product);
         setIsBulkModalOpen(true);
+    };
+
+    const openSupplierModal = (product) => {
+        setSupplierModal({ open: true, products: [product] });
+    };
+
+    const updateMarketplaceSupplier = async (supplierId) => {
+        const response = await axios.put("/api/products/supplier", {
+            product_ids: supplierModal.products.map((product) => product.id),
+            supplier_id: supplierId || null,
+        });
+        setSupplierModal({ open: false, products: [] });
+        setSupplierNotice(response.data.message);
+        await fetchData();
     };
 
     const fetchData = useCallback(async () => {
@@ -424,6 +441,12 @@ export default function ProductList() {
                         <MasterProductPanel search={search} />
                     ) : (
                         <>
+                            {supplierNotice && (
+                                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                                    <span>{supplierNotice}</span>
+                                    <button type="button" onClick={() => setSupplierNotice("")} className="material-symbols-rounded" aria-label="Tutup pemberitahuan">close</button>
+                                </div>
+                            )}
                             {/* Store Groups */}
                             {loading ? (
                                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
@@ -545,6 +568,9 @@ export default function ProductList() {
                                                                             </th>
                                                                             <th className="px-6 py-4 w-72 text-left">
                                                                                 HPP (Modal)
+                                                                            </th>
+                                                                            <th className="px-6 py-4 w-52 text-left">
+                                                                                Supplier
                                                                             </th>
                                                                         </tr>
                                                                     </thead>
@@ -812,6 +838,17 @@ export default function ProductList() {
                                                                                                     </td>
                                                                                                 </>
                                                                                             )}
+                                                                                            <td className="px-6 py-4 align-top">
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => openSupplierModal(product)}
+                                                                                                    className={`inline-flex max-w-44 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${product.supplier_name ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300"}`}
+                                                                                                    title={product.supplier_name || "Atur supplier"}
+                                                                                                >
+                                                                                                    <span className="material-symbols-rounded text-[15px]">local_shipping</span>
+                                                                                                    <span className="truncate">{product.supplier_name || "Atur supplier"}</span>
+                                                                                                </button>
+                                                                                            </td>
                                                                                         </tr>
 
                                                                                         {/* Expanded Variant Details */}
@@ -826,7 +863,7 @@ export default function ProductList() {
                                                                                                 >
                                                                                                     <td
                                                                                                         colSpan={
-                                                                                                            6
+                                                                                                            7
                                                                                                         }
                                                                                                         className="px-6 py-4"
                                                                                                     >
@@ -1162,6 +1199,15 @@ export default function ProductList() {
                                                                                             </div>
                                                                                         </div>
 
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => openSupplierModal(product)}
+                                                                                            className={`mt-3 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs font-semibold ${product.supplier_name ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-300"}`}
+                                                                                        >
+                                                                                            <span className="inline-flex items-center gap-1.5"><span className="material-symbols-rounded text-base">local_shipping</span>Supplier</span>
+                                                                                            <span className="max-w-[55%] truncate">{product.supplier_name || "Belum ditentukan"}</span>
+                                                                                        </button>
+
                                                                                         {!hasVariants ? (
                                                                                             <div className="mt-2 flex justify-end">
                                                                                                 <HppEditor
@@ -1405,6 +1451,15 @@ export default function ProductList() {
                 onClose={() => setIsBulkModalOpen(false)}
                 product={bulkModalProduct}
                 onSave={fetchData}
+            />
+            <SupplierAssignmentModal
+                isOpen={supplierModal.open}
+                title="Atur supplier produk marketplace"
+                itemCount={supplierModal.products.length}
+                currentSupplierId={supplierModal.products[0]?.supplier_id || ""}
+                suppliers={data?.suppliers || []}
+                onClose={() => setSupplierModal({ open: false, products: [] })}
+                onSave={updateMarketplaceSupplier}
             />
             <OnboardingTour
                 steps={PRODUCT_TOUR_STEPS}

@@ -32,6 +32,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/master-products', [MasterProductController::class, 'store']);
         Route::post('/master-products/bulk', [MasterProductController::class, 'bulkStore']);
         Route::put('/master-products/variants/bulk', [MasterProductController::class, 'bulkUpdateVariants']);
+        Route::put('/master-products/variants/supplier', [MasterProductController::class, 'updateSuppliers']);
         Route::post('/master-products/variants/bulk/push', [MasterProductController::class, 'bulkPushVariants']);
         Route::get('/master-products/{id}', [MasterProductController::class, 'show']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
@@ -40,6 +41,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/master-products/{productId}/variants/{variantId}/push', [MasterProductController::class, 'pushVariant']);
         Route::delete('/master-products/{id}', [MasterProductController::class, 'destroy']);
         Route::put('/products/{id}/hpp', [ProductController::class, 'updateItemHpp']);
+        Route::put('/products/supplier', [ProductController::class, 'updateSuppliers']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
         

@@ -435,6 +435,35 @@ class MasterProductController extends Controller
         ]);
     }
 
+    public function updateSuppliers(Request $request)
+    {
+        $data = $request->validate([
+            'variant_ids' => ['required', 'array', 'min:1', 'max:2000'],
+            'variant_ids.*' => ['required', 'integer', 'distinct'],
+            'supplier_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('suppliers', 'id')->where('user_id', $request->user()->id),
+            ],
+        ]);
+        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $supplierId = $data['supplier_id'] ?? null;
+
+        MasterProductVariant::query()
+            ->whereIn('id', $variants->pluck('id'))
+            ->update(['supplier_id' => $supplierId]);
+
+        $this->queuePayableSync($request->user()->id);
+
+        return response()->json([
+            'message' => $supplierId
+                ? "Supplier {$variants->count()} SKU master berhasil diperbarui."
+                : "Supplier {$variants->count()} SKU master berhasil dilepas.",
+            'updated_count' => $variants->count(),
+            'supplier_id' => $supplierId,
+        ]);
+    }
+
     public function bulkPushVariants(
         Request $request,
         MasterSkuSyncService $skuSync,

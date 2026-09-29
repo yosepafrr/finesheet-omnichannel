@@ -2,6 +2,7 @@ import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import SupplierAssignmentModal from "./SupplierAssignmentModal";
 
 const EMPTY_FORM = {
     name: "",
@@ -131,7 +132,7 @@ function MatchStatus({ row }) {
     );
 }
 
-function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
+function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete, onPush }) {
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState({ left: 0, top: 0 });
     const buttonRef = useRef(null);
@@ -141,7 +142,7 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
         if (!open && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect();
             const menuWidth = 192;
-            const menuHeight = 218;
+            const menuHeight = 258;
             const showAbove = window.innerHeight - rect.bottom < menuHeight && rect.top > menuHeight;
             setPosition({
                 left: Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8),
@@ -201,6 +202,10 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
                         <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">payments</span>
                             Edit HPP
+                        </button>
+                        <button type="button" onClick={() => { setOpen(false); onSupplier(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <span className="material-symbols-rounded text-lg">local_shipping</span>
+                            Atur supplier
                         </button>
                         <button type="button" onClick={() => { setOpen(false); onPush(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">sync</span>
@@ -751,6 +756,7 @@ export default function MasterProductPanel({ search = "" }) {
     const [bulkMode, setBulkMode] = useState(false);
     const [bulkValueField, setBulkValueField] = useState(null);
     const [clusterHppOpen, setClusterHppOpen] = useState(false);
+    const [supplierModal, setSupplierModal] = useState({ open: false, rows: [] });
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
     const [busyId, setBusyId] = useState(null);
@@ -920,6 +926,24 @@ export default function MasterProductPanel({ search = "" }) {
         }
     };
 
+    const openSupplierModal = (items) => {
+        setSupplierModal({
+            open: true,
+            rows: Array.isArray(items) ? items : [items],
+        });
+    };
+
+    const updateSuppliers = async (supplierId) => {
+        const response = await axios.put("/api/master-products/variants/supplier", {
+            variant_ids: supplierModal.rows.map((row) => row.id),
+            supplier_id: supplierId || null,
+        });
+        setSupplierModal({ open: false, rows: [] });
+        setSelectedIds(new Set());
+        setNotice(response.data.message);
+        await fetchRows();
+    };
+
     const openDetail = (productId) => {
         const detailUrl = new URL(window.location.href);
         detailUrl.hash = `/products/master/${encodeURIComponent(productId)}`;
@@ -997,7 +1021,7 @@ export default function MasterProductPanel({ search = "" }) {
                             <button type="button" onClick={() => setSelectedIds(new Set())} className="text-xs font-semibold text-[#304674] hover:underline dark:text-blue-300">Batalkan pilihan</button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 sm:flex">
+                    <div className="grid grid-cols-2 gap-2 sm:flex">
                         <button type="button" disabled={bulkBusy} onClick={bulkPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className={`material-symbols-rounded text-lg ${bulkBusy ? "animate-spin" : ""}`}>{bulkBusy ? "progress_activity" : "sync"}</span><span>Sinkronkan</span>
                         </button>
@@ -1006,6 +1030,9 @@ export default function MasterProductPanel({ search = "" }) {
                         </button>
                         <button type="button" disabled={bulkBusy} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">payments</span><span>Edit HPP</span>
+                        </button>
+                        <button type="button" disabled={bulkBusy} onClick={() => openSupplierModal(selectedRows)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                            <span className="material-symbols-rounded text-lg">local_shipping</span><span>Supplier</span>
                         </button>
                     </div>
                 </div>
@@ -1069,7 +1096,7 @@ export default function MasterProductPanel({ search = "" }) {
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
-                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} /></div></td>
+                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} /></div></td>
                                         </tr>
                                         </React.Fragment>;
                                     })}
@@ -1099,7 +1126,7 @@ export default function MasterProductPanel({ search = "" }) {
                                             <div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div>
                                             <p className="mt-1 truncate text-xs text-slate-400">{row.supplier_name || "Supplier belum ditentukan"}</p>
                                         </div>
-                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} />
+                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} />
                                     </div>
 
                                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
@@ -1139,6 +1166,15 @@ export default function MasterProductPanel({ search = "" }) {
             <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} suppliers={filterOptions.suppliers} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{bulkValueField && <BulkValueModal count={selectedRows.length} field={bulkValueField} onClose={() => setBulkValueField(null)} onSaved={bulkUpdate} />}</AnimatePresence>
+            <SupplierAssignmentModal
+                isOpen={supplierModal.open}
+                title={supplierModal.rows.length > 1 ? "Atur supplier massal" : "Atur supplier master produk"}
+                itemCount={supplierModal.rows.length}
+                currentSupplierId={supplierModal.rows.length > 0 && supplierModal.rows.every((row) => String(row.supplier_id || "") === String(supplierModal.rows[0].supplier_id || "")) ? supplierModal.rows[0].supplier_id || "" : ""}
+                suppliers={filterOptions.suppliers}
+                onClose={() => setSupplierModal({ open: false, rows: [] })}
+                onSave={updateSuppliers}
+            />
             <AnimatePresence>{clusterHppOpen && <BulkValueModal count={meta.total || 0} field="hpp" onClose={() => setClusterHppOpen(false)} onSaved={bulkClusterHppUpdate} />}</AnimatePresence>
             <AnimatePresence>{bulkModalOpen && <BulkMasterSkuModal detected={detected} onClose={() => setBulkModalOpen(false)} onSaved={finishBulkCreate} />}</AnimatePresence>
         </div>

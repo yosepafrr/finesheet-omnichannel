@@ -209,9 +209,12 @@ class PayableService
         }
 
         if ($modelSku) {
-            $mapping = SupplierProductMapping::where('user_id', $userId)
-                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $modelSku))])
-                ->first();
+            $mappingQuery = SupplierProductMapping::where('user_id', $userId)
+                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $modelSku))]);
+            $mapping = $product
+                ? (clone $mappingQuery)->where('product_id', $product->id)->first()
+                    ?? (clone $mappingQuery)->whereNull('product_id')->first()
+                : $mappingQuery->first();
             if ($mapping) {
                 if ($product && ! $product->supplier_id) {
                     $product->update(['supplier_id' => $mapping->supplier_id]);
@@ -223,9 +226,10 @@ class PayableService
 
         // 2. Product product_sku in supplier_product_mappings
         if ($product && ! empty($product->product_sku)) {
-            $mapping = SupplierProductMapping::where('user_id', $userId)
-                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $product->product_sku))])
-                ->first();
+            $mappingQuery = SupplierProductMapping::where('user_id', $userId)
+                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $product->product_sku))]);
+            $mapping = (clone $mappingQuery)->where('product_id', $product->id)->first()
+                ?? (clone $mappingQuery)->whereNull('product_id')->first();
             if ($mapping) {
                 if (! $product->supplier_id) {
                     $product->update(['supplier_id' => $mapping->supplier_id]);
@@ -236,9 +240,12 @@ class PayableService
         }
 
         // 3. Platform product_id in supplier_product_mappings
-        $mapping = SupplierProductMapping::where('user_id', $userId)
-            ->where('platform_product_id', (string) $item->product_id)
-            ->first();
+        $mappingQuery = SupplierProductMapping::where('user_id', $userId)
+            ->where('platform_product_id', (string) $item->product_id);
+        $mapping = $product
+            ? (clone $mappingQuery)->where('product_id', $product->id)->first()
+                ?? (clone $mappingQuery)->whereNull('product_id')->first()
+            : $mappingQuery->first();
         if ($mapping) {
             if ($product && ! $product->supplier_id) {
                 $product->update(['supplier_id' => $mapping->supplier_id]);

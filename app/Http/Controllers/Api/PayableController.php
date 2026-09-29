@@ -118,12 +118,12 @@ class PayableController extends Controller
             foreach ($products as $p) {
                 if (! empty($p->product_sku)) {
                     SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'sku' => $p->product_sku],
+                        ['user_id' => $userId, 'product_id' => $p->id, 'sku' => $p->product_sku],
                         ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string) $p->product_id]
                     );
                 } else {
                     SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'platform_product_id' => (string) $p->product_id],
+                        ['user_id' => $userId, 'product_id' => $p->id, 'platform_product_id' => (string) $p->product_id],
                         ['supplier_id' => $supplier->id, 'product_id' => $p->id]
                     );
                 }
@@ -131,7 +131,7 @@ class PayableController extends Controller
                 foreach ($p->variantProducts as $v) {
                     if (! empty($v->model_sku)) {
                         SupplierProductMapping::updateOrCreate(
-                            ['user_id' => $userId, 'sku' => $v->model_sku],
+                            ['user_id' => $userId, 'product_id' => $p->id, 'sku' => $v->model_sku],
                             ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string) $p->product_id]
                         );
                     }
@@ -524,7 +524,7 @@ class PayableController extends Controller
         $product->update(['supplier_id' => $supplierId]);
         if (! empty($product->product_sku)) {
             SupplierProductMapping::updateOrCreate(
-                ['user_id' => $userId, 'sku' => $product->product_sku],
+                ['user_id' => $userId, 'product_id' => $product->id, 'sku' => $product->product_sku],
                 [
                     'supplier_id' => $supplierId,
                     'product_id' => $product->id,
@@ -533,7 +533,7 @@ class PayableController extends Controller
             );
         } else {
             SupplierProductMapping::updateOrCreate(
-                ['user_id' => $userId, 'platform_product_id' => (string) $product->product_id],
+                ['user_id' => $userId, 'product_id' => $product->id, 'platform_product_id' => (string) $product->product_id],
                 ['supplier_id' => $supplierId, 'product_id' => $product->id]
             );
         }
@@ -541,7 +541,7 @@ class PayableController extends Controller
         foreach ($product->variantProducts as $variant) {
             if (! empty($variant->model_sku)) {
                 SupplierProductMapping::updateOrCreate(
-                    ['user_id' => $userId, 'sku' => $variant->model_sku],
+                    ['user_id' => $userId, 'product_id' => $product->id, 'sku' => $variant->model_sku],
                     [
                         'supplier_id' => $supplierId,
                         'product_id' => $product->id,

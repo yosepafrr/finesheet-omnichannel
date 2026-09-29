@@ -386,6 +386,84 @@ class MasterProductTest extends TestCase
         ]);
     }
 
+    public function test_supplier_can_be_assigned_and_removed_from_multiple_master_skus(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Utama',
+            'period_length_days' => 14,
+        ]);
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Kemeja Oxford',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $variants = collect(['SKU-HITAM', 'SKU-PUTIH'])->map(fn (string $sku) => MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'sku' => $sku,
+            'stock' => 10,
+            'hpp' => 50000,
+        ]));
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/supplier', [
+                'variant_ids' => $variants->pluck('id')->all(),
+                'supplier_id' => $supplier->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 2)
+            ->assertJsonPath('supplier_id', $supplier->id);
+
+        $this->assertSame(2, MasterProductVariant::where('supplier_id', $supplier->id)->count());
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/supplier', [
+                'variant_ids' => $variants->pluck('id')->all(),
+                'supplier_id' => null,
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 2)
+            ->assertJsonPath('supplier_id', null);
+
+        $this->assertSame(0, MasterProductVariant::whereNotNull('supplier_id')->count());
+    }
+
+    public function test_master_supplier_assignment_rejects_another_users_supplier(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $otherSupplier = Supplier::create([
+            'user_id' => $otherUser->id,
+            'name' => 'Supplier User Lain',
+            'period_length_days' => 14,
+        ]);
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Produk Aman',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $variant = MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'sku' => 'SKU-AMAN',
+            'stock' => 10,
+            'hpp' => 50000,
+        ]);
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/supplier', [
+                'variant_ids' => [$variant->id],
+                'supplier_id' => $otherSupplier->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('supplier_id');
+    }
+
     private function payload(): array
     {
         return [
