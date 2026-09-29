@@ -692,6 +692,94 @@ function BulkValueModal({ count, field, onClose, onSaved }) {
     );
 }
 
+const BULK_DATA_FIELDS = [
+    { key: "name", label: "Nama master produk", scope: "produk", type: "text" },
+    { key: "brand", label: "Brand", scope: "produk", type: "text" },
+    { key: "category", label: "Kategori", scope: "produk", type: "text" },
+    { key: "description", label: "Deskripsi", scope: "produk", type: "textarea" },
+    { key: "image", label: "URL gambar", scope: "produk", type: "url" },
+    { key: "status", label: "Status produk", scope: "produk", type: "status" },
+    { key: "variant_name", label: "Nama varian", scope: "SKU", type: "text" },
+    { key: "barcode", label: "Barcode", scope: "SKU", type: "text" },
+    { key: "is_active", label: "Status SKU", scope: "SKU", type: "boolean" },
+];
+
+function BulkDataModal({ count, onClose, onSaved }) {
+    const [enabled, setEnabled] = useState(() => new Set());
+    const [values, setValues] = useState({ status: "active", is_active: true });
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+
+    useModalScrollLock(onClose);
+
+    const toggle = (key) => {
+        setEnabled((current) => {
+            const next = new Set(current);
+            next.has(key) ? next.delete(key) : next.add(key);
+            return next;
+        });
+    };
+
+    const submit = async (event) => {
+        event.preventDefault();
+        if (enabled.size === 0) {
+            setError("Pilih minimal satu data yang akan diperbarui.");
+            return;
+        }
+
+        const changes = {};
+        enabled.forEach((key) => {
+            const field = BULK_DATA_FIELDS.find((item) => item.key === key);
+            const value = values[key];
+            changes[key] = field.type === "boolean" ? Boolean(value) : (value || null);
+        });
+
+        setSaving(true);
+        setError("");
+        try {
+            await onSaved(changes);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+            setSaving(false);
+        }
+    };
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overscroll-contain bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+            <motion.form initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }} onSubmit={submit} className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                    <div><h2 className="font-bold text-slate-900 dark:text-white">Edit Data Cluster</h2><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Pilih field yang akan diterapkan ke {count} SKU.</p></div>
+                    <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup"><span className="material-symbols-rounded">close</span></button>
+                </div>
+                <div className="overflow-y-auto p-5">
+                    {error && <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
+                    <div className="space-y-3">
+                        {BULK_DATA_FIELDS.map((field) => {
+                            const active = enabled.has(field.key);
+                            return (
+                                <div key={field.key} className={`rounded-lg border p-3 transition-colors ${active ? "border-[#304674] bg-blue-50/40 dark:border-blue-500 dark:bg-blue-500/5" : "border-slate-200 dark:border-slate-700"}`}>
+                                    <div className="flex items-center gap-3">
+                                        <input type="checkbox" checked={active} onChange={() => toggle(field.key)} className="cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />
+                                        <button type="button" onClick={() => toggle(field.key)} className="flex flex-1 cursor-pointer items-center justify-between text-left"><span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{field.label}</span><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-700">{field.scope}</span></button>
+                                    </div>
+                                    {active && <div className="mt-3 pl-7">
+                                        {field.type === "textarea" ? <textarea rows="3" value={values[field.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+                                            : field.type === "status" ? <select value={values.status} onChange={(event) => setValues((current) => ({ ...current, status: event.target.value }))} className="w-full rounded-lg border-slate-300 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"><option value="active">Aktif</option><option value="draft">Draft</option><option value="archived">Diarsipkan</option></select>
+                                                : field.type === "boolean" ? <select value={values.is_active ? "1" : "0"} onChange={(event) => setValues((current) => ({ ...current, is_active: event.target.value === "1" }))} className="w-full rounded-lg border-slate-300 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"><option value="1">Aktif</option><option value="0">Nonaktif</option></select>
+                                                    : <input type={field.type} required={field.key === "name"} value={values[field.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.key === "name" ? "Masukkan nama master produk" : "Kosongkan untuk menghapus nilai"} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />}
+                                    </div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <p className="mt-4 text-xs leading-5 text-slate-500 dark:text-slate-400">SKU, stok, HPP, dan supplier memiliki aksi terpisah untuk mencegah konflik data unik.</p>
+                </div>
+                <div className="flex gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-900/40"><button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">Batal</button><button type="submit" disabled={saving} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><span className={`material-symbols-rounded text-lg ${saving ? "animate-spin" : ""}`}>{saving ? "progress_activity" : "save"}</span>{saving ? "Menyimpan" : "Terapkan"}</button></div>
+            </motion.form>
+        </div>, document.body,
+    );
+}
+
 function SelectionCheckbox({ checked, indeterminate = false, onChange, label }) {
     const ref = useRef(null);
 
@@ -700,6 +788,41 @@ function SelectionCheckbox({ checked, indeterminate = false, onChange, label }) 
     }, [indeterminate]);
 
     return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674]" />;
+}
+
+function ClusterMultiSelect({ label, options, selected, onChange, placeholder }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    const allSelected = options.length > 0 && selected.length === options.length;
+
+    useEffect(() => {
+        const close = (event) => {
+            if (!ref.current?.contains(event.target)) setOpen(false);
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+    }, []);
+
+    const toggle = (key) => onChange(selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key]);
+
+    return (
+        <div ref={ref} className="relative min-w-0">
+            <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</span>
+            <button type="button" onClick={() => setOpen((current) => !current)} className={`flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-left text-sm dark:bg-slate-800 ${selected.length > 0 ? "border-[#304674] text-[#304674] dark:border-blue-500 dark:text-blue-300" : "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200"}`}>
+                <span className="truncate">{selected.length > 0 ? `${selected.length} cluster dipilih` : placeholder}</span>
+                <span className={`material-symbols-rounded text-lg transition-transform ${open ? "rotate-180" : ""}`}>expand_more</span>
+            </button>
+            {open && <div className="absolute left-0 top-full z-40 mt-1 w-full min-w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+                <div className="border-b border-slate-100 p-2 dark:border-slate-700">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-700"><SelectionCheckbox checked={allSelected} indeterminate={selected.length > 0 && !allSelected} onChange={() => onChange(allSelected ? [] : options.map((option) => option.key))} label={`Pilih semua ${label.toLowerCase()}`} />Pilih semua</label>
+                </div>
+                <div className="max-h-64 overflow-y-auto p-2">
+                    {options.length === 0 ? <p className="px-2 py-3 text-sm text-slate-400">Belum ada cluster.</p> : options.map((option) => <label key={option.key} className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"><span className="flex min-w-0 items-center gap-2"><SelectionCheckbox checked={selected.includes(option.key)} onChange={() => toggle(option.key)} label={`Pilih ${option.label}`} /><span className="truncate font-medium">{option.label}</span></span><span className="text-xs text-slate-400">{option.count}</span></label>)}
+                </div>
+                {selected.length > 0 && <button type="button" onClick={() => onChange([])} className="w-full border-t border-slate-100 px-4 py-2.5 text-left text-xs font-semibold text-[#304674] hover:bg-slate-50 dark:border-slate-700 dark:text-blue-300 dark:hover:bg-slate-700">Reset opsi</button>}
+            </div>}
+        </div>
+    );
 }
 
 function PageSizeDropdown({ value, onChange }) {
@@ -742,8 +865,8 @@ export default function MasterProductPanel({ search = "" }) {
     const [rows, setRows] = useState([]);
     const [detected, setDetected] = useState([]);
     const [filterOptions, setFilterOptions] = useState({ product_clusters: [], variant_clusters: [], suppliers: [] });
-    const [productCluster, setProductCluster] = useState("");
-    const [variantCluster, setVariantCluster] = useState("");
+    const [productClusters, setProductClusters] = useState([]);
+    const [variantClusters, setVariantClusters] = useState([]);
     const [supplierFilter, setSupplierFilter] = useState("");
     const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [page, setPage] = useState(1);
@@ -755,7 +878,9 @@ export default function MasterProductPanel({ search = "" }) {
     const [bulkModalOpen, setBulkModalOpen] = useState(false);
     const [bulkMode, setBulkMode] = useState(false);
     const [bulkValueField, setBulkValueField] = useState(null);
-    const [clusterHppOpen, setClusterHppOpen] = useState(false);
+    const [clusterValueAction, setClusterValueAction] = useState(null);
+    const [clusterDataAction, setClusterDataAction] = useState(null);
+    const [clusterBusy, setClusterBusy] = useState(false);
     const [supplierModal, setSupplierModal] = useState({ open: false, rows: [] });
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
@@ -770,8 +895,8 @@ export default function MasterProductPanel({ search = "" }) {
                     search,
                     page,
                     per_page: pageSize,
-                    product_cluster: productCluster || undefined,
-                    variant_cluster: variantCluster || undefined,
+                    product_clusters: productClusters.length > 0 ? productClusters : undefined,
+                    variant_clusters: variantClusters.length > 0 ? variantClusters : undefined,
                     supplier_id: supplierFilter || undefined,
                 },
             });
@@ -784,7 +909,7 @@ export default function MasterProductPanel({ search = "" }) {
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [page, pageSize, productCluster, search, supplierFilter, variantCluster]);
+    }, [page, pageSize, productClusters, search, supplierFilter, variantClusters]);
 
     const fetchDetected = useCallback(async () => {
         try {
@@ -795,8 +920,8 @@ export default function MasterProductPanel({ search = "" }) {
         }
     }, []);
 
-    useEffect(() => setPage(1), [productCluster, search, supplierFilter, variantCluster]);
-    useEffect(() => setSelectedIds(new Set()), [page, pageSize, productCluster, search, supplierFilter, variantCluster]);
+    useEffect(() => setPage(1), [productClusters, search, supplierFilter, variantClusters]);
+    useEffect(() => setSelectedIds(new Set()), [page, pageSize, productClusters, search, supplierFilter, variantClusters]);
     useEffect(() => {
         const timeout = setTimeout(() => fetchRows(), 250);
         return () => clearTimeout(timeout);
@@ -896,17 +1021,116 @@ export default function MasterProductPanel({ search = "" }) {
         await fetchRows();
     };
 
-    const bulkClusterHppUpdate = async (value) => {
+    const clusterSelectionParams = () => ({
+        search: search || undefined,
+        product_clusters: productClusters.length > 0 ? productClusters : undefined,
+        variant_clusters: variantClusters.length > 0 ? variantClusters : undefined,
+        supplier_id: supplierFilter || undefined,
+    });
+
+    const resolveClusterSelection = async () => {
+        const response = await axios.get("/api/master-products/variants/selection", {
+            params: clusterSelectionParams(),
+        });
+        return response.data;
+    };
+
+    const openClusterValueAction = async (field) => {
+        setClusterBusy(true);
+        setError("");
+        try {
+            const selection = await resolveClusterSelection();
+            setClusterValueAction({ field, ids: selection.variant_ids, count: selection.count });
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setClusterBusy(false);
+        }
+    };
+
+    const bulkClusterValueUpdate = async (value) => {
         const response = await axios.put("/api/master-products/variants/bulk", {
-            product_cluster_key: productCluster || undefined,
-            variant_cluster_key: variantCluster || undefined,
-            supplier_filter: supplierFilter || undefined,
-            field: "hpp",
+            variant_ids: clusterValueAction.ids,
+            field: clusterValueAction.field,
             value,
         });
-        setClusterHppOpen(false);
+        setClusterValueAction(null);
         setNotice(response.data.message);
         await fetchRows();
+    };
+
+    const openClusterDataAction = async () => {
+        setClusterBusy(true);
+        setError("");
+        try {
+            const selection = await resolveClusterSelection();
+            setClusterDataAction({ ids: selection.variant_ids, count: selection.count });
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setClusterBusy(false);
+        }
+    };
+
+    const bulkClusterDataUpdate = async (changes) => {
+        const response = await axios.put("/api/master-products/variants/bulk/data", {
+            variant_ids: clusterDataAction.ids,
+            changes,
+        });
+        setClusterDataAction(null);
+        setNotice(response.data.message);
+        await fetchRows();
+    };
+
+    const openClusterSupplierAction = async () => {
+        setClusterBusy(true);
+        setError("");
+        try {
+            const selection = await resolveClusterSelection();
+            setSupplierModal({
+                open: true,
+                rows: selection.variant_ids.map((id) => ({ id, supplier_id: selection.supplier_id })),
+            });
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setClusterBusy(false);
+        }
+    };
+
+    const bulkClusterPush = async () => {
+        setClusterBusy(true);
+        setError("");
+        try {
+            const selection = await resolveClusterSelection();
+            const response = await axios.post("/api/master-products/variants/bulk/push", {
+                variant_ids: selection.variant_ids,
+            });
+            setNotice(response.data.message);
+            await fetchRows(true);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setClusterBusy(false);
+        }
+    };
+
+    const bulkClusterDelete = async () => {
+        setClusterBusy(true);
+        setError("");
+        try {
+            const selection = await resolveClusterSelection();
+            if (!window.confirm(`Hapus ${selection.count} SKU master dari cluster terpilih? Produk marketplace tidak akan dihapus.`)) return;
+            const response = await axios.delete("/api/master-products/variants/bulk", {
+                data: { variant_ids: selection.variant_ids },
+            });
+            setNotice(response.data.message);
+            await Promise.all([fetchRows(), fetchDetected()]);
+        } catch (requestError) {
+            setError(errorMessage(requestError));
+        } finally {
+            setClusterBusy(false);
+        }
     };
 
     const bulkPush = async () => {
@@ -958,7 +1182,7 @@ export default function MasterProductPanel({ search = "" }) {
         openDetail(row.master_product_id);
     };
 
-    const hasClusterFilter = Boolean(productCluster || variantCluster);
+    const hasClusterFilter = productClusters.length > 0 || variantClusters.length > 0;
     const pageClusterCounts = rows.reduce((counts, row) => {
         const key = row.product_cluster_key || "tanpa-cluster";
         counts[key] = (counts[key] || 0) + 1;
@@ -1038,21 +1262,9 @@ export default function MasterProductPanel({ search = "" }) {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 gap-2 border-y border-slate-200 bg-slate-50/70 px-4 py-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end dark:border-slate-700 dark:bg-slate-800/40">
-                <label className="min-w-0">
-                    <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Cluster produk</span>
-                    <select value={productCluster} onChange={(event) => setProductCluster(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                        <option value="">Semua cluster produk</option>
-                        {filterOptions.product_clusters.map((cluster) => <option key={cluster.key} value={cluster.key}>{cluster.label} ({cluster.count})</option>)}
-                    </select>
-                </label>
-                <label className="min-w-0">
-                    <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Cluster varian</span>
-                    <select value={variantCluster} onChange={(event) => setVariantCluster(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                        <option value="">Semua cluster varian</option>
-                        {filterOptions.variant_clusters.map((cluster) => <option key={cluster.key} value={cluster.key}>{cluster.label} ({cluster.count})</option>)}
-                    </select>
-                </label>
+            <div className="grid grid-cols-1 gap-2 border-y border-slate-200 bg-slate-50/70 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-end dark:border-slate-700 dark:bg-slate-800/40">
+                <ClusterMultiSelect label="Cluster produk" options={filterOptions.product_clusters} selected={productClusters} onChange={setProductClusters} placeholder="Semua cluster produk" />
+                <ClusterMultiSelect label="Cluster varian" options={filterOptions.variant_clusters} selected={variantClusters} onChange={setVariantClusters} placeholder="Semua cluster varian" />
                 <label className="min-w-0">
                     <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Supplier</span>
                     <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
@@ -1061,11 +1273,26 @@ export default function MasterProductPanel({ search = "" }) {
                         {filterOptions.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
                     </select>
                 </label>
-                <button type="button" disabled={!hasClusterFilter || meta.total === 0} onClick={() => setClusterHppOpen(true)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:bg-slate-800 dark:text-blue-300 dark:disabled:border-slate-700 dark:disabled:text-slate-500">
-                    <span className="material-symbols-rounded text-lg">payments</span>
-                    Edit HPP cluster
-                </button>
             </div>
+
+            {hasClusterFilter && (
+                <div className="border-b border-blue-200 bg-blue-50/70 px-4 py-3 dark:border-blue-500/20 dark:bg-blue-500/5">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="flex items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#304674] text-white"><span className={`material-symbols-rounded text-lg ${clusterBusy ? "animate-spin" : ""}`}>{clusterBusy ? "progress_activity" : "folder_copy"}</span></span>
+                            <div><p className="text-sm font-bold text-slate-900 dark:text-white">{meta.total || 0} SKU dalam cluster terpilih</p><p className="text-xs text-slate-500 dark:text-slate-400">Aksi diterapkan ke seluruh hasil filter, termasuk halaman lain.</p></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:flex">
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterDataAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">edit</span>Edit data</button>
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">inventory</span>Edit stok</button>
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">payments</span>Edit HPP</button>
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterSupplierAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">local_shipping</span>Supplier</button>
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">sync</span>Sinkronkan</button>
+                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterDelete} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-500/30 dark:bg-slate-800 dark:text-red-400"><span className="material-symbols-rounded text-lg">delete</span>Hapus</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 {loading ? <LoadingRows /> : rows.length === 0 ? (
@@ -1175,7 +1402,8 @@ export default function MasterProductPanel({ search = "" }) {
                 onClose={() => setSupplierModal({ open: false, rows: [] })}
                 onSave={updateSuppliers}
             />
-            <AnimatePresence>{clusterHppOpen && <BulkValueModal count={meta.total || 0} field="hpp" onClose={() => setClusterHppOpen(false)} onSaved={bulkClusterHppUpdate} />}</AnimatePresence>
+            <AnimatePresence>{clusterValueAction && <BulkValueModal count={clusterValueAction.count} field={clusterValueAction.field} onClose={() => setClusterValueAction(null)} onSaved={bulkClusterValueUpdate} />}</AnimatePresence>
+            <AnimatePresence>{clusterDataAction && <BulkDataModal count={clusterDataAction.count} onClose={() => setClusterDataAction(null)} onSaved={bulkClusterDataUpdate} />}</AnimatePresence>
             <AnimatePresence>{bulkModalOpen && <BulkMasterSkuModal detected={detected} onClose={() => setBulkModalOpen(false)} onSaved={finishBulkCreate} />}</AnimatePresence>
         </div>
     );

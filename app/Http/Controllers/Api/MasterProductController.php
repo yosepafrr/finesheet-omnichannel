@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncMasterProductStocksJob;
 use App\Jobs\SyncMasterProductVariantsJob;
 use App\Jobs\SyncPayableHistoryJob;
 use App\Models\MasterProduct;
@@ -25,8 +26,8 @@ class MasterProductController extends Controller
     {
         $perPage = min(max((int) $request->input('per_page', 20), 10), 100);
         $search = trim((string) $request->input('search', ''));
-        $productCluster = mb_strtolower(trim((string) $request->input('product_cluster', '')));
-        $variantCluster = mb_strtolower(trim((string) $request->input('variant_cluster', '')));
+        $productClusters = $this->normalizedFilterValues($request, 'product_clusters', 'product_cluster');
+        $variantClusters = $this->normalizedFilterValues($request, 'variant_clusters', 'variant_cluster');
         $supplierFilter = trim((string) $request->input('supplier_id', ''));
         $userId = $request->user()->id;
 
@@ -34,25 +35,13 @@ class MasterProductController extends Controller
             ->where('user_id', $userId)
             ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'));
 
-        $variants = (clone $baseQuery)
-            ->when($search !== '', function (Builder $query) use ($search) {
-                $query->where(function (Builder $nested) use ($search) {
-                    $nested->where('sku', 'ilike', "%{$search}%")
-                        ->orWhere('variant_name', 'ilike', "%{$search}%")
-                        ->orWhere('barcode', 'ilike', "%{$search}%")
-                        ->orWhereHas('masterProduct', function (Builder $productQuery) use ($search) {
-                            $productQuery->where('name', 'ilike', "%{$search}%")
-                                ->orWhere('brand', 'ilike', "%{$search}%")
-                                ->orWhere('category', 'ilike', "%{$search}%");
-                        });
-                });
-            })
-            ->when($productCluster !== '', fn (Builder $query) => $query
-                ->where('product_cluster_key', $productCluster))
-            ->when($variantCluster !== '', fn (Builder $query) => $query
-                ->whereJsonContains('variant_cluster_keys', $variantCluster))
-            ->when($supplierFilter === 'unassigned', fn (Builder $query) => $query->whereNull('supplier_id'))
-            ->when(ctype_digit($supplierFilter), fn (Builder $query) => $query->where('supplier_id', (int) $supplierFilter))
+        $variants = $this->applyCatalogFilters(
+            clone $baseQuery,
+            $search,
+            $productClusters,
+            $variantClusters,
+            $supplierFilter
+        )
             ->with($this->variantRelations())
             ->orderBy('product_cluster_key')
             ->orderBy('sku')
@@ -105,6 +94,45 @@ class MasterProductController extends Controller
                     ->orderBy('name')
                     ->get(['id', 'name']),
             ],
+        ]);
+    }
+
+    public function selection(Request $request)
+    {
+        $productClusters = $this->normalizedFilterValues($request, 'product_clusters', 'product_cluster');
+        $variantClusters = $this->normalizedFilterValues($request, 'variant_clusters', 'variant_cluster');
+        if ($productClusters->isEmpty() && $variantClusters->isEmpty()) {
+            throw ValidationException::withMessages([
+                'clusters' => 'Pilih minimal satu cluster produk atau varian.',
+            ]);
+        }
+
+        $query = MasterProductVariant::query()
+            ->where('user_id', $request->user()->id)
+            ->whereHas('masterProduct', fn (Builder $builder) => $builder->where('source', 'manual'));
+        $query = $this->applyCatalogFilters(
+            $query,
+            trim((string) $request->input('search', '')),
+            $productClusters,
+            $variantClusters,
+            trim((string) $request->input('supplier_id', ''))
+        );
+
+        $count = (clone $query)->count();
+        if ($count > 2000) {
+            throw ValidationException::withMessages([
+                'clusters' => 'Pilihan cluster terlalu besar. Persempit filter hingga maksimal 2.000 SKU.',
+            ]);
+        }
+
+        $variants = $query->orderBy('id')->get(['id', 'supplier_id']);
+
+        return response()->json([
+            'variant_ids' => $variants->pluck('id')->values(),
+            'count' => $variants->count(),
+            'supplier_id' => $variants->isNotEmpty() && $variants->pluck('supplier_id')->unique()->count() === 1
+                ? $variants->first()->supplier_id
+                : null,
         ]);
     }
 
@@ -392,7 +420,7 @@ class MasterProductController extends Controller
         StockSyncService $stockSync
     ) {
         $data = $request->validate([
-            'variant_ids' => ['nullable', 'array', 'min:1', 'max:100'],
+            'variant_ids' => ['nullable', 'array', 'min:1', 'max:2000'],
             'variant_ids.*' => ['required', 'integer', 'distinct'],
             'product_cluster_key' => ['nullable', 'string', 'max:160'],
             'variant_cluster_key' => ['nullable', 'string', 'max:120'],
@@ -417,6 +445,21 @@ class MasterProductController extends Controller
                 ->update(['hpp' => $value]);
             $this->queuePayableSync($request->user()->id);
         } else {
+            if ($variants->count() > 100) {
+                MasterProductVariant::query()
+                    ->whereIn('id', $variants->pluck('id'))
+                    ->update(['stock' => $value]);
+                $variants->pluck('id')->chunk(100)->each(
+                    fn (Collection $ids) => SyncMasterProductStocksJob::dispatch($ids->all())->onQueue('products')
+                );
+
+                return response()->json([
+                    'message' => "Stok {$variants->count()} SKU diperbarui. Sinkronisasi marketplace diproses di latar belakang.",
+                    'updated_count' => $variants->count(),
+                    'queued_count' => $variants->pluck('id')->chunk(100)->count(),
+                ], 202);
+            }
+
             foreach ($variants as $variant) {
                 $variant->update(['stock' => $value]);
                 $group = $skuSync->syncVariant($variant->fresh());
@@ -464,16 +507,111 @@ class MasterProductController extends Controller
         ]);
     }
 
+    public function bulkUpdateData(Request $request)
+    {
+        $data = $request->validate([
+            'variant_ids' => ['required', 'array', 'min:1', 'max:2000'],
+            'variant_ids.*' => ['required', 'integer', 'distinct'],
+            'changes' => ['required', 'array', 'min:1'],
+            'changes.name' => ['sometimes', 'required', 'string', 'max:255'],
+            'changes.brand' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'changes.category' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'changes.description' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'changes.image' => ['sometimes', 'nullable', 'url', 'max:2048'],
+            'changes.status' => ['sometimes', 'required', 'in:active,draft,archived'],
+            'changes.variant_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'changes.barcode' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'changes.is_active' => ['sometimes', 'boolean'],
+        ]);
+        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $changes = $data['changes'];
+        $productChanges = collect($changes)->only([
+            'name', 'brand', 'category', 'description', 'image', 'status',
+        ])->all();
+        $variantChanges = collect($changes)->only([
+            'variant_name', 'barcode', 'is_active',
+        ])->all();
+
+        if ($productChanges === [] && $variantChanges === []) {
+            throw ValidationException::withMessages([
+                'changes' => 'Pilih minimal satu data yang akan diperbarui.',
+            ]);
+        }
+
+        DB::transaction(function () use ($variants, $productChanges, $variantChanges) {
+            if ($productChanges !== []) {
+                MasterProduct::query()
+                    ->whereIn('id', $variants->pluck('master_product_id')->unique())
+                    ->update($productChanges);
+            }
+            if ($variantChanges !== []) {
+                MasterProductVariant::query()
+                    ->whereIn('id', $variants->pluck('id'))
+                    ->update($variantChanges);
+            }
+        });
+
+        return response()->json([
+            'message' => "Data {$variants->count()} SKU master berhasil diperbarui.",
+            'updated_count' => $variants->count(),
+        ]);
+    }
+
+    public function bulkDestroyVariants(Request $request)
+    {
+        $data = $request->validate([
+            'variant_ids' => ['required', 'array', 'min:1', 'max:2000'],
+            'variant_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $productIds = $variants->pluck('master_product_id')->unique();
+        $affectsPayable = $variants->contains(
+            fn (MasterProductVariant $variant) => $variant->supplier_id !== null || (float) $variant->hpp > 0
+        );
+
+        DB::transaction(function () use ($variants, $productIds) {
+            $variants->load('syncGroup')->each(function (MasterProductVariant $variant) {
+                $variant->syncGroup?->delete();
+                $variant->delete();
+            });
+            MasterProduct::query()
+                ->whereIn('id', $productIds)
+                ->whereDoesntHave('variants')
+                ->delete();
+        });
+
+        if ($affectsPayable) {
+            $this->queuePayableSync($request->user()->id);
+        }
+
+        return response()->json([
+            'message' => "{$variants->count()} SKU master berhasil dihapus. Produk marketplace tidak dihapus.",
+            'deleted_count' => $variants->count(),
+        ]);
+    }
+
     public function bulkPushVariants(
         Request $request,
         MasterSkuSyncService $skuSync,
         StockSyncService $stockSync
     ) {
         $data = $request->validate([
-            'variant_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'variant_ids' => ['required', 'array', 'min:1', 'max:2000'],
             'variant_ids.*' => ['required', 'integer', 'distinct'],
         ]);
         $variants = $this->ownedVariants($request, $data['variant_ids']);
+        if ($variants->count() > 100) {
+            $chunks = $variants->pluck('id')->chunk(100);
+            $chunks->each(
+                fn (Collection $ids) => SyncMasterProductStocksJob::dispatch($ids->all())->onQueue('products')
+            );
+
+            return response()->json([
+                'message' => "Sinkronisasi stok {$variants->count()} SKU diproses di latar belakang.",
+                'processed_count' => $variants->count(),
+                'queued_count' => $chunks->count(),
+            ], 202);
+        }
         $queued = 0;
 
         foreach ($variants as $variant) {
@@ -655,6 +793,59 @@ class MasterProductController extends Controller
         }
 
         return $variants;
+    }
+
+    private function normalizedFilterValues(Request $request, string $pluralKey, string $singularKey): Collection
+    {
+        $values = $request->input($pluralKey, []);
+        if (! is_array($values)) {
+            $values = [$values];
+        }
+        $legacy = trim((string) $request->input($singularKey, ''));
+        if ($legacy !== '') {
+            $values[] = $legacy;
+        }
+
+        return collect($values)
+            ->map(fn ($value) => mb_strtolower(trim((string) $value)))
+            ->filter()
+            ->unique()
+            ->take(100)
+            ->values();
+    }
+
+    private function applyCatalogFilters(
+        Builder $query,
+        string $search,
+        Collection $productClusters,
+        Collection $variantClusters,
+        string $supplierFilter
+    ): Builder {
+        return $query
+            ->when($search !== '', function (Builder $builder) use ($search) {
+                $builder->where(function (Builder $nested) use ($search) {
+                    $nested->where('sku', 'ilike', "%{$search}%")
+                        ->orWhere('variant_name', 'ilike', "%{$search}%")
+                        ->orWhere('barcode', 'ilike', "%{$search}%")
+                        ->orWhereHas('masterProduct', function (Builder $productQuery) use ($search) {
+                            $productQuery->where('name', 'ilike', "%{$search}%")
+                                ->orWhere('brand', 'ilike', "%{$search}%")
+                                ->orWhere('category', 'ilike', "%{$search}%");
+                        });
+                });
+            })
+            ->when($productClusters->isNotEmpty(), fn (Builder $builder) => $builder
+                ->whereIn('product_cluster_key', $productClusters))
+            ->when($variantClusters->isNotEmpty(), function (Builder $builder) use ($variantClusters) {
+                $builder->where(function (Builder $nested) use ($variantClusters) {
+                    foreach ($variantClusters as $cluster) {
+                        $nested->orWhereJsonContains('variant_cluster_keys', $cluster);
+                    }
+                });
+            })
+            ->when($supplierFilter === 'unassigned', fn (Builder $builder) => $builder->whereNull('supplier_id'))
+            ->when(ctype_digit($supplierFilter), fn (Builder $builder) => $builder
+                ->where('supplier_id', (int) $supplierFilter));
     }
 
     private function variantRelations(bool $withProduct = true): array

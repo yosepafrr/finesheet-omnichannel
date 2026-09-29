@@ -464,6 +464,108 @@ class MasterProductTest extends TestCase
             ->assertJsonValidationErrors('supplier_id');
     }
 
+    public function test_multiple_product_and_variant_clusters_can_be_selected_across_pages(): void
+    {
+        $user = User::factory()->create();
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Katalog Cluster',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        foreach (['jas-w-navy-xxl', 'celana-p-hitam-l', 'kaos-p-putih-m'] as $sku) {
+            MasterProductVariant::create([
+                'master_product_id' => $product->id,
+                'user_id' => $user->id,
+                'sku' => $sku,
+                'stock' => 5,
+                'hpp' => 10000,
+            ]);
+        }
+
+        $query = http_build_query([
+            'product_clusters' => ['jas-w', 'celana-p'],
+            'variant_clusters' => ['xxl', 'l'],
+            'per_page' => 10,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products?'.$query)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+
+        $selection = $this->actingAs($user)
+            ->getJson('/api/master-products/variants/selection?'.$query)
+            ->assertOk()
+            ->assertJsonPath('count', 2);
+
+        $selectedSkus = MasterProductVariant::whereIn('id', $selection->json('variant_ids'))
+            ->pluck('sku')
+            ->sort()
+            ->values()
+            ->all();
+        $this->assertSame(['celana-p-hitam-l', 'jas-w-navy-xxl'], $selectedSkus);
+    }
+
+    public function test_cluster_selection_supports_bulk_data_update_and_delete_without_deleting_marketplace_products(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Toko Cluster', 'SHOP-CLUSTER');
+        $marketplaceProduct = Product::create([
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'product_id' => 91001,
+            'product_name' => 'Produk Marketplace Tetap Ada',
+            'product_sku' => 'jas-w-navy-xxl',
+            'stock' => 5,
+            'price' => 100000,
+        ]);
+        $masterProduct = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Jas Lama',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $variants = collect(['jas-w-navy-xxl', 'jas-w-hitam-l'])->map(fn (string $sku) => MasterProductVariant::create([
+            'master_product_id' => $masterProduct->id,
+            'user_id' => $user->id,
+            'sku' => $sku,
+            'variant_name' => 'Nama Lama',
+            'stock' => 5,
+            'hpp' => 10000,
+        ]));
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/bulk/data', [
+                'variant_ids' => $variants->pluck('id')->all(),
+                'changes' => [
+                    'name' => 'Jas Baru',
+                    'brand' => 'Finesheet',
+                    'variant_name' => 'Varian Baru',
+                    'is_active' => false,
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 2);
+
+        $this->assertDatabaseHas('master_products', [
+            'id' => $masterProduct->id,
+            'name' => 'Jas Baru',
+            'brand' => 'Finesheet',
+        ]);
+        $this->assertSame(2, MasterProductVariant::where('variant_name', 'Varian Baru')->where('is_active', false)->count());
+
+        $this->actingAs($user)
+            ->deleteJson('/api/master-products/variants/bulk', [
+                'variant_ids' => $variants->pluck('id')->all(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('deleted_count', 2);
+
+        $this->assertDatabaseMissing('master_products', ['id' => $masterProduct->id]);
+        $this->assertDatabaseHas('products', ['id' => $marketplaceProduct->id]);
+    }
+
     private function payload(): array
     {
         return [

@@ -2,11 +2,12 @@
 
 namespace Tests\Unit;
 
-use App\Jobs\HandleTiktokOrderWebhookJob;
 use App\Jobs\HandleShopeeOrderWebhookJob;
 use App\Jobs\HandleShopeeProductWebhookJob;
-use App\Jobs\SyncShopeeOrderJob;
+use App\Jobs\HandleTiktokOrderWebhookJob;
+use App\Jobs\SyncMasterProductStocksJob;
 use App\Jobs\SyncShopeeEscrowJob;
+use App\Jobs\SyncShopeeOrderJob;
 use App\Jobs\SyncStoreLogisticsChunkJob;
 use App\Jobs\SyncStoreLogisticsJob;
 use App\Jobs\SyncTiktokEscrowJob;
@@ -95,5 +96,15 @@ class QueueUniquenessTest extends TestCase
         $this->assertSame('logistics', $coordinator->syncPhase);
         $this->assertSame('logistics', $chunk->syncPhase);
         $this->assertSame(300, $chunk->timeout);
+    }
+
+    public function test_master_stock_cluster_jobs_are_unique_per_variant_chunk(): void
+    {
+        $job = new SyncMasterProductStocksJob([9, 3, 5]);
+        $sameChunk = new SyncMasterProductStocksJob([5, 9, 3]);
+
+        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame($job->uniqueId(), $sameChunk->uniqueId());
+        $this->assertSame(300, $job->timeout);
     }
 }
