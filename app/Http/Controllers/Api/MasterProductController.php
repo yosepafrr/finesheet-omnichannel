@@ -8,24 +8,33 @@ use App\Jobs\SyncPayableHistoryJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\Supplier;
+use App\Models\SupplierProductMapping;
+use App\Services\MasterProductClusterService;
 use App\Services\MasterSkuSyncService;
 use App\Services\StockSyncService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class MasterProductController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, MasterProductClusterService $clusterService)
     {
         $perPage = min(max((int) $request->input('per_page', 20), 10), 100);
         $search = trim((string) $request->input('search', ''));
+        $productCluster = mb_strtolower(trim((string) $request->input('product_cluster', '')));
+        $variantCluster = mb_strtolower(trim((string) $request->input('variant_cluster', '')));
+        $supplierFilter = trim((string) $request->input('supplier_id', ''));
+        $userId = $request->user()->id;
 
-        $variants = MasterProductVariant::query()
-            ->where('user_id', $request->user()->id)
-            ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'))
+        $baseQuery = MasterProductVariant::query()
+            ->where('user_id', $userId)
+            ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'));
+
+        $variants = (clone $baseQuery)
             ->when($search !== '', function (Builder $query) use ($search) {
                 $query->where(function (Builder $nested) use ($search) {
                     $nested->where('sku', 'ilike', "%{$search}%")
@@ -38,9 +47,43 @@ class MasterProductController extends Controller
                         });
                 });
             })
+            ->when($productCluster !== '', fn (Builder $query) => $query
+                ->where('product_cluster_key', $productCluster))
+            ->when($variantCluster !== '', fn (Builder $query) => $query
+                ->whereJsonContains('variant_cluster_keys', $variantCluster))
+            ->when($supplierFilter === 'unassigned', fn (Builder $query) => $query->whereNull('supplier_id'))
+            ->when(ctype_digit($supplierFilter), fn (Builder $query) => $query->where('supplier_id', (int) $supplierFilter))
             ->with($this->variantRelations())
-            ->latest('updated_at')
+            ->orderBy('product_cluster_key')
+            ->orderBy('sku')
             ->paginate($perPage);
+
+        $allVariants = (clone $baseQuery)->get([
+            'product_cluster_key',
+            'variant_cluster_keys',
+        ]);
+        $productClusters = $allVariants
+            ->pluck('product_cluster_key')
+            ->filter()
+            ->countBy()
+            ->sortKeys()
+            ->map(fn (int $count, string $key) => [
+                'key' => $key,
+                'label' => $clusterService->fromSku($key)['product_label'] ?? mb_strtoupper($key),
+                'count' => $count,
+            ])
+            ->values();
+        $variantClusters = $allVariants
+            ->flatMap(fn (MasterProductVariant $variant) => $variant->variant_cluster_keys ?? [])
+            ->filter()
+            ->countBy()
+            ->sortKeys()
+            ->map(fn (int $count, string $key) => [
+                'key' => $key,
+                'label' => mb_strtoupper($key),
+                'count' => $count,
+            ])
+            ->values();
 
         return response()->json([
             'data' => collect($variants->items())
@@ -53,6 +96,14 @@ class MasterProductController extends Controller
                 'total' => $variants->total(),
                 'from' => $variants->firstItem(),
                 'to' => $variants->lastItem(),
+            ],
+            'filters' => [
+                'product_clusters' => $productClusters,
+                'variant_clusters' => $variantClusters,
+                'suppliers' => Supplier::query()
+                    ->where('user_id', $userId)
+                    ->orderBy('name')
+                    ->get(['id', 'name']),
             ],
         ]);
     }
@@ -92,6 +143,9 @@ class MasterProductController extends Controller
         });
 
         $product->variants->each(fn (MasterProductVariant $variant) => $skuSync->syncVariant($variant));
+        if ($product->variants->contains(fn (MasterProductVariant $variant) => $variant->supplier_id !== null)) {
+            $this->queuePayableSync($user->id);
+        }
 
         return response()->json(
             $this->formatProduct($product->fresh([
@@ -113,8 +167,15 @@ class MasterProductController extends Controller
             ->mapWithKeys(fn (string $sku) => [mb_strtolower($sku) => $sku]);
         $detections = $skuSync->detectUnlinkedSkus($user->id)
             ->keyBy(fn (array $detection) => mb_strtolower(trim($detection['sku'])));
+        $supplierBySku = SupplierProductMapping::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('sku')
+            ->get(['sku', 'supplier_id'])
+            ->mapWithKeys(fn (SupplierProductMapping $mapping) => [
+                mb_strtolower(trim((string) $mapping->sku)) => $mapping->supplier_id,
+            ]);
 
-        $result = DB::transaction(function () use ($detections, $requestedSkus, $user) {
+        $result = DB::transaction(function () use ($detections, $requestedSkus, $supplierBySku, $user) {
             DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
 
             $existingSkus = MasterProductVariant::query()
@@ -152,6 +213,7 @@ class MasterProductController extends Controller
                 ]);
                 $variant = $product->variants()->create([
                     'user_id' => $user->id,
+                    'supplier_id' => $supplierBySku->get($normalizedSku),
                     'sku' => $sku,
                     'variant_name' => $variantName !== '' ? mb_substr($variantName, 0, 255) : null,
                     'barcode' => null,
@@ -209,6 +271,8 @@ class MasterProductController extends Controller
         $product = $this->ownedProduct($request, $id);
         $data = $this->validateProductPayload($request, $product);
         $originalStocks = $product->variants()->pluck('stock', 'id');
+        $originalHpps = $product->variants()->pluck('hpp', 'id');
+        $originalSuppliers = $product->variants()->pluck('supplier_id', 'id');
 
         DB::transaction(function () use ($data, $product) {
             $product->update($this->productAttributes($data));
@@ -234,6 +298,14 @@ class MasterProductController extends Controller
                 $stockSync->setMasterStock($group, (int) $variant->stock);
             }
         }
+        $freshVariants = $product->fresh()->variants;
+        $payableSourceChanged = $freshVariants->contains(
+            fn (MasterProductVariant $variant) => (int) ($originalSuppliers->get($variant->id) ?? 0) !== (int) ($variant->supplier_id ?? 0)
+                || (float) ($originalHpps->get($variant->id) ?? 0) !== (float) $variant->hpp
+        );
+        if ($payableSourceChanged || $freshVariants->count() !== $originalHpps->count()) {
+            $this->queuePayableSync($product->user_id);
+        }
 
         return response()->json($this->formatProduct(
             $product->fresh(['variants' => fn ($query) => $query->with($this->variantRelations(withProduct: false))])
@@ -251,6 +323,8 @@ class MasterProductController extends Controller
         $variant = $product->variants()->findOrFail($variantId);
         $data = $this->validateSingleVariantPayload($request, $variant);
         $stockChanged = (int) $variant->stock !== (int) $data['stock'];
+        $payableSourceChanged = (int) ($variant->supplier_id ?? 0) !== (int) ($data['supplier_id'] ?? 0)
+            || (float) $variant->hpp !== (float) $data['hpp'];
 
         DB::transaction(function () use ($product, $variant, $data) {
             $product->update($this->productAttributes($data));
@@ -260,6 +334,9 @@ class MasterProductController extends Controller
         $group = $skuSync->syncVariant($variant->fresh());
         if ($group && $stockChanged) {
             $stockSync->setMasterStock($group, (int) $data['stock']);
+        }
+        if ($payableSourceChanged) {
+            $this->queuePayableSync($product->user_id);
         }
 
         return response()->json($this->formatVariant(
@@ -271,6 +348,7 @@ class MasterProductController extends Controller
     {
         $product = $this->ownedProduct($request, $productId);
         $variant = $product->variants()->findOrFail($variantId);
+        $affectsPayable = $variant->supplier_id !== null || (float) $variant->hpp > 0;
 
         DB::transaction(function () use ($product, $variant) {
             $variant->syncGroup?->delete();
@@ -280,6 +358,10 @@ class MasterProductController extends Controller
                 $product->delete();
             }
         });
+
+        if ($affectsPayable) {
+            $this->queuePayableSync($product->user_id);
+        }
 
         return response()->json(['message' => 'SKU master berhasil dihapus.']);
     }
@@ -310,8 +392,11 @@ class MasterProductController extends Controller
         StockSyncService $stockSync
     ) {
         $data = $request->validate([
-            'variant_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'variant_ids' => ['nullable', 'array', 'min:1', 'max:100'],
             'variant_ids.*' => ['required', 'integer', 'distinct'],
+            'product_cluster_key' => ['nullable', 'string', 'max:160'],
+            'variant_cluster_key' => ['nullable', 'string', 'max:120'],
+            'supplier_filter' => ['nullable', 'string', 'max:40'],
             'field' => ['required', 'in:stock,hpp'],
             'value' => ['required', 'numeric', 'min:0'],
         ]);
@@ -320,7 +405,9 @@ class MasterProductController extends Controller
             throw ValidationException::withMessages(['value' => 'Stok harus berupa bilangan bulat.']);
         }
 
-        $variants = $this->ownedVariants($request, $data['variant_ids']);
+        $variants = ! empty($data['variant_ids'])
+            ? $this->ownedVariants($request, $data['variant_ids'])
+            : $this->ownedVariantsByCluster($request, $data);
         $value = $data['field'] === 'stock' ? (int) $data['value'] : (float) $data['value'];
         $queued = 0;
 
@@ -328,6 +415,7 @@ class MasterProductController extends Controller
             MasterProductVariant::query()
                 ->whereIn('id', $variants->pluck('id'))
                 ->update(['hpp' => $value]);
+            $this->queuePayableSync($request->user()->id);
         } else {
             foreach ($variants as $variant) {
                 $variant->update(['stock' => $value]);
@@ -378,12 +466,21 @@ class MasterProductController extends Controller
     public function destroy(Request $request, int $id)
     {
         $product = $this->ownedProduct($request, $id);
+        $affectsPayable = $product->variants()
+            ->where(function (Builder $query) {
+                $query->whereNotNull('supplier_id')->orWhere('hpp', '>', 0);
+            })
+            ->exists();
 
         DB::transaction(function () use ($product) {
             $product->variants()->with('syncGroup')->get()
                 ->each(fn (MasterProductVariant $variant) => $variant->syncGroup?->delete());
             $product->delete();
         });
+
+        if ($affectsPayable) {
+            $this->queuePayableSync($product->user_id);
+        }
 
         return response()->json(['message' => 'Produk master berhasil dihapus.']);
     }
@@ -402,6 +499,11 @@ class MasterProductController extends Controller
             'variants.*.sku' => ['required', 'string', 'max:120', 'not_in:0', 'distinct:ignore_case'],
             'variants.*.variant_name' => ['nullable', 'string', 'max:255'],
             'variants.*.barcode' => ['nullable', 'string', 'max:120'],
+            'variants.*.supplier_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('suppliers', 'id')->where('user_id', $request->user()->id),
+            ],
             'variants.*.hpp' => ['required', 'numeric', 'min:0'],
             'variants.*.stock' => ['required', 'integer', 'min:0'],
             'variants.*.is_active' => ['boolean'],
@@ -445,6 +547,11 @@ class MasterProductController extends Controller
             'sku' => ['required', 'string', 'max:120', 'not_in:0'],
             'variant_name' => ['nullable', 'string', 'max:255'],
             'barcode' => ['nullable', 'string', 'max:120'],
+            'supplier_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('suppliers', 'id')->where('user_id', $request->user()->id),
+            ],
             'hpp' => ['required', 'numeric', 'min:0'],
             'stock' => ['required', 'integer', 'min:0'],
             'is_active' => ['boolean'],
@@ -485,6 +592,7 @@ class MasterProductController extends Controller
     {
         return [
             'user_id' => $userId,
+            'supplier_id' => $data['supplier_id'] ?? null,
             'sku' => trim($data['sku']),
             'variant_name' => $data['variant_name'] ?? null,
             'barcode' => $data['barcode'] ?? null,
@@ -522,7 +630,7 @@ class MasterProductController extends Controller
 
     private function variantRelations(bool $withProduct = true): array
     {
-        $relations = ['syncGroup.members.store', 'syncGroup.members.product', 'syncGroup.members.variant'];
+        $relations = ['supplier', 'syncGroup.members.store', 'syncGroup.members.product', 'syncGroup.members.variant'];
         if ($withProduct) {
             array_unshift($relations, 'masterProduct');
         }
@@ -583,7 +691,17 @@ class MasterProductController extends Controller
             'product_status' => $product->status,
             'variant_name' => $variant->variant_name,
             'sku' => $variant->sku,
+            'product_cluster_key' => $variant->product_cluster_key,
+            'product_cluster_label' => $variant->product_cluster_key
+                ? mb_strtoupper($variant->product_cluster_key)
+                : null,
+            'variant_cluster_keys' => $variant->variant_cluster_keys ?? [],
+            'variant_cluster_labels' => collect($variant->variant_cluster_keys ?? [])
+                ->map(fn (string $key) => mb_strtoupper($key))
+                ->values(),
             'barcode' => $variant->barcode,
+            'supplier_id' => $variant->supplier_id,
+            'supplier_name' => $variant->supplier?->name,
             'hpp' => (float) $variant->hpp,
             'stock' => (int) ($group?->master_stock ?? $variant->stock),
             'is_active' => $variant->is_active,
@@ -596,5 +714,57 @@ class MasterProductController extends Controller
             'last_synced_at' => $group?->last_synced_at?->toIso8601String(),
             'updated_at' => $variant->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function ownedVariantsByCluster(Request $request, array $data): Collection
+    {
+        $productCluster = mb_strtolower(trim((string) ($data['product_cluster_key'] ?? '')));
+        $variantCluster = mb_strtolower(trim((string) ($data['variant_cluster_key'] ?? '')));
+        if ($productCluster === '' && $variantCluster === '') {
+            throw ValidationException::withMessages([
+                'variant_ids' => 'Pilih SKU atau cluster yang akan diperbarui.',
+            ]);
+        }
+
+        $query = MasterProductVariant::query()
+            ->where('user_id', $request->user()->id)
+            ->whereHas('masterProduct', fn (Builder $builder) => $builder->where('source', 'manual'))
+            ->when($productCluster !== '', fn (Builder $builder) => $builder
+                ->where('product_cluster_key', $productCluster))
+            ->when($variantCluster !== '', fn (Builder $builder) => $builder
+                ->whereJsonContains('variant_cluster_keys', $variantCluster));
+
+        $supplierFilter = trim((string) ($data['supplier_filter'] ?? ''));
+        $query
+            ->when($supplierFilter === 'unassigned', fn (Builder $builder) => $builder->whereNull('supplier_id'))
+            ->when(ctype_digit($supplierFilter), fn (Builder $builder) => $builder
+                ->where('supplier_id', (int) $supplierFilter));
+
+        if ((clone $query)->count() > 2000) {
+            throw ValidationException::withMessages([
+                'variant_ids' => 'Cluster terlalu besar. Persempit filter hingga maksimal 2.000 SKU.',
+            ]);
+        }
+
+        $variants = $query->with('masterProduct')->get();
+        if ($variants->isEmpty()) {
+            throw ValidationException::withMessages([
+                'variant_ids' => 'Tidak ada SKU yang cocok dengan cluster terpilih.',
+            ]);
+        }
+
+        return $variants;
+    }
+
+    private function queuePayableSync(int $userId): void
+    {
+        $payableStart = Supplier::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('first_period_start')
+            ->min('first_period_start');
+
+        if ($payableStart) {
+            SyncPayableHistoryJob::dispatch((string) $payableStart, $userId)->onQueue('orders');
+        }
     }
 }

@@ -77,7 +77,7 @@ export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) 
             setProductMappings(initialMap);
         } catch (err) {
             console.error("Failed to load products for mapping", err);
-            toast.error("Gagal mengambil data produk toko");
+            toast.error("Gagal mengambil data master produk");
         } finally {
             setIsLoadingProducts(false);
         }
@@ -589,7 +589,7 @@ export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) 
                                                         className="rounded text-indigo-600 cursor-pointer"
                                                     />
                                                 </th>
-                                                <th className="p-3">Produk &amp; Toko</th>
+                                                <th className="p-3">Produk &amp; Sumber</th>
                                                 <th className="p-3">SKU</th>
                                                 <th className="p-3 w-48">Pilih Supplier</th>
                                             </tr>
@@ -624,7 +624,7 @@ export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) 
                                                                     </p>
                                                                     <div className="flex items-center gap-1.5 mt-0.5">
                                                                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                                                            {product.store_name || product.platform}
+                                                                            {product.source_label || product.store_name || product.platform}
                                                                         </span>
                                                                         {product.variants_count > 0 && (
                                                                             <span className="text-[10px] text-slate-400">

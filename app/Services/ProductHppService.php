@@ -56,13 +56,7 @@ class ProductHppService
 
     public function orderItemHpp(object $item): float
     {
-        $productQuery = Product::query()->where('product_id', $item->product_id);
-        $storeId = $item->order?->store_id ?? null;
-        if ($storeId) {
-            $productQuery->where('store_id', $storeId);
-        }
-
-        $product = $productQuery->first();
+        $product = $this->marketplaceProductForOrderItem($item);
         if (! $product) {
             return (float) ($item->price ?? 0);
         }
@@ -109,6 +103,30 @@ class ProductHppService
         return (float) ($item->price ?? 0);
     }
 
+    public function masterVariantForOrderItem(object $item): ?MasterProductVariant
+    {
+        $product = $this->marketplaceProductForOrderItem($item);
+        if ($product) {
+            $variant = $this->resolveOrderVariant($product, $item);
+            if ($variant) {
+                $masterVariant = $this->masterVariantForVariant($variant);
+                if ($masterVariant) {
+                    return $masterVariant;
+                }
+            }
+
+            $masterVariant = $this->masterVariantForProduct($product);
+            if ($masterVariant) {
+                return $masterVariant;
+            }
+        }
+
+        $sku = trim((string) ($item->sku ?? ''));
+        $userId = ($item->order ?? null)?->store?->user_id;
+
+        return $this->masterVariantBySku($sku, $userId);
+    }
+
     private function masterVariantForProduct(Product $product): ?MasterProductVariant
     {
         $member = $product->relationLoaded('skuSyncMember')
@@ -123,6 +141,17 @@ class ProductHppService
         $product->loadMissing('store');
 
         return $this->masterVariantBySku($product->product_sku, $product->store?->user_id);
+    }
+
+    private function marketplaceProductForOrderItem(object $item): ?Product
+    {
+        $query = Product::query()->where('product_id', $item->product_id);
+        $storeId = ($item->order ?? null)?->store_id;
+        if ($storeId) {
+            $query->where('store_id', $storeId);
+        }
+
+        return $query->first();
     }
 
     private function masterVariantForVariant(VariantProduct $variant): ?MasterProductVariant

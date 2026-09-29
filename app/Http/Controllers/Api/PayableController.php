@@ -3,19 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Setting;
-use App\Models\PayablePeriod;
-use App\Models\PayableEvent;
-use App\Models\PayablePayment;
+use App\Jobs\SyncPayableHistoryJob;
+use App\Models\MasterProductVariant;
 use App\Models\Order;
 use App\Models\OrderReturn;
+use App\Models\PayableEvent;
+use App\Models\PayablePayment;
+use App\Models\PayablePeriod;
+use App\Models\Product;
+use App\Models\Setting;
+use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
-use App\Models\Product;
-use App\Models\Store;
+use App\Services\PayableService;
 use App\Services\ProductHppService;
-use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -28,13 +31,14 @@ class PayableController extends Controller
     private function parseSupplierIds(Request $request): array
     {
         $raw = $request->get('supplier_ids') ?? $request->get('supplier_id');
-        if (!$raw || $raw === 'ALL') {
+        if (! $raw || $raw === 'ALL') {
             return [];
         }
         if (is_array($raw)) {
-            return array_map('intval', array_filter($raw, fn($v) => is_numeric($v)));
+            return array_map('intval', array_filter($raw, fn ($v) => is_numeric($v)));
         }
-        return array_map('intval', array_filter(explode(',', (string)$raw), fn($v) => is_numeric($v)));
+
+        return array_map('intval', array_filter(explode(',', (string) $raw), fn ($v) => is_numeric($v)));
     }
 
     /**
@@ -44,26 +48,43 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $suppliers = Supplier::where('user_id', $userId)
-            ->withCount('products')
+            ->withCount(['products', 'masterProductVariants'])
             ->get()
             ->map(function ($supplier) use ($userId) {
                 $totalDebt = PayableEvent::where('user_id', $userId)->where('supplier_id', $supplier->id)->where('amount', '>', 0)->sum('amount');
                 $totalRed = PayableEvent::where('user_id', $userId)->where('supplier_id', $supplier->id)->where('amount', '<', 0)->sum('amount');
                 $totalPaid = PayablePayment::where('user_id', $userId)->where('supplier_id', $supplier->id)->sum('amount');
-                $supplier->total_debt = (float)$totalDebt;
-                $supplier->total_reduction = (float)$totalRed;
-                $supplier->net_payable = (float)($totalDebt + $totalRed);
-                $supplier->total_paid = (float)$totalPaid;
+                $supplier->total_debt = (float) $totalDebt;
+                $supplier->total_reduction = (float) $totalRed;
+                $supplier->net_payable = (float) ($totalDebt + $totalRed);
+                $supplier->total_paid = (float) $totalPaid;
+                $supplier->products_count = max(
+                    $supplier->master_product_variants_count,
+                    $supplier->products_count
+                );
+
                 return $supplier;
             });
 
         $storeIds = Store::where('user_id', $userId)->pluck('id');
-        $unassignedProductsCount = Product::whereIn('store_id', $storeIds)->whereNull('supplier_id')->count();
+        $hasMasterVariants = MasterProductVariant::where('user_id', $userId)->exists();
+        $unassignedProductsCount = $hasMasterVariants
+            ? MasterProductVariant::where('user_id', $userId)
+                ->whereNull('supplier_id')
+                ->whereNotExists(function ($query) {
+                    $query->selectRaw('1')
+                        ->from('supplier_product_mappings')
+                        ->whereColumn('supplier_product_mappings.user_id', 'master_product_variants.user_id')
+                        ->whereRaw('LOWER(supplier_product_mappings.sku) = LOWER(master_product_variants.sku)')
+                        ->whereNotNull('supplier_product_mappings.supplier_id');
+                })
+                ->count()
+            : Product::whereIn('store_id', $storeIds)->whereNull('supplier_id')->count();
 
         return response()->json([
             'status' => 'success',
             'data' => $suppliers,
-            'unassigned_products_count' => $unassignedProductsCount
+            'unassigned_products_count' => $unassignedProductsCount,
         ]);
     }
 
@@ -90,27 +111,28 @@ class PayableController extends Controller
 
             // 1. Assign all products of this user's stores to this supplier
             Product::whereIn('store_id', $storeIds)->update(['supplier_id' => $supplier->id]);
+            MasterProductVariant::where('user_id', $userId)->update(['supplier_id' => $supplier->id]);
 
             // 2. Create supplier_product_mappings for each product/SKU
             $products = Product::whereIn('store_id', $storeIds)->with('variantProducts')->get();
             foreach ($products as $p) {
-                if (!empty($p->product_sku)) {
+                if (! empty($p->product_sku)) {
                     SupplierProductMapping::updateOrCreate(
                         ['user_id' => $userId, 'sku' => $p->product_sku],
-                        ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string)$p->product_id]
+                        ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string) $p->product_id]
                     );
                 } else {
                     SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'platform_product_id' => (string)$p->product_id],
+                        ['user_id' => $userId, 'platform_product_id' => (string) $p->product_id],
                         ['supplier_id' => $supplier->id, 'product_id' => $p->id]
                     );
                 }
 
                 foreach ($p->variantProducts as $v) {
-                    if (!empty($v->model_sku)) {
+                    if (! empty($v->model_sku)) {
                         SupplierProductMapping::updateOrCreate(
                             ['user_id' => $userId, 'sku' => $v->model_sku],
-                            ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string)$p->product_id]
+                            ['supplier_id' => $supplier->id, 'product_id' => $p->id, 'platform_product_id' => (string) $p->product_id]
                         );
                     }
                 }
@@ -123,19 +145,20 @@ class PayableController extends Controller
             DB::commit();
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-            if ($config && !empty($config->value['first_period_start'])) {
-                \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            if ($config && ! empty($config->value['first_period_start'])) {
+                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
             }
 
             return response()->json([
                 'status' => 'success',
                 'message' => "Supplier '{$supplier->name}' berhasil didaftarkan dan seluruh produk dikaitkan.",
-                'data' => $supplier
+                'data' => $supplier,
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error("PayableController::onboardingSingle failed: " . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => 'Gagal mendaftarkan supplier: ' . $e->getMessage()], 500);
+            Log::error('PayableController::onboardingSingle failed: '.$e->getMessage());
+
+            return response()->json(['status' => 'error', 'message' => 'Gagal mendaftarkan supplier: '.$e->getMessage()], 500);
         }
     }
 
@@ -149,7 +172,7 @@ class PayableController extends Controller
             'suppliers' => 'required|array|min:2',
             'suppliers.*' => 'required|string|max:255',
             'mappings' => 'required|array',
-            'mappings.*.product_id' => 'required|integer|exists:products,id',
+            'mappings.*.product_id' => 'required',
             'mappings.*.supplier_name' => 'required|string',
         ]);
 
@@ -159,7 +182,9 @@ class PayableController extends Controller
             $supplierMap = []; // name => id
             foreach ($validated['suppliers'] as $sName) {
                 $sNameTrim = trim($sName);
-                if (empty($sNameTrim)) continue;
+                if (empty($sNameTrim)) {
+                    continue;
+                }
                 $supplier = Supplier::firstOrCreate(
                     ['user_id' => $userId, 'name' => $sNameTrim]
                 );
@@ -168,57 +193,34 @@ class PayableController extends Controller
 
             // 2. Process product mappings
             foreach ($validated['mappings'] as $item) {
-                $pId = $item['product_id'];
                 $sName = trim($item['supplier_name']);
                 $supplierId = $supplierMap[$sName] ?? null;
-                if (!$supplierId) continue;
-
-                $product = Product::with('variantProducts')->find($pId);
-                if (!$product) continue;
-
-                $product->update(['supplier_id' => $supplierId]);
-
-                if (!empty($product->product_sku)) {
-                    SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'sku' => $product->product_sku],
-                        ['supplier_id' => $supplierId, 'product_id' => $product->id, 'platform_product_id' => (string)$product->product_id]
-                    );
-                } else {
-                    SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'platform_product_id' => (string)$product->product_id],
-                        ['supplier_id' => $supplierId, 'product_id' => $product->id]
-                    );
+                if (! $supplierId) {
+                    continue;
                 }
-
-                foreach ($product->variantProducts as $v) {
-                    if (!empty($v->model_sku)) {
-                        SupplierProductMapping::updateOrCreate(
-                            ['user_id' => $userId, 'sku' => $v->model_sku],
-                            ['supplier_id' => $supplierId, 'product_id' => $product->id, 'platform_product_id' => (string)$product->product_id]
-                        );
-                    }
-                }
+                $this->assignSupplierToCatalogItem($item['product_id'], $supplierId, $userId);
             }
 
             DB::commit();
 
             // 3. Re-evaluate existing payable events synchronously
-            app(\App\Services\PayableService::class)->syncPayableForUser($userId);
+            app(PayableService::class)->syncPayableForUser($userId);
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-            if ($config && !empty($config->value['first_period_start'])) {
-                \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            if ($config && ! empty($config->value['first_period_start'])) {
+                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
             }
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Supplier dan pemetaan produk berhasil disimpan.',
-                'data' => Supplier::where('user_id', $userId)->get()
+                'data' => Supplier::where('user_id', $userId)->get(),
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error("PayableController::onboardingMultiple failed: " . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => 'Gagal menyimpan supplier: ' . $e->getMessage()], 500);
+            Log::error('PayableController::onboardingMultiple failed: '.$e->getMessage());
+
+            return response()->json(['status' => 'error', 'message' => 'Gagal menyimpan supplier: '.$e->getMessage()], 500);
         }
     }
 
@@ -230,15 +232,78 @@ class PayableController extends Controller
         $userId = Auth::id();
         $storeIds = Store::where('user_id', $userId)->pluck('id');
 
-        $products = Product::whereIn('store_id', $storeIds)
+        $masterVariants = MasterProductVariant::query()
+            ->where('user_id', $userId)
+            ->whereHas('masterProduct', fn ($query) => $query->where('source', 'manual'))
+            ->with(['masterProduct', 'supplier', 'syncGroup.members.store'])
+            ->orderBy('product_cluster_key')
+            ->orderBy('sku')
+            ->get();
+        $fallbackMappings = SupplierProductMapping::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('sku')
+            ->whereNotNull('supplier_id')
+            ->with('supplier')
+            ->get()
+            ->keyBy(fn (SupplierProductMapping $mapping) => mb_strtolower(trim((string) $mapping->sku)));
+        $masterSkus = $masterVariants
+            ->pluck('sku')
+            ->filter()
+            ->map(fn ($sku) => mb_strtolower(trim((string) $sku)))
+            ->flip();
+
+        $masterItems = $masterVariants->map(function (MasterProductVariant $variant) use ($fallbackMappings) {
+            $stores = $variant->syncGroup?->members
+                ?->pluck('store')
+                ->filter()
+                ->unique('id')
+                ->values() ?? collect();
+            $fallbackMapping = $fallbackMappings->get(mb_strtolower(trim((string) $variant->sku)));
+            $supplierId = $variant->supplier_id ?? $fallbackMapping?->supplier_id;
+            $supplierName = $variant->supplier?->name ?? $fallbackMapping?->supplier?->name;
+
+            return [
+                'id' => 'master:'.$variant->id,
+                'entity_type' => 'master',
+                'platform_product_id' => null,
+                'product_name' => $variant->masterProduct?->name ?: $variant->sku,
+                'product_sku' => $variant->sku,
+                'image' => $variant->masterProduct?->image,
+                'price' => null,
+                'hpp' => (float) $variant->hpp,
+                'hpp_source' => 'master',
+                'platform' => 'Master Produk',
+                'store_name' => 'Master Produk',
+                'source_label' => $stores->isEmpty()
+                    ? 'Belum terhubung ke toko'
+                    : $stores->count().' toko terhubung',
+                'supplier_id' => $supplierId,
+                'supplier_name' => $supplierName,
+                'supplier_source' => $variant->supplier_id ? 'master' : ($fallbackMapping ? 'marketplace' : null),
+                'variants_count' => 1,
+                'product_cluster_key' => $variant->product_cluster_key,
+                'variant_cluster_keys' => $variant->variant_cluster_keys ?? [],
+            ];
+        });
+
+        $marketplaceItems = Product::whereIn('store_id', $storeIds)
             ->with(['store', 'supplier', 'variantProducts', 'skuSyncMember.group.masterVariant'])
             ->orderBy('product_name', 'asc')
             ->get()
+            ->filter(function (Product $product) use ($masterSkus) {
+                $skus = collect([$product->product_sku])
+                    ->merge($product->variantProducts->pluck('model_sku'))
+                    ->filter()
+                    ->map(fn ($sku) => mb_strtolower(trim((string) $sku)));
+
+                return $skus->isEmpty() || $skus->every(fn (string $sku) => ! $masterSkus->has($sku));
+            })
             ->map(function ($p) use ($hppService) {
                 $hpp = $hppService->productDetails($p);
 
                 return [
                     'id' => $p->id,
+                    'entity_type' => 'marketplace',
                     'platform_product_id' => $p->product_id,
                     'product_name' => $p->product_name,
                     'product_sku' => $p->product_sku,
@@ -248,15 +313,18 @@ class PayableController extends Controller
                     'hpp_source' => $hpp['source'],
                     'platform' => $p->platform,
                     'store_name' => $p->store?->store_name,
+                    'source_label' => $p->store?->store_name ?: $p->platform,
                     'supplier_id' => $p->supplier_id,
                     'supplier_name' => $p->supplier?->name,
                     'variants_count' => $p->variantProducts->count(),
                 ];
             });
 
+        $products = $masterItems->concat($marketplaceItems)->values();
+
         return response()->json([
             'status' => 'success',
-            'data' => $products
+            'data' => $products,
         ]);
     }
 
@@ -268,62 +336,39 @@ class PayableController extends Controller
         $userId = Auth::id();
         $validated = $request->validate([
             'product_ids' => 'required|array|min:1',
-            'product_ids.*' => 'integer|exists:products,id',
+            'product_ids.*' => 'required',
             'supplier_id' => 'required|integer|exists:suppliers,id',
         ]);
 
         $supplier = Supplier::where('user_id', $userId)->findOrFail($validated['supplier_id']);
-        $storeIds = Store::where('user_id', $userId)->pluck('id');
 
         DB::beginTransaction();
         try {
-            $products = Product::whereIn('id', $validated['product_ids'])
-                ->whereIn('store_id', $storeIds)
-                ->with('variantProducts')
-                ->get();
-
-            foreach ($products as $product) {
-                $product->update(['supplier_id' => $supplier->id]);
-
-                if (!empty($product->product_sku)) {
-                    SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'sku' => $product->product_sku],
-                        ['supplier_id' => $supplier->id, 'product_id' => $product->id, 'platform_product_id' => (string)$product->product_id]
-                    );
-                } else {
-                    SupplierProductMapping::updateOrCreate(
-                        ['user_id' => $userId, 'platform_product_id' => (string)$product->product_id],
-                        ['supplier_id' => $supplier->id, 'product_id' => $product->id]
-                    );
-                }
-
-                foreach ($product->variantProducts as $v) {
-                    if (!empty($v->model_sku)) {
-                        SupplierProductMapping::updateOrCreate(
-                            ['user_id' => $userId, 'sku' => $v->model_sku],
-                            ['supplier_id' => $supplier->id, 'product_id' => $product->id, 'platform_product_id' => (string)$product->product_id]
-                        );
-                    }
+            $assignedCount = 0;
+            foreach ($validated['product_ids'] as $catalogItemId) {
+                if ($this->assignSupplierToCatalogItem($catalogItemId, $supplier->id, $userId)) {
+                    $assignedCount++;
                 }
             }
 
             DB::commit();
 
             // Re-evaluate affected events synchronously so user sees instant updates!
-            app(\App\Services\PayableService::class)->syncPayableForUser($userId);
+            app(PayableService::class)->syncPayableForUser($userId);
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-            if ($config && !empty($config->value['first_period_start'])) {
-                \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            if ($config && ! empty($config->value['first_period_start'])) {
+                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
             }
 
             return response()->json([
                 'status' => 'success',
-                'message' => count($products) . " produk berhasil dialihkan ke supplier '{$supplier->name}'."
+                'message' => $assignedCount." produk berhasil dialihkan ke supplier '{$supplier->name}'.",
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['status' => 'error', 'message' => 'Gagal mengubah supplier produk: ' . $e->getMessage()], 500);
+
+            return response()->json(['status' => 'error', 'message' => 'Gagal mengubah supplier produk: '.$e->getMessage()], 500);
         }
     }
 
@@ -357,7 +402,7 @@ class PayableController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Supplier berhasil ditambahkan',
-            'data' => $supplier
+            'data' => $supplier,
         ]);
     }
 
@@ -389,20 +434,20 @@ class PayableController extends Controller
 
         // If period config changed, regenerate periods
         $newStart = $supplier->fresh()->first_period_start;
-        if ($oldLength != $supplier->period_length_days || !$oldStart?->equalTo($newStart)) {
+        if ($oldLength != $supplier->period_length_days || ! $oldStart?->equalTo($newStart)) {
             PayablePeriod::where('supplier_id', $supplier->id)->where('is_manual', false)->delete();
-            app(\App\Services\PayableService::class)->syncPayableForUser($userId);
+            app(PayableService::class)->syncPayableForUser($userId);
         }
 
         $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-        if ($config && !empty($config->value['first_period_start'])) {
-            \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+        if ($config && ! empty($config->value['first_period_start'])) {
+            SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
         }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Supplier berhasil diperbarui',
-            'data' => $supplier
+            'data' => $supplier,
         ]);
     }
 
@@ -413,36 +458,100 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $supplier = Supplier::where('user_id', $userId)->findOrFail($id);
-        
+
         DB::beginTransaction();
         try {
             Product::where('supplier_id', $id)->update(['supplier_id' => null]);
+            MasterProductVariant::where('supplier_id', $id)->update(['supplier_id' => null]);
             SupplierProductMapping::where('supplier_id', $id)->delete();
             PayablePayment::where('supplier_id', $id)->update(['supplier_id' => null]);
             PayableEvent::where('supplier_id', $id)->update(['supplier_id' => null]);
             $supplier->delete();
             DB::commit();
-            
+
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-            if ($config && !empty($config->value['first_period_start'])) {
-                \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            if ($config && ! empty($config->value['first_period_start'])) {
+                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
             }
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error("Failed to delete supplier $id: " . $e->getMessage());
+            Log::error("Failed to delete supplier $id: ".$e->getMessage());
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Gagal menghapus supplier: ' . $e->getMessage()
+                'message' => 'Gagal menghapus supplier: '.$e->getMessage(),
             ], 500);
         }
 
         // Re-sync payable synchronously
-        app(\App\Services\PayableService::class)->syncPayableForUser($userId);
+        app(PayableService::class)->syncPayableForUser($userId);
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Supplier berhasil dihapus'
+            'message' => 'Supplier berhasil dihapus',
         ]);
+    }
+
+    private function assignSupplierToCatalogItem(mixed $catalogItemId, int $supplierId, int $userId): bool
+    {
+        if (is_string($catalogItemId) && str_starts_with($catalogItemId, 'master:')) {
+            $variantId = (int) substr($catalogItemId, strlen('master:'));
+            $variant = MasterProductVariant::query()
+                ->where('user_id', $userId)
+                ->find($variantId);
+            if (! $variant) {
+                return false;
+            }
+
+            $variant->update(['supplier_id' => $supplierId]);
+
+            return true;
+        }
+
+        if (! is_numeric($catalogItemId)) {
+            return false;
+        }
+
+        $storeIds = Store::where('user_id', $userId)->pluck('id');
+        $product = Product::query()
+            ->whereIn('store_id', $storeIds)
+            ->with('variantProducts')
+            ->find((int) $catalogItemId);
+        if (! $product) {
+            return false;
+        }
+
+        $product->update(['supplier_id' => $supplierId]);
+        if (! empty($product->product_sku)) {
+            SupplierProductMapping::updateOrCreate(
+                ['user_id' => $userId, 'sku' => $product->product_sku],
+                [
+                    'supplier_id' => $supplierId,
+                    'product_id' => $product->id,
+                    'platform_product_id' => (string) $product->product_id,
+                ]
+            );
+        } else {
+            SupplierProductMapping::updateOrCreate(
+                ['user_id' => $userId, 'platform_product_id' => (string) $product->product_id],
+                ['supplier_id' => $supplierId, 'product_id' => $product->id]
+            );
+        }
+
+        foreach ($product->variantProducts as $variant) {
+            if (! empty($variant->model_sku)) {
+                SupplierProductMapping::updateOrCreate(
+                    ['user_id' => $userId, 'sku' => $variant->model_sku],
+                    [
+                        'supplier_id' => $supplierId,
+                        'product_id' => $product->id,
+                        'platform_product_id' => (string) $product->product_id,
+                    ]
+                );
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -467,9 +576,10 @@ class PayableController extends Controller
         }
 
         $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
+
         return response()->json([
             'status' => 'success',
-            'data' => $config ? $config->value : null
+            'data' => $config ? $config->value : null,
         ]);
     }
 
@@ -508,7 +618,7 @@ class PayableController extends Controller
         );
 
         // Sync historical orders for this user in background
-        \App\Jobs\SyncPayableHistoryJob::dispatch(
+        SyncPayableHistoryJob::dispatch(
             $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
             $userId
         )->onQueue('orders');
@@ -520,7 +630,7 @@ class PayableController extends Controller
                 'supplier_id' => $supplier->id,
                 'first_period_start' => $supplier->first_period_start->format('Y-m-d H:i:s'),
                 'length_days' => $supplier->period_length_days,
-            ]
+            ],
         ]);
     }
 
@@ -533,12 +643,12 @@ class PayableController extends Controller
         $validated = $request->validate([
             'supplier_id' => 'required|integer|exists:suppliers,id',
             'length_days' => 'required|integer|min:1',
-            'apply_mode'  => 'required|in:future,all',
+            'apply_mode' => 'required|in:future,all',
         ]);
 
         $supplier = Supplier::where('user_id', $userId)
             ->findOrFail($validated['supplier_id']);
-        if (!$supplier->first_period_start) {
+        if (! $supplier->first_period_start) {
             return response()->json(['status' => 'error', 'message' => 'Belum ada konfigurasi periode'], 422);
         }
 
@@ -567,7 +677,7 @@ class PayableController extends Controller
                 ->delete();
 
             // Re-sync from the beginning so events get reassigned to the new periods
-            \App\Jobs\SyncPayableHistoryJob::dispatch($firstStart->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
+            SyncPayableHistoryJob::dispatch($firstStart->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
 
             return response()->json([
                 'status' => 'success',
@@ -590,7 +700,7 @@ class PayableController extends Controller
         $supplierIds = $this->parseSupplierIds($request);
 
         $periodsQuery = PayablePeriod::where('user_id', $userId)->with('supplier');
-        if (!empty($supplierIds)) {
+        if (! empty($supplierIds)) {
             $periodsQuery->whereIn('supplier_id', $supplierIds);
         }
 
@@ -599,44 +709,44 @@ class PayableController extends Controller
                 ->where('payable_events.user_id', $userId)
                 ->leftJoin('orders', function ($join) {
                     $join->on('payable_events.source_id', '=', 'orders.order_sn')
-                         ->where('payable_events.source_type', '=', 'CREATE_ORDER');
+                        ->where('payable_events.source_type', '=', 'CREATE_ORDER');
                 })
                 ->where(function ($q) {
                     $q->where('payable_events.source_type', '!=', 'CREATE_ORDER')
-                      ->orWhere(function ($q2) {
-                          $q2->whereNotNull('orders.order_status')
-                             ->whereNotIn(DB::raw('UPPER(orders.order_status)'), ['UNPAID', 'UNKNOWN', 'ON_HOLD', '']);
-                      });
+                        ->orWhere(function ($q2) {
+                            $q2->whereNotNull('orders.order_status')
+                                ->whereNotIn(DB::raw('UPPER(orders.order_status)'), ['UNPAID', 'UNKNOWN', 'ON_HOLD', '']);
+                        });
                 });
 
-            if (!empty($supplierIds)) {
+            if (! empty($supplierIds)) {
                 $eventsQuery->whereIn('payable_events.supplier_id', $supplierIds);
             }
 
             $events = $eventsQuery->select('payable_events.*')->get();
-            
-            $totalDebt = $events->filter(fn($e) => (float)$e->amount > 0)->sum(fn($e) => (float)$e->amount);
-            $totalReduction = $events->filter(fn($e) => (float)$e->amount < 0)->sum(fn($e) => (float)$e->amount);
+
+            $totalDebt = $events->filter(fn ($e) => (float) $e->amount > 0)->sum(fn ($e) => (float) $e->amount);
+            $totalReduction = $events->filter(fn ($e) => (float) $e->amount < 0)->sum(fn ($e) => (float) $e->amount);
             $netPayable = $totalDebt + $totalReduction;
-            
+
             $paymentsQuery = PayablePayment::where('payable_period_id', $period->id)->where('user_id', $userId);
-            if (!empty($supplierIds)) {
+            if (! empty($supplierIds)) {
                 $paymentsQuery->whereIn('supplier_id', $supplierIds);
             }
             $totalPaid = $paymentsQuery->sum('amount');
-            
+
             $period->total_debt = $totalDebt;
             $period->total_reduction = $totalReduction;
             $period->net_payable = $netPayable;
             $period->total_paid = $totalPaid;
             $period->event_count = $events->count();
-            
+
             return $period;
         });
 
         return response()->json([
             'status' => 'success',
-            'data' => $periods
+            'data' => $periods,
         ]);
     }
 
@@ -647,30 +757,30 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
-            'name'       => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             'start_date' => 'required|date',
-            'end_date'   => 'required|date|after:start_date',
-            'supplier_id'=> 'required|integer|exists:suppliers,id',
+            'end_date' => 'required|date|after:start_date',
+            'supplier_id' => 'required|integer|exists:suppliers,id',
         ]);
 
         // Check if supplier belongs to the user
         $supplier = Supplier::where('user_id', $userId)->findOrFail($validated['supplier_id']);
 
         $period = PayablePeriod::create([
-            'user_id'        => $userId,
-            'supplier_id'    => $supplier->id,
-            'name'           => $validated['name'],
-            'start_date'     => Carbon::parse($validated['start_date']),
-            'end_date'       => Carbon::parse($validated['end_date']),
+            'user_id' => $userId,
+            'supplier_id' => $supplier->id,
+            'name' => $validated['name'],
+            'start_date' => Carbon::parse($validated['start_date']),
+            'end_date' => Carbon::parse($validated['end_date']),
             'payment_status' => 'UNPAID',
-            'is_closed'      => false,
-            'is_manual'      => true,
+            'is_closed' => false,
+            'is_manual' => true,
         ]);
 
         return response()->json([
-            'status'  => 'success',
+            'status' => 'success',
             'message' => 'Periode berhasil dibuat secara manual',
-            'data'    => $period
+            'data' => $period,
         ]);
     }
 
@@ -681,7 +791,7 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $supplierIds = $this->parseSupplierIds($request);
-        
+
         $periodIdsToQuery = [];
         $period = null;
 
@@ -690,7 +800,7 @@ class PayableController extends Controller
             if (empty($sIdsToUse)) {
                 $sIdsToUse = Supplier::where('user_id', $userId)->pluck('id')->toArray();
             }
-            
+
             foreach ($sIdsToUse as $sId) {
                 $latest = PayablePeriod::where('user_id', $userId)
                     ->where('supplier_id', $sId)
@@ -701,14 +811,14 @@ class PayableController extends Controller
                 }
             }
 
-            $period = (object)[
+            $period = (object) [
                 'id' => 'latest',
                 'name' => 'Periode Berjalan (Semua Supplier)',
                 'start_date' => null,
                 'end_date' => null,
                 'payment_status' => 'MIXED',
                 'supplier_id' => null,
-                'is_virtual' => true
+                'is_virtual' => true,
             ];
         } else {
             $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
@@ -723,13 +833,14 @@ class PayableController extends Controller
                 $period->total_paid = 0;
                 $period->event_count = 0;
             }
+
             return response()->json([
                 'status' => 'success',
                 'data' => [
                     'period' => $period,
                     'events' => collect(),
-                    'payments' => collect()
-                ]
+                    'payments' => collect(),
+                ],
             ]);
         }
 
@@ -738,7 +849,7 @@ class PayableController extends Controller
             ->with(['store', 'supplier'])
             ->orderBy('event_date', 'desc');
 
-        if (!empty($supplierIds)) {
+        if (! empty($supplierIds)) {
             $eventsQuery->whereIn('supplier_id', $supplierIds);
         }
 
@@ -791,7 +902,7 @@ class PayableController extends Controller
                         return $op->product && $op->product->supplier_id == $event->supplier_id;
                     });
                 }
-                if (!$firstProduct) {
+                if (! $firstProduct) {
                     $firstProduct = $order->orderProducts->first();
                 }
 
@@ -802,10 +913,10 @@ class PayableController extends Controller
                     });
                     $event->first_product = [
                         'product_name' => $firstProduct->product_name,
-                        'model_name'   => $firstProduct->model_name,
-                        'image'        => $firstProduct->product->image ?? null,
+                        'model_name' => $firstProduct->model_name,
+                        'image' => $firstProduct->product->image ?? null,
                         'variant_image' => $variant ? $variant->variant_image : null,
-                        'quantity'     => $firstProduct->quantity_purchased,
+                        'quantity' => $firstProduct->quantity_purchased,
                     ];
                 } else {
                     $event->first_product = null;
@@ -816,6 +927,7 @@ class PayableController extends Controller
                 $event->first_product = null;
                 $event->product_count = 0;
             }
+
             return $event;
         });
 
@@ -828,22 +940,23 @@ class PayableController extends Controller
                     return true;
                 }
             }
+
             return false;
         })->values();
-            
+
         $paymentsQuery = PayablePayment::whereIn('payable_period_id', $periodIdsToQuery)
             ->where('user_id', $userId)
             ->with('supplier')
             ->orderBy('payment_date', 'desc');
 
-        if (!empty($supplierIds)) {
+        if (! empty($supplierIds)) {
             $paymentsQuery->whereIn('supplier_id', $supplierIds);
         }
-            
+
         $payments = $paymentsQuery->get();
-            
-        $totalDebt = $events->filter(fn($e) => (float)$e->amount > 0)->sum(fn($e) => (float)$e->amount);
-        $totalReduction = $events->filter(fn($e) => (float)$e->amount < 0)->sum(fn($e) => (float)$e->amount);
+
+        $totalDebt = $events->filter(fn ($e) => (float) $e->amount > 0)->sum(fn ($e) => (float) $e->amount);
+        $totalReduction = $events->filter(fn ($e) => (float) $e->amount < 0)->sum(fn ($e) => (float) $e->amount);
         $netPayable = $totalDebt + $totalReduction;
         $totalPaid = $payments->sum('amount');
 
@@ -856,10 +969,10 @@ class PayableController extends Controller
         return response()->json([
             'status' => 'success',
             'data' => [
-                'period'   => $period,
-                'events'   => $events,
-                'payments' => $payments
-            ]
+                'period' => $period,
+                'events' => $events,
+                'payments' => $payments,
+            ],
         ]);
     }
 
@@ -880,7 +993,7 @@ class PayableController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Status pelunasan berhasil diperbarui',
-            'data' => $period
+            'data' => $period,
         ]);
     }
 
@@ -891,17 +1004,17 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
-            'payment_date'   => 'required|date',
-            'amount'         => 'required|numeric|min:0.01',
+            'payment_date' => 'required|date',
+            'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'nullable|string',
-            'notes'          => 'nullable|string',
-            'supplier_id'    => 'nullable|integer|exists:suppliers,id',
+            'notes' => 'nullable|string',
+            'supplier_id' => 'nullable|integer|exists:suppliers,id',
         ]);
 
         $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
 
         $supplierId = $validated['supplier_id'] ?? null;
-        if (!$supplierId) {
+        if (! $supplierId) {
             $userSuppliers = Supplier::where('user_id', $userId)->pluck('id');
             if ($userSuppliers->count() === 1) {
                 $supplierId = $userSuppliers->first();
@@ -909,13 +1022,13 @@ class PayableController extends Controller
         }
 
         $payment = PayablePayment::create([
-            'user_id'           => $userId,
-            'supplier_id'       => $supplierId,
+            'user_id' => $userId,
+            'supplier_id' => $supplierId,
             'payable_period_id' => $period->id,
-            'payment_date'      => Carbon::parse($validated['payment_date']),
-            'amount'            => $validated['amount'],
-            'payment_method'    => $validated['payment_method'] ?? 'Transfer',
-            'notes'             => $validated['notes'],
+            'payment_date' => Carbon::parse($validated['payment_date']),
+            'amount' => $validated['amount'],
+            'payment_method' => $validated['payment_method'] ?? 'Transfer',
+            'notes' => $validated['notes'],
         ]);
 
         $events = PayableEvent::where('payable_period_id', $period->id)->where('user_id', $userId)->get();
@@ -932,9 +1045,9 @@ class PayableController extends Controller
         $period->save();
 
         return response()->json([
-            'status'  => 'success',
+            'status' => 'success',
             'message' => 'Hutang supplier berhasil dicatat',
-            'data'    => $payment
+            'data' => $payment,
         ]);
     }
 
@@ -945,9 +1058,9 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
-            'payment_date'   => 'required|date',
-            'amount'         => 'required|numeric|min:0.01',
-            'notes'          => 'nullable|string',
+            'payment_date' => 'required|date',
+            'amount' => 'required|numeric|min:0.01',
+            'notes' => 'nullable|string',
         ]);
 
         $payment = PayablePayment::where('user_id', $userId)->findOrFail($id);
@@ -955,16 +1068,16 @@ class PayableController extends Controller
 
         $payment->update([
             'payment_date' => Carbon::parse($validated['payment_date']),
-            'amount'       => $validated['amount'],
-            'notes'        => $validated['notes'],
+            'amount' => $validated['amount'],
+            'notes' => $validated['notes'],
         ]);
 
         $this->updatePeriodPaymentStatus($period, $userId);
 
         return response()->json([
-            'status'  => 'success',
+            'status' => 'success',
             'message' => 'Data hutang supplier berhasil diperbarui',
-            'data'    => $payment
+            'data' => $payment,
         ]);
     }
 
@@ -982,8 +1095,8 @@ class PayableController extends Controller
         $this->updatePeriodPaymentStatus($period, $userId);
 
         return response()->json([
-            'status'  => 'success',
-            'message' => 'Data hutang supplier berhasil dihapus'
+            'status' => 'success',
+            'message' => 'Data hutang supplier berhasil dihapus',
         ]);
     }
 
@@ -1013,15 +1126,15 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-        if (!$config || empty($config->value['first_period_start'])) {
+        if (! $config || empty($config->value['first_period_start'])) {
             return response()->json(['status' => 'error', 'message' => 'Belum ada konfigurasi periode'], 422);
         }
 
-        \App\Jobs\SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+        SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
 
         return response()->json([
-            'status'  => 'success',
-            'message' => 'Sinkronisasi ulang dimulai'
+            'status' => 'success',
+            'message' => 'Sinkronisasi ulang dimulai',
         ]);
     }
 
@@ -1032,15 +1145,15 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
-        
+
         PayablePayment::where('payable_period_id', $id)->where('user_id', $userId)->delete();
         PayableEvent::where('payable_period_id', $id)->where('user_id', $userId)->delete();
-        
+
         $period->delete();
 
         return response()->json([
-            'status'  => 'success',
-            'message' => 'Periode berhasil dihapus'
+            'status' => 'success',
+            'message' => 'Periode berhasil dihapus',
         ]);
     }
 
@@ -1051,7 +1164,7 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $query = $request->get('q', '');
-        $limit = min((int)$request->get('limit', 30), 100);
+        $limit = min((int) $request->get('limit', 30), 100);
 
         $eventsQuery = PayableEvent::where('user_id', $userId)
             ->with('period')
@@ -1060,33 +1173,33 @@ class PayableController extends Controller
         if ($query) {
             $eventsQuery->where(function ($q) use ($query) {
                 $q->where('source_id', 'like', "%{$query}%")
-                  ->orWhere('source_type', 'like', "%{$query}%")
-                  ->orWhere('platform', 'like', "%{$query}%")
-                  ->orWhere('notes', 'like', "%{$query}%");
+                    ->orWhere('source_type', 'like', "%{$query}%")
+                    ->orWhere('platform', 'like', "%{$query}%")
+                    ->orWhere('notes', 'like', "%{$query}%");
             });
         }
 
         $events = $eventsQuery->limit($limit)->get()->map(function ($ev) {
             return [
-                'id'              => $ev->id,
-                'source_id'       => $ev->source_id,
-                'source_type'     => $ev->source_type,
-                'platform'        => $ev->platform,
-                'event_date'      => $ev->event_date,
-                'amount'          => $ev->amount,
+                'id' => $ev->id,
+                'source_id' => $ev->source_id,
+                'source_type' => $ev->source_type,
+                'platform' => $ev->platform,
+                'event_date' => $ev->event_date,
+                'amount' => $ev->amount,
                 'is_manual_moved' => $ev->is_manual_moved,
-                'period'          => $ev->period ? [
-                    'id'         => $ev->period->id,
-                    'name'       => $ev->period->name,
+                'period' => $ev->period ? [
+                    'id' => $ev->period->id,
+                    'name' => $ev->period->name,
                     'start_date' => $ev->period->start_date,
-                    'end_date'   => $ev->period->end_date,
+                    'end_date' => $ev->period->end_date,
                 ] : null,
             ];
         });
 
         return response()->json([
             'status' => 'success',
-            'data'   => $events
+            'data' => $events,
         ]);
     }
 
@@ -1097,27 +1210,30 @@ class PayableController extends Controller
     {
         $userId = Auth::id();
         $validated = $request->validate([
-            'event_ids'        => 'required|array|min:1',
-            'event_ids.*'      => 'integer|exists:payable_events,id',
+            'event_ids' => 'required|array|min:1',
+            'event_ids.*' => 'integer|exists:payable_events,id',
             'target_period_id' => 'required|integer|exists:payable_periods,id',
         ]);
 
         $targetPeriodId = $validated['target_period_id'];
         $targetPeriod = PayablePeriod::where('user_id', $userId)->findOrFail($targetPeriodId);
 
-        $movedIds   = [];
+        $movedIds = [];
         $skippedIds = [];
-        $errors     = [];
+        $errors = [];
 
         DB::beginTransaction();
         try {
             foreach ($validated['event_ids'] as $eventId) {
                 $event = PayableEvent::where('user_id', $userId)->find($eventId);
-                if (!$event) continue;
+                if (! $event) {
+                    continue;
+                }
 
                 // Skip if already in the target period
                 if ($event->payable_period_id == $targetPeriodId) {
                     $skippedIds[] = $eventId;
+
                     continue;
                 }
 
@@ -1132,12 +1248,13 @@ class PayableController extends Controller
                     Log::warning("PayableController::reassignEvents – duplicate prevented: source_id={$event->source_id} source_type={$event->source_type} already exists in period {$targetPeriodId}");
                     $skippedIds[] = $eventId;
                     $errors[] = "Event {$event->source_id} ({$event->source_type}) sudah ada di periode tujuan.";
+
                     continue;
                 }
 
                 $event->original_period_id = $event->original_period_id ?? $event->payable_period_id;
-                $event->payable_period_id  = $targetPeriodId;
-                $event->is_manual_moved    = true;
+                $event->payable_period_id = $targetPeriodId;
+                $event->is_manual_moved = true;
                 $event->save();
 
                 $movedIds[] = $eventId;
@@ -1145,17 +1262,18 @@ class PayableController extends Controller
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('PayableController::reassignEvents failed: ' . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => 'Gagal memindahkan event: ' . $e->getMessage()], 500);
+            Log::error('PayableController::reassignEvents failed: '.$e->getMessage());
+
+            return response()->json(['status' => 'error', 'message' => 'Gagal memindahkan event: '.$e->getMessage()], 500);
         }
 
         return response()->json([
-            'status'  => 'success',
-            'message' => count($movedIds) . ' event berhasil dipindahkan' . (count($skippedIds) > 0 ? ', ' . count($skippedIds) . ' dilewati' : '') . '.',
-            'data'    => [
-                'moved'   => $movedIds,
+            'status' => 'success',
+            'message' => count($movedIds).' event berhasil dipindahkan'.(count($skippedIds) > 0 ? ', '.count($skippedIds).' dilewati' : '').'.',
+            'data' => [
+                'moved' => $movedIds,
                 'skipped' => $skippedIds,
-                'errors'  => $errors,
+                'errors' => $errors,
             ],
         ]);
     }

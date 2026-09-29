@@ -86,6 +86,42 @@ class ProductHppSourceTest extends TestCase
         ));
     }
 
+    public function test_payable_prefers_master_supplier_and_falls_back_to_marketplace_mapping(): void
+    {
+        [$product, $variant, $masterVariant, $user] = $this->createLinkedVariant(25000, 18000);
+        $masterSupplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Master',
+            'period_length_days' => 14,
+        ]);
+        $marketplaceSupplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Marketplace',
+            'period_length_days' => 14,
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $marketplaceSupplier->id,
+            'sku' => strtolower($variant->model_sku),
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+        $item = (object) [
+            'product_id' => $product->product_id,
+            'platform_variant_id' => $variant->model_id,
+            'model_name' => $variant->model_name,
+            'sku' => $variant->model_sku,
+            'order' => (object) ['store_id' => $product->store_id],
+        ];
+        $service = app(PayableService::class);
+
+        $masterVariant->update(['supplier_id' => $masterSupplier->id]);
+        $this->assertSame($masterSupplier->id, $service->resolveSupplierIdForItem($item, $user->id));
+
+        $masterVariant->update(['supplier_id' => null]);
+        $this->assertSame($marketplaceSupplier->id, $service->resolveSupplierIdForItem($item, $user->id));
+    }
+
     public function test_zero_master_hpp_falls_back_to_marketplace_hpp_for_order_and_return_history(): void
     {
         [$product, $variant, $masterVariant, $user] = $this->createLinkedVariant(

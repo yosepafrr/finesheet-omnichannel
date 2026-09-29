@@ -330,6 +330,62 @@ class MasterProductTest extends TestCase
         Bus::assertDispatchedTimes(SyncStockToMarketplaceJob::class, 4);
     }
 
+    public function test_master_list_can_be_filtered_and_hpp_updated_by_product_and_variant_cluster(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Jas',
+            'period_length_days' => 14,
+        ]);
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Jas Wanita',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+
+        foreach (['jas-w-navy-xxl', 'jas-w-hitam-l', 'celana-p-hitam-l'] as $sku) {
+            MasterProductVariant::create([
+                'master_product_id' => $product->id,
+                'user_id' => $user->id,
+                'supplier_id' => $supplier->id,
+                'sku' => $sku,
+                'hpp' => 10000,
+                'stock' => 5,
+                'is_active' => true,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products?product_cluster=jas-w')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('data.0.product_cluster_key', 'jas-w')
+            ->assertJsonPath('data.0.supplier_name', 'Supplier Jas');
+
+        $this->actingAs($user)
+            ->putJson('/api/master-products/variants/bulk', [
+                'product_cluster_key' => 'jas-w',
+                'variant_cluster_key' => 'navy',
+                'supplier_filter' => (string) $supplier->id,
+                'field' => 'hpp',
+                'value' => 27500,
+            ])
+            ->assertOk()
+            ->assertJsonPath('updated_count', 1);
+
+        $this->assertDatabaseHas('master_product_variants', [
+            'sku' => 'jas-w-navy-xxl',
+            'hpp' => 27500,
+        ]);
+        $this->assertDatabaseHas('master_product_variants', [
+            'sku' => 'jas-w-hitam-l',
+            'hpp' => 10000,
+        ]);
+    }
+
     private function payload(): array
     {
         return [

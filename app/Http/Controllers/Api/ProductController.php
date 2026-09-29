@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncPayableHistoryJob;
 use Illuminate\Http\Request;
 use App\Models\Product;
+use App\Models\Supplier;
 use App\Models\VariantProduct;
 use App\Services\ProductHppService;
 use Illuminate\Support\Facades\Auth;
@@ -100,6 +102,7 @@ class ProductController extends Controller
         }
 
         $result = $hppService->updateProduct($product, (float) $request->hpp);
+        $this->queuePayableSync($user->id);
 
         return response()->json([
             'message' => $result['source'] === 'master'
@@ -127,6 +130,7 @@ class ProductController extends Controller
         }
 
         $result = $hppService->updateVariant($variant, (float) $request->hpp);
+        $this->queuePayableSync($user->id);
 
         return response()->json([
             'message' => $result['source'] === 'master'
@@ -160,6 +164,22 @@ class ProductController extends Controller
             }
         }
 
+        if ($updatedCount > 0) {
+            $this->queuePayableSync($user->id);
+        }
+
         return response()->json(['message' => "$updatedCount variants updated", 'hpp' => $request->hpp]);
+    }
+
+    private function queuePayableSync(int $userId): void
+    {
+        $payableStart = Supplier::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('first_period_start')
+            ->min('first_period_start');
+
+        if ($payableStart) {
+            SyncPayableHistoryJob::dispatch((string) $payableStart, $userId)->onQueue('orders');
+        }
     }
 }

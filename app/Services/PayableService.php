@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\MasterProductVariant;
 use App\Models\Order;
 use App\Models\OrderReturn;
 use App\Models\PayableEvent;
@@ -155,6 +156,13 @@ class PayableService
      */
     public function resolveSupplierIdForItem($item, int $userId): ?int
     {
+        // Master SKU is the canonical supplier source. Marketplace mappings
+        // remain the fallback for items that are not assigned in master data.
+        $masterVariant = $this->hppService->masterVariantForOrderItem($item);
+        if ($masterVariant?->supplier_id) {
+            return (int) $masterVariant->supplier_id;
+        }
+
         // Supplier assignment must come from an explicit mapping. The direct
         // relation may contain legacy values created by the old auto-assign.
         $productQuery = Product::query()->where('product_id', $item->product_id);
@@ -202,7 +210,7 @@ class PayableService
 
         if ($modelSku) {
             $mapping = SupplierProductMapping::where('user_id', $userId)
-                ->where('sku', $modelSku)
+                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $modelSku))])
                 ->first();
             if ($mapping) {
                 if ($product && ! $product->supplier_id) {
@@ -216,7 +224,7 @@ class PayableService
         // 2. Product product_sku in supplier_product_mappings
         if ($product && ! empty($product->product_sku)) {
             $mapping = SupplierProductMapping::where('user_id', $userId)
-                ->where('sku', $product->product_sku)
+                ->whereRaw('LOWER(sku) = ?', [mb_strtolower(trim((string) $product->product_sku))])
                 ->first();
             if ($mapping) {
                 if (! $product->supplier_id) {
@@ -237,6 +245,10 @@ class PayableService
             }
 
             return $mapping->supplier_id;
+        }
+
+        if ($product?->supplier_id) {
+            return (int) $product->supplier_id;
         }
 
         return null;
@@ -920,7 +932,16 @@ class PayableService
         $mappedSupplierIds = SupplierProductMapping::where('user_id', $userId)
             ->whereNotNull('supplier_id')
             ->distinct()
-            ->pluck('supplier_id');
+            ->pluck('supplier_id')
+            ->merge(
+                MasterProductVariant::query()
+                    ->where('user_id', $userId)
+                    ->whereNotNull('supplier_id')
+                    ->distinct()
+                    ->pluck('supplier_id')
+            )
+            ->unique()
+            ->values();
 
         $staleEvents = PayableEvent::where('user_id', $userId)
             ->whereNotNull('supplier_id');

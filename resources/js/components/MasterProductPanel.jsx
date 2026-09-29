@@ -11,6 +11,7 @@ const EMPTY_FORM = {
     description: "",
     status: "active",
     sku: "",
+    supplier_id: "",
     variant_name: "",
     barcode: "",
     stock: 0,
@@ -38,6 +39,7 @@ function rowPayload(row, overrides = {}) {
         description: row.description || null,
         status: row.product_status || "active",
         sku: row.sku || "",
+        supplier_id: row.supplier_id || null,
         variant_name: row.variant_name || null,
         barcode: row.barcode || null,
         stock: Number(row.stock || 0),
@@ -215,7 +217,7 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onDelete, onPush }) {
     );
 }
 
-function MasterSkuModal({ row, preset, onClose, onSaved }) {
+function MasterSkuModal({ row, preset, suppliers, onClose, onSaved }) {
     const [form, setForm] = useState(() => row ? {
         name: row.name || "",
         image: row.image || "",
@@ -224,6 +226,7 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
         description: row.description || "",
         status: row.product_status || "active",
         sku: row.sku || "",
+        supplier_id: row.supplier_id || "",
         variant_name: row.variant_name || "",
         barcode: row.barcode || "",
         stock: row.stock ?? 0,
@@ -250,6 +253,7 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
                 category: form.category || null,
                 description: form.description || null,
                 barcode: form.barcode || null,
+                supplier_id: form.supplier_id ? Number(form.supplier_id) : null,
                 variant_name: form.variant_name || null,
                 stock: Number(form.stock || 0),
                 hpp: Number(form.hpp || 0),
@@ -267,6 +271,7 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
                     status: normalized.status,
                     variants: [{
                         sku: normalized.sku,
+                        supplier_id: normalized.supplier_id,
                         variant_name: normalized.variant_name,
                         barcode: normalized.barcode,
                         stock: normalized.stock,
@@ -316,6 +321,14 @@ function MasterSkuModal({ row, preset, onClose, onSaved }) {
                         <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Nama varian</span>
                             <input value={form.variant_name} onChange={(event) => update("variant_name", event.target.value)} placeholder="Opsional" className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+                        </label>
+                        <label className="sm:col-span-2">
+                            <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Supplier</span>
+                            <select value={form.supplier_id} onChange={(event) => update("supplier_id", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+                                <option value="">Belum ditentukan</option>
+                                {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                            </select>
+                            <span className="mt-1 block text-xs text-slate-400">Supplier master menjadi sumber utama untuk perhitungan payable.</span>
                         </label>
                         <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Stok tersedia</span>
@@ -723,6 +736,10 @@ function LoadingRows() {
 export default function MasterProductPanel({ search = "" }) {
     const [rows, setRows] = useState([]);
     const [detected, setDetected] = useState([]);
+    const [filterOptions, setFilterOptions] = useState({ product_clusters: [], variant_clusters: [], suppliers: [] });
+    const [productCluster, setProductCluster] = useState("");
+    const [variantCluster, setVariantCluster] = useState("");
+    const [supplierFilter, setSupplierFilter] = useState("");
     const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(30);
@@ -733,6 +750,7 @@ export default function MasterProductPanel({ search = "" }) {
     const [bulkModalOpen, setBulkModalOpen] = useState(false);
     const [bulkMode, setBulkMode] = useState(false);
     const [bulkValueField, setBulkValueField] = useState(null);
+    const [clusterHppOpen, setClusterHppOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
     const [busyId, setBusyId] = useState(null);
@@ -741,16 +759,26 @@ export default function MasterProductPanel({ search = "" }) {
     const fetchRows = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            const response = await axios.get("/api/master-products", { params: { search, page, per_page: pageSize } });
+            const response = await axios.get("/api/master-products", {
+                params: {
+                    search,
+                    page,
+                    per_page: pageSize,
+                    product_cluster: productCluster || undefined,
+                    variant_cluster: variantCluster || undefined,
+                    supplier_id: supplierFilter || undefined,
+                },
+            });
             setRows(response.data.data || []);
             setMeta(response.data.meta || {});
+            setFilterOptions(response.data.filters || { product_clusters: [], variant_clusters: [], suppliers: [] });
             setError("");
         } catch (requestError) {
             setError(errorMessage(requestError));
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [page, pageSize, search]);
+    }, [page, pageSize, productCluster, search, supplierFilter, variantCluster]);
 
     const fetchDetected = useCallback(async () => {
         try {
@@ -761,8 +789,8 @@ export default function MasterProductPanel({ search = "" }) {
         }
     }, []);
 
-    useEffect(() => setPage(1), [search]);
-    useEffect(() => setSelectedIds(new Set()), [page, pageSize, search]);
+    useEffect(() => setPage(1), [productCluster, search, supplierFilter, variantCluster]);
+    useEffect(() => setSelectedIds(new Set()), [page, pageSize, productCluster, search, supplierFilter, variantCluster]);
     useEffect(() => {
         const timeout = setTimeout(() => fetchRows(), 250);
         return () => clearTimeout(timeout);
@@ -862,6 +890,19 @@ export default function MasterProductPanel({ search = "" }) {
         await fetchRows();
     };
 
+    const bulkClusterHppUpdate = async (value) => {
+        const response = await axios.put("/api/master-products/variants/bulk", {
+            product_cluster_key: productCluster || undefined,
+            variant_cluster_key: variantCluster || undefined,
+            supplier_filter: supplierFilter || undefined,
+            field: "hpp",
+            value,
+        });
+        setClusterHppOpen(false);
+        setNotice(response.data.message);
+        await fetchRows();
+    };
+
     const bulkPush = async () => {
         setBulkBusy(true);
         setError("");
@@ -892,6 +933,13 @@ export default function MasterProductPanel({ search = "" }) {
         }
         openDetail(row.master_product_id);
     };
+
+    const hasClusterFilter = Boolean(productCluster || variantCluster);
+    const pageClusterCounts = rows.reduce((counts, row) => {
+        const key = row.product_cluster_key || "tanpa-cluster";
+        counts[key] = (counts[key] || 0) + 1;
+        return counts;
+    }, {});
 
     return (
         <div className="space-y-4">
@@ -963,6 +1011,35 @@ export default function MasterProductPanel({ search = "" }) {
                 </div>
             )}
 
+            <div className="grid grid-cols-1 gap-2 border-y border-slate-200 bg-slate-50/70 px-4 py-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end dark:border-slate-700 dark:bg-slate-800/40">
+                <label className="min-w-0">
+                    <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Cluster produk</span>
+                    <select value={productCluster} onChange={(event) => setProductCluster(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">Semua cluster produk</option>
+                        {filterOptions.product_clusters.map((cluster) => <option key={cluster.key} value={cluster.key}>{cluster.label} ({cluster.count})</option>)}
+                    </select>
+                </label>
+                <label className="min-w-0">
+                    <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Cluster varian</span>
+                    <select value={variantCluster} onChange={(event) => setVariantCluster(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">Semua cluster varian</option>
+                        {filterOptions.variant_clusters.map((cluster) => <option key={cluster.key} value={cluster.key}>{cluster.label} ({cluster.count})</option>)}
+                    </select>
+                </label>
+                <label className="min-w-0">
+                    <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Supplier</span>
+                    <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">Semua supplier</option>
+                        <option value="unassigned">Belum ditentukan</option>
+                        {filterOptions.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                    </select>
+                </label>
+                <button type="button" disabled={!hasClusterFilter || meta.total === 0} onClick={() => setClusterHppOpen(true)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:bg-slate-800 dark:text-blue-300 dark:disabled:border-slate-700 dark:disabled:text-slate-500">
+                    <span className="material-symbols-rounded text-lg">payments</span>
+                    Edit HPP cluster
+                </button>
+            </div>
+
             <div className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 {loading ? <LoadingRows /> : rows.length === 0 ? (
                     <div className="px-6 py-16 text-center">
@@ -978,26 +1055,33 @@ export default function MasterProductPanel({ search = "" }) {
                                     <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[24%]" : "w-[28%]"} px-3 py-3`}>Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[9%] px-4 py-3 text-right">Stok</th><th className="w-[13%] px-4 py-3 text-right">HPP</th><th className="w-[14%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                    {rows.map((row) => (
-                                        <tr key={row.id} className={`${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
+                                    {rows.map((row, index) => {
+                                        const clusterKey = row.product_cluster_key || "tanpa-cluster";
+                                        const previousCluster = index > 0 ? (rows[index - 1].product_cluster_key || "tanpa-cluster") : null;
+
+                                        return <React.Fragment key={row.id}>
+                                        {clusterKey !== previousCluster && <tr className="border-y border-slate-200 bg-slate-100/80 dark:border-slate-700 dark:bg-slate-900/60"><td colSpan={bulkMode ? 8 : 7} className="px-4 py-2"><div className="flex items-center gap-2"><span className="material-symbols-rounded text-lg text-[#304674] dark:text-blue-400">folder_copy</span><span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.product_cluster_label || "TANPA CLUSTER"}</span><span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">{pageClusterCounts[clusterKey]} SKU di halaman ini</span></div></td></tr>}
+                                        <tr className={`${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
                                             {bulkMode && <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
-                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></button></td>
-                                            <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span>{row.barcode && <span className="block truncate text-xs text-slate-400">{row.barcode}</span>}</td>
+                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
+                                            <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "stock")} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] dark:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
                                             <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} /></div></td>
                                         </tr>
-                                    ))}
+                                        </React.Fragment>;
+                                    })}
                                 </tbody>
                             </table>
                         </div>
 
                         <div className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
-                            {rows.map((row) => (
+                            {rows.map((row, index) => (
+                                <React.Fragment key={row.id}>
+                                {(index === 0 || row.product_cluster_key !== rows[index - 1].product_cluster_key) && <div className="flex items-center gap-2 border-b border-slate-300 px-1 pb-2 pt-1 dark:border-slate-700"><span className="material-symbols-rounded text-lg text-[#304674] dark:text-blue-400">folder_copy</span><span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.product_cluster_label || "TANPA CLUSTER"}</span></div>}
                                 <article
-                                    key={row.id}
                                     className={`relative rounded-lg border bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:bg-slate-800 ${bulkMode && selectedIds.has(row.id) ? "border-[#304674] ring-1 ring-[#304674]/20 dark:border-blue-500" : "border-slate-300 dark:border-slate-700"} ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
                                 >
                                     <div className="flex items-start gap-4">
@@ -1009,9 +1093,11 @@ export default function MasterProductPanel({ search = "" }) {
                                             <button type="button" onClick={() => handleProductClick(row)} className="line-clamp-2 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">
                                                 {row.name}
                                             </button>
-                                            <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                                {String(row.sku || "").toUpperCase()}
-                                            </p>
+                                             <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                                 {String(row.sku || "").toUpperCase()}
+                                             </p>
+                                            <div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div>
+                                            <p className="mt-1 truncate text-xs text-slate-400">{row.supplier_name || "Supplier belum ditentukan"}</p>
                                         </div>
                                         <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onDelete={remove} onPush={push} />
                                     </div>
@@ -1038,6 +1124,7 @@ export default function MasterProductPanel({ search = "" }) {
                                         <MatchStatus row={row} />
                                     </div>
                                 </article>
+                                </React.Fragment>
                             ))}
                         </div>
 
@@ -1049,9 +1136,10 @@ export default function MasterProductPanel({ search = "" }) {
                 )}
             </div>
 
-            <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
+            <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} suppliers={filterOptions.suppliers} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{bulkValueField && <BulkValueModal count={selectedRows.length} field={bulkValueField} onClose={() => setBulkValueField(null)} onSaved={bulkUpdate} />}</AnimatePresence>
+            <AnimatePresence>{clusterHppOpen && <BulkValueModal count={meta.total || 0} field="hpp" onClose={() => setClusterHppOpen(false)} onSaved={bulkClusterHppUpdate} />}</AnimatePresence>
             <AnimatePresence>{bulkModalOpen && <BulkMasterSkuModal detected={detected} onClose={() => setBulkModalOpen(false)} onSaved={finishBulkCreate} />}</AnimatePresence>
         </div>
     );

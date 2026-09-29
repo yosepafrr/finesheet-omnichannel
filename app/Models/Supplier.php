@@ -39,6 +39,11 @@ class Supplier extends Model
         return $this->hasMany(Product::class);
     }
 
+    public function masterProductVariants()
+    {
+        return $this->hasMany(MasterProductVariant::class);
+    }
+
     public function payableEvents()
     {
         return $this->hasMany(PayableEvent::class);
