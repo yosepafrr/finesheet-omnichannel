@@ -731,6 +731,7 @@ export default function MasterProductPanel({ search = "" }) {
     const [modal, setModal] = useState({ open: false, row: null, preset: null });
     const [valueModal, setValueModal] = useState({ open: false, row: null, field: null });
     const [bulkModalOpen, setBulkModalOpen] = useState(false);
+    const [bulkMode, setBulkMode] = useState(false);
     const [bulkValueField, setBulkValueField] = useState(null);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
@@ -844,6 +845,11 @@ export default function MasterProductPanel({ search = "" }) {
         setSelectedIds(allRowsSelected ? new Set() : new Set(rows.map((row) => row.id)));
     };
 
+    const toggleBulkMode = () => {
+        if (bulkMode) setSelectedIds(new Set());
+        setBulkMode(!bulkMode);
+    };
+
     const bulkUpdate = async (value) => {
         const response = await axios.put("/api/master-products/variants/bulk", {
             variant_ids: [...selectedIds],
@@ -874,7 +880,15 @@ export default function MasterProductPanel({ search = "" }) {
     };
 
     const openDetail = (productId) => {
-        window.location.hash = `/products/master/${productId}`;
+        window.location.assign(`#/products/master/${encodeURIComponent(productId)}`);
+    };
+
+    const handleProductClick = (row) => {
+        if (bulkMode) {
+            toggleRow(row.id);
+            return;
+        }
+        openDetail(row.master_product_id);
     };
 
     return (
@@ -884,10 +898,16 @@ export default function MasterProductPanel({ search = "" }) {
                     <h2 className="text-base font-bold text-slate-900 dark:text-white">Master Produk</h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{meta.total || 0} SKU dikelola</p>
                 </div>
-                <button type="button" onClick={() => setModal({ open: true, row: null, preset: null })} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700">
-                    <span className="material-symbols-rounded text-lg">add</span>
-                    Tambah Master Produk
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <button type="button" onClick={toggleBulkMode} disabled={loading || rows.length === 0} className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${bulkMode ? "border-[#304674] bg-blue-50 text-[#304674] dark:border-blue-500 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>
+                        <span className="material-symbols-rounded text-lg">{bulkMode ? "close" : "checklist"}</span>
+                        {bulkMode ? "Selesai" : "Aksi Massal"}
+                    </button>
+                    <button type="button" onClick={() => setModal({ open: true, row: null, preset: null })} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700">
+                        <span className="material-symbols-rounded text-lg">add</span>
+                        Tambah Master Produk
+                    </button>
+                </div>
             </div>
 
             {detected.length > 0 && (
@@ -918,7 +938,7 @@ export default function MasterProductPanel({ search = "" }) {
             {notice && <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200"><span>{notice}</span><button type="button" onClick={() => setNotice("")} className="material-symbols-rounded" aria-label="Tutup pemberitahuan">close</button></div>}
             {error && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"><span>{error}</span><button type="button" onClick={() => setError("")} className="material-symbols-rounded">close</button></div>}
 
-            {selectedRows.length > 0 && (
+            {bulkMode && selectedRows.length > 0 && (
                 <div className="flex flex-col gap-3 border-y border-blue-200 bg-blue-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-blue-500/20 dark:bg-blue-500/5">
                     <div className="flex items-center gap-3">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#304674] text-white"><span className="material-symbols-rounded text-lg">checklist</span></span>
@@ -953,13 +973,13 @@ export default function MasterProductPanel({ search = "" }) {
                         <div className="hidden overflow-x-auto md:block">
                             <table className="w-full min-w-[1040px] table-fixed text-left">
                                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                    <tr><th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th><th className="w-[24%] px-3 py-3">Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[9%] px-4 py-3 text-right">Stok</th><th className="w-[13%] px-4 py-3 text-right">HPP</th><th className="w-[14%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
+                                    <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[24%]" : "w-[28%]"} px-3 py-3`}>Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[9%] px-4 py-3 text-right">Stok</th><th className="w-[13%] px-4 py-3 text-right">HPP</th><th className="w-[14%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                     {rows.map((row) => (
-                                        <tr key={row.id} className={`${selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
-                                            <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>
-                                            <td className="px-3 py-4"><button type="button" onClick={() => openDetail(row.master_product_id)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></button></td>
+                                        <tr key={row.id} className={`${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
+                                            {bulkMode && <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
+                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.variant_name || row.category || "Produk utama"}</p></div></button></td>
                                             <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span>{row.barcode && <span className="block truncate text-xs text-slate-400">{row.barcode}</span>}</td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "stock")} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] dark:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
                                             <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
@@ -976,15 +996,15 @@ export default function MasterProductPanel({ search = "" }) {
                             {rows.map((row) => (
                                 <article
                                     key={row.id}
-                                    className={`relative rounded-lg border bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:bg-slate-800 ${selectedIds.has(row.id) ? "border-[#304674] ring-1 ring-[#304674]/20 dark:border-blue-500" : "border-slate-300 dark:border-slate-700"} ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
+                                    className={`relative rounded-lg border bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:bg-slate-800 ${bulkMode && selectedIds.has(row.id) ? "border-[#304674] ring-1 ring-[#304674]/20 dark:border-blue-500" : "border-slate-300 dark:border-slate-700"} ${busyId === row.id ? "pointer-events-none opacity-60" : ""}`}
                                 >
                                     <div className="flex items-start gap-4">
-                                        <div className="pt-1"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></div>
-                                        <button type="button" onClick={() => openDetail(row.master_product_id)} className="shrink-0">
+                                        {bulkMode && <div className="pt-1"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></div>}
+                                        <button type="button" onClick={() => handleProductClick(row)} className="shrink-0">
                                             <ProductImage row={row} size="lg" />
                                         </button>
                                         <div className="min-w-0 flex-1">
-                                            <button type="button" onClick={() => openDetail(row.master_product_id)} className="line-clamp-2 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">
+                                            <button type="button" onClick={() => handleProductClick(row)} className="line-clamp-2 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">
                                                 {row.name}
                                             </button>
                                             <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">

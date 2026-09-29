@@ -201,12 +201,15 @@ test.describe('Master product and stock synchronization', () => {
     await page.getByRole('button', { name: 'Simpan', exact: true }).click();
     expect((await hppRequest).postDataJSON().hpp).toBe(17500);
 
+    await expect(page.getByLabel('Pilih SKU SKU-OXFORD-L')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Aksi Massal' }).click();
     await page.getByLabel('Pilih SKU SKU-OXFORD-L').first().check();
     await expect(page.getByText('1 SKU dipilih')).toBeVisible();
     const bulkPushRequest = page.waitForRequest(request => request.url().endsWith('/variants/bulk/push'));
     await page.getByRole('button', { name: 'Sinkronkan', exact: true }).click();
     expect((await bulkPushRequest).postDataJSON()).toEqual({ variant_ids: [21] });
 
+    await page.getByRole('button', { name: 'Selesai' }).click();
     await page.getByRole('button', { name: new RegExp(masterRow.name) }).first().click();
     await expect(page).toHaveURL(/#\/products\/master\/7$/);
     await expect(page.getByRole('heading', { name: masterRow.name })).toBeVisible();
