@@ -112,10 +112,8 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 foreach ($detail['package_list'] as $package) {
                     $packageNumber = $package['package_number'] ?? $orderModel->order_sn;
                     $logisticsStatus = $package['logistics_status'] ?? null;
-                    $normalizedLogisticsStatus = $logisticsNormalizer->normalize([
-                        'package' => $package,
-                        'cancel_reason' => $cancelReason,
-                    ]);
+                    $normalizedLogisticsStatus = $logisticsNormalizer
+                        ->normalizeShopeePackage($package);
 
                     if ($packageNumber !== $orderModel->order_sn) {
                         $realPackageNumbers[] = $packageNumber;

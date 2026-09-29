@@ -233,10 +233,8 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                     foreach ($detail['package_list'] as $pkg) {
                                         $packageNumber = $pkg['package_number'] ?? $orderModel->order_sn;
                                         $logisticsStatus = $pkg['logistics_status'] ?? null;
-                                        $normalizedLogisticsStatus = $logisticsNormalizer->normalize([
-                                            'package' => $pkg,
-                                            'cancel_reason' => $cancelReason,
-                                        ]);
+                                        $normalizedLogisticsStatus = $logisticsNormalizer
+                                            ->normalizeShopeePackage($pkg);
 
                                         if ($packageNumber !== $orderModel->order_sn) {
                                             $realPackageNumbers[] = $packageNumber;

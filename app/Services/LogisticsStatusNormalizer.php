@@ -126,6 +126,35 @@ class LogisticsStatusNormalizer
         return $this->containsPhrase($text, self::FAILED_DELIVERY_PHRASES);
     }
 
+    public function normalizeShopeePackage(array $payload, ?string $currentStatus = null): ?string
+    {
+        $status = strtoupper((string) ($this->findFirstValue($payload, [
+            'logistics_status',
+            'status',
+        ]) ?? ''));
+
+        if (in_array($status, ['LOGISTICS_DELIVERED', 'LOGISTICS_DELIVERY_DONE'], true)) {
+            return 'DELIVERED';
+        }
+
+        if ($status === 'LOGISTICS_DELIVERY_FAILED') {
+            return 'DELIVERY_FAILED';
+        }
+
+        // Free-form failure text is only trustworthy after Shopee assigned a
+        // tracking number. A cancellation reason by itself is not proof that
+        // the package ever entered delivery.
+        if ($this->trackingNumber($payload) && $this->isFailedDelivery($payload)) {
+            return 'DELIVERY_FAILED';
+        }
+
+        if ($status !== '') {
+            return 'IN_TRANSIT';
+        }
+
+        return $currentStatus;
+    }
+
     private function containsFinalFailedActionCode(array $value): bool
     {
         if (isset($value['action_code'])

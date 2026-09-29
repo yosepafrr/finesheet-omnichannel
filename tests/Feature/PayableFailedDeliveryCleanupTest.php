@@ -81,6 +81,63 @@ class PayableFailedDeliveryCleanupTest extends TestCase
         ]);
     }
 
+    public function test_shopee_pre_shipment_cancellation_removes_order_and_reduction_events(): void
+    {
+        $user = User::factory()->create();
+        $store = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Shopee',
+            'store_name' => 'Shopee Store',
+            'platform_shop_id' => 'SHOPEE-1',
+        ]);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Shopee Supplier',
+        ]);
+        $period = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'name' => 'Shopee Period',
+            'start_date' => now()->subDay(),
+            'end_date' => now()->addDay(),
+        ]));
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'order_sn' => 'SHOPEE-PRE-SHIP-CANCEL',
+            'order_status' => 'CANCELLED',
+            'order_time' => now(),
+        ]));
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'package_id' => $order->order_sn,
+            'logistics_status' => 'Pengiriman paket gagal',
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+        ]));
+
+        foreach (['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY'] as $sourceType) {
+            PayableEvent::withoutEvents(fn () => PayableEvent::create([
+                'user_id' => $user->id,
+                'supplier_id' => $supplier->id,
+                'payable_period_id' => $period->id,
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'source_id' => $order->order_sn,
+                'source_type' => $sourceType,
+                'event_date' => now(),
+                'amount' => $sourceType === 'CREATE_ORDER' ? 10000 : -10000,
+            ]));
+        }
+
+        app(PayableService::class)->recordCancellationEvent($order);
+
+        $this->assertDatabaseMissing('payable_events', [
+            'source_id' => $order->order_sn,
+        ]);
+    }
+
     private function createOrder(Store $store, string $orderSn): Order
     {
         return Order::withoutEvents(fn () => Order::create([

@@ -256,7 +256,7 @@ class PayableService
         // returned. Only remove the debt for a genuine pre-shipment cancellation.
         if ($isCancelled && ! $this->hasPostShipmentAdjustment($order)) {
             PayableEvent::where('source_id', $order->order_sn)
-                ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
                 ->delete();
             Log::info('PayableService: Deleted CREATE_ORDER events for cancelled order '.$order->order_sn);
 
@@ -400,6 +400,16 @@ class PayableService
 
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
+
+        if ($order
+            && in_array(strtoupper(trim($order->order_status ?? '')), ['CANCEL', 'CANCELLED', 'IN_CANCEL'], true)
+            && ! $this->hasPostShipmentAdjustment($order)) {
+            PayableEvent::where('source_id', $orderSn)
+                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->delete();
+
+            return;
+        }
 
         $userId = $order?->store?->user_id ?? ($order ? Store::where('id', $order->store_id)->value('user_id') : null);
         if (! $userId) {
@@ -685,20 +695,19 @@ class PayableService
     public function recordCancellationEvent(Order $order, string $type = 'FAILED_DELIVERY')
     {
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
-        $hasFailedPackage = $order->packages()
-            ->where('normalized_logistics_status', 'DELIVERY_FAILED')
-            ->exists();
+        $hasFailedPackage = $this->hasConfirmedFailedPackage($order);
         $hasReturn = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'RETURN_ORDER')
             ->exists() || $order->returns()->exists();
+        $hasConfirmedReturn = $hasReturn && $this->hasShipmentEvidence($order);
         $isTrueCancellation = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
             && ! $hasFailedPackage
-            && ! $hasReturn;
+            && ! $hasConfirmedReturn;
 
         if ($isTrueCancellation) {
             // True cancellation: remove CREATE_ORDER completely (order never materialized into a debt)
             PayableEvent::where('source_id', $order->order_sn)
-                ->whereIn('source_type', ['CREATE_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
                 ->delete();
             Log::info('PayableService: Deleted payable events for truly cancelled order '.$order->order_sn);
 
@@ -823,9 +832,51 @@ class PayableService
 
     private function hasPostShipmentAdjustment(Order $order): bool
     {
-        return $order->packages()
+        if ($this->hasConfirmedFailedPackage($order)) {
+            return true;
+        }
+
+        return $order->returns()->exists() && $this->hasShipmentEvidence($order);
+    }
+
+    private function hasConfirmedFailedPackage(Order $order): bool
+    {
+        $failedPackages = $order->packages()
             ->where('normalized_logistics_status', 'DELIVERY_FAILED')
-            ->exists() || $order->returns()->exists();
+            ->get();
+
+        if (strcasecmp((string) $order->platform, 'Shopee') !== 0) {
+            return $failedPackages->isNotEmpty();
+        }
+
+        return $failedPackages->contains(function ($package) {
+            $payload = array_merge($package->raw_data ?? [], [
+                'logistics_status' => $package->logistics_status,
+                'tracking_number' => $package->tracking_number,
+            ]);
+
+            return $this->logisticsNormalizer->normalizeShopeePackage($payload) === 'DELIVERY_FAILED';
+        });
+    }
+
+    private function hasShipmentEvidence(Order $order): bool
+    {
+        $status = strtoupper(trim($order->order_status ?? ''));
+        if (in_array($status, [
+            'SHIPPED',
+            'IN_TRANSIT',
+            'TO_CONFIRM_RECEIVE',
+            'DELIVERED',
+            'COMPLETED',
+            'TO_RETURN',
+        ], true) || $order->stock_sync_shipped_at) {
+            return true;
+        }
+
+        return $order->packages()
+            ->whereNotNull('tracking_number')
+            ->where('tracking_number', '!=', '')
+            ->exists();
     }
 
     public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int

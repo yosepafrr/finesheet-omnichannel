@@ -151,6 +151,23 @@ class LogisticsStatusNormalizerTest extends TestCase
         $this->assertFalse($normalizer->isFailedDelivery('Pesanan dibatalkan karena pembeli terlambat membayar'));
     }
 
+    public function test_shopee_cancellation_reason_requires_shipping_evidence(): void
+    {
+        $normalizer = new LogisticsStatusNormalizer;
+        $cancelledPackage = [
+            'logistics_status' => 'Pengiriman paket gagal',
+        ];
+
+        $this->assertSame('IN_TRANSIT', $normalizer->normalizeShopeePackage($cancelledPackage));
+        $this->assertSame('DELIVERY_FAILED', $normalizer->normalizeShopeePackage([
+            ...$cancelledPackage,
+            'tracking_number' => 'SPXID0123456789',
+        ]));
+        $this->assertSame('DELIVERY_FAILED', $normalizer->normalizeShopeePackage([
+            'logistics_status' => 'LOGISTICS_DELIVERY_FAILED',
+        ]));
+    }
+
     public function test_it_reads_the_latest_tracking_number_from_tiktok_202604_payload(): void
     {
         $normalizer = new LogisticsStatusNormalizer;
