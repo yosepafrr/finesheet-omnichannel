@@ -34,6 +34,13 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertSame(82_500.0, $this->service->amount($order));
     }
 
+    public function test_positive_adjusted_escrow_is_used_when_original_amount_is_zero(): void
+    {
+        $order = $this->order('IN_TRANSIT', 0, 82_500);
+
+        $this->assertSame(82_500.0, $this->service->amount($order));
+    }
+
     public function test_orders_are_grouped_into_the_profit_tracker_categories(): void
     {
         $returnedOrder = $this->order('IN_TRANSIT', 300_000);

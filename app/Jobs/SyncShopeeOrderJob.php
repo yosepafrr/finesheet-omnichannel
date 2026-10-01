@@ -2,34 +2,47 @@
 
 namespace App\Jobs;
 
-use Carbon\Carbon;
-use App\Models\Order;
-use App\Models\Store;
 use App\Events\OrderStockSyncRequested;
-use Illuminate\Bus\Queueable;
-use App\Services\ShopeeService;
+use App\Models\Order;
+use App\Models\OrderPackage;
+use App\Models\OrderProduct;
+use App\Models\Store;
 use App\Services\LogisticsStatusNormalizer;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use App\Services\OrderCancellationMapper;
+use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeService;
+use Carbon\Carbon;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
-class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
+class SyncShopeeOrderJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 120;
+
     public $maxExceptions = 3;
+
     public $timeout = 300;
+
     public $uniqueFor = 1800;
+
     public $storeId;
+
     public $daysToSync;
+
     public $showProgress;
+
     public $syncContext;
+
     public $timeFrom;
+
     public $timeTo;
 
     public function __construct(
@@ -39,8 +52,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
         $syncContext = 'manual',
         $timeFrom = null,
         $timeTo = null
-    )
-    {
+    ) {
         $this->storeId = $storeId;
         $this->daysToSync = $daysToSync;
         $this->showProgress = $showProgress;
@@ -55,12 +67,12 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
             return ($this->storeId ?? 'all').":range:{$this->timeFrom}:{$this->timeTo}";
         }
 
-        return ($this->storeId ?? 'all') . ':' . $this->daysToSync;
+        return ($this->storeId ?? 'all').':'.$this->daysToSync;
     }
 
     public function middleware(): array
     {
-        if (!$this->storeId) {
+        if (! $this->storeId) {
             return [];
         }
 
@@ -72,8 +84,10 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
         ];
     }
 
-    public function handle(LogisticsStatusNormalizer $logisticsNormalizer)
-    {
+    public function handle(
+        LogisticsStatusNormalizer $logisticsNormalizer,
+        ShopeeEscrowAmountResolver $escrowResolver
+    ) {
         Log::info('SyncShopeeOrderJob started', ['time' => now(), 'daysToSync' => $this->daysToSync]);
 
         $query = Store::where('platform', 'Shopee');
@@ -83,10 +97,11 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
         $stores = $query->get();
         if ($stores->isEmpty()) {
             Log::info('No Shopee stores found');
+
             return;
         }
 
-        $shopee = new ShopeeService();
+        $shopee = new ShopeeService;
         $now = $this->timeTo !== null
             ? Carbon::createFromTimestamp($this->timeTo, 'UTC')
             : Carbon::now('UTC');
@@ -115,18 +130,19 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                         $endTime->timestamp
                     );
 
-                    if (!empty($orders['error'])) {
+                    if (! empty($orders['error'])) {
                         throw new \RuntimeException(
                             'Shopee order list API failed: '.$orders['error'].' - '
                             .($orders['message'] ?? 'unknown error')
                         );
                     }
-                    
+
                     // Pindahkan kursor waktu ke depan untuk iterasi selanjutnya
                     $cursorDate->addDays($intervalDays);
 
                     if (empty($orders['response']['order_list'])) {
                         Log::info("No orders found for store {$store->id} in range {$startTime->toDateString()} to {$endTime->toDateString()}");
+
                         continue;
                     }
 
@@ -142,7 +158,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                     foreach ($chunks as $chunk) {
                         // Refresh store model to get latest token
                         $store->refresh();
-                        
+
                         $detailsResponse = $shopee->getOrderDetails($store, $chunk);
 
                         if (empty($detailsResponse['response']['order_list'])) {
@@ -164,15 +180,15 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                             'order_status' => $orderSnMap[$orderSn] ?? null,
                                         ]
                                     );
-                                    
+
                                     // Buat package dummy agar job logistik tetap bisa mengecek status resi
-                                    \App\Models\OrderPackage::firstOrCreate(
+                                    OrderPackage::firstOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'package_id' => $orderModel->order_sn
+                                            'package_id' => $orderModel->order_sn,
                                         ],
                                         [
-                                            'platform' => 'Shopee'
+                                            'platform' => 'Shopee',
                                         ]
                                     );
 
@@ -182,10 +198,10 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                 }
                             }
 
-                            if (!empty($apiError)) {
+                            if (! empty($apiError)) {
                                 throw new \RuntimeException(
                                     "Shopee order detail API failed: {$apiError} - "
-                                    . ($detailsResponse['message'] ?? 'unknown error')
+                                    .($detailsResponse['message'] ?? 'unknown error')
                                 );
                             }
 
@@ -198,8 +214,8 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                 $cancelReason = $detail['cancel_reason'] ?? null;
                                 $buyerCancelReason = $detail['buyer_cancel_reason'] ?? null;
                                 $normalizedCancelCategory = null;
-                                if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || !empty($cancelSource) || !empty($cancelReason)) {
-                                    $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize('Shopee', $cancelSource, $cancelReason, $buyerCancelReason);
+                                if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || ! empty($cancelSource) || ! empty($cancelReason)) {
+                                    $normalizedCancelCategory = OrderCancellationMapper::normalize('Shopee', $cancelSource, $cancelReason, $buyerCancelReason);
                                 }
 
                                 $orderModel = Order::updateOrCreate(
@@ -228,7 +244,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                 );
 
                                 // Extract packages
-                                if (!empty($detail['package_list'])) {
+                                if (! empty($detail['package_list'])) {
                                     $realPackageNumbers = [];
                                     foreach ($detail['package_list'] as $pkg) {
                                         $packageNumber = $pkg['package_number'] ?? $orderModel->order_sn;
@@ -240,10 +256,10 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                             $realPackageNumbers[] = $packageNumber;
                                         }
 
-                                        \App\Models\OrderPackage::updateOrCreate(
+                                        OrderPackage::updateOrCreate(
                                             [
                                                 'order_id' => $orderModel->id,
-                                                'package_id' => $packageNumber
+                                                'package_id' => $packageNumber,
                                             ],
                                             [
                                                 'platform' => 'Shopee',
@@ -255,33 +271,33 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                                         );
                                     }
 
-                                    if (!empty($realPackageNumbers)) {
-                                        \App\Models\OrderPackage::where('order_id', $orderModel->id)
+                                    if (! empty($realPackageNumbers)) {
+                                        OrderPackage::where('order_id', $orderModel->id)
                                             ->where('package_id', $orderModel->order_sn)
                                             ->delete();
                                     }
                                 } else {
                                     // Default single package if no package_list
-                                    \App\Models\OrderPackage::firstOrCreate(
+                                    OrderPackage::firstOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'package_id' => $orderModel->order_sn
+                                            'package_id' => $orderModel->order_sn,
                                         ],
                                         [
-                                            'platform' => 'Shopee'
+                                            'platform' => 'Shopee',
                                         ]
                                     );
                                 }
 
-                                if (!empty($detail['item_list'])) {
+                                if (! empty($detail['item_list'])) {
                                     foreach ($detail['item_list'] as $shopeeItem) {
                                         $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
                                         $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
-                                        $modelName = !empty($shopeeItem['model_name'])
+                                        $modelName = ! empty($shopeeItem['model_name'])
                                             ? $shopeeItem['model_name']
                                             : 'without variant';
-                                        
-                                        \App\Models\OrderProduct::updateOrCreate(
+
+                                        OrderProduct::updateOrCreate(
                                             [
                                                 'order_id' => $orderModel->id,
                                                 'product_id' => $shopeeItem['item_id'],
@@ -307,8 +323,9 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                             } catch (\Throwable $inner) {
                                 Log::error("Error saving order_sn {$detail['order_sn']}", [
                                     'message' => $inner->getMessage(),
-                                    'store_id' => $store->id
+                                    'store_id' => $store->id,
                                 ]);
+
                                 continue;
                             }
                         }
@@ -319,23 +336,19 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                     foreach (array_keys($escrowOrderSns) as $orderSn) {
                         try {
                             $orderModel = Order::where('order_sn', $orderSn)->first();
-                            if (!$orderModel) {
+                            if (! $orderModel) {
                                 continue;
                             }
 
                             $escrowResponse = $shopee->getEscrowDetail($store, $orderSn);
                             $escrow = $escrowResponse['response'] ?? [];
-                            if (!empty($escrow)) {
-                                $orderModel->update([
-                                    'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? $orderModel->order_selling_price,
-                                    'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? $orderModel->escrow_amount,
-                                    'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? $orderModel->escrow_amount_after_adjustment,
-                                    'fee_details' => $escrow['order_income'] ?? $orderModel->fee_details,
-                                ]);
+                            $income = $escrow['order_income'] ?? null;
+                            if (is_array($income) && $income !== []) {
+                                $orderModel->update($escrowResolver->updates($orderModel, $income));
                             }
                         } catch (\Throwable $escrowEx) {
                             Log::warning("Escrow failed for {$orderSn}, order detail was still saved", [
-                                'error' => $escrowEx->getMessage()
+                                'error' => $escrowEx->getMessage(),
                             ]);
                         }
                     }
@@ -352,7 +365,7 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
                 }
             } catch (\Throwable $e) {
                 Log::error("Error syncing store {$store->id}", [
-                    'message' => $e->getMessage()
+                    'message' => $e->getMessage(),
                 ]);
 
                 if ($this->storeId) {
@@ -368,8 +381,8 @@ class SyncShopeeOrderJob implements ShouldQueue, ShouldBeUnique
 
     public function failed(\Throwable $exception)
     {
-        Log::critical("SyncShopeeOrderJob failed permanently", [
-            'message' => $exception->getMessage()
+        Log::critical('SyncShopeeOrderJob failed permanently', [
+            'message' => $exception->getMessage(),
         ]);
     }
 }

@@ -6,6 +6,17 @@ use App\Models\Order;
 
 class TiktokEscrowAmountResolver
 {
+    private const PROVISIONAL_ZERO_STATUSES = [
+        'READY_TO_SHIP',
+        'PROCESSED',
+        'AWAITING_SHIPMENT',
+        'AWAITING_COLLECTION',
+        'SHIPPED',
+        'IN_TRANSIT',
+        'TO_CONFIRM_RECEIVE',
+        'DELIVERED',
+    ];
+
     public function shouldTryStatement(?string $status): bool
     {
         return in_array(strtoupper((string) $status), ['DELIVERED', 'COMPLETED'], true);
@@ -13,6 +24,11 @@ class TiktokEscrowAmountResolver
 
     public function needsRefresh(?array $financeDetails, ?string $status, $storedAmount = null): bool
     {
+        if ($this->isProvisionalZeroStatus($status)
+            && (! is_numeric($storedAmount) || (float) $storedAmount <= 0)) {
+            return true;
+        }
+
         if (! $this->hasValidStoredAmount($financeDetails, $storedAmount)) {
             return true;
         }
@@ -78,6 +94,19 @@ class TiktokEscrowAmountResolver
         return (float) $order->orderProducts->sum(
             fn ($item) => (float) $item->price * max(1, (int) $item->quantity_purchased)
         );
+    }
+
+    public function amountForOrder(Order $order, float $financeAmount): float
+    {
+        if ($financeAmount > 0 || ! $this->isProvisionalZeroStatus($order->order_status)) {
+            return $financeAmount;
+        }
+
+        if (is_numeric($order->escrow_amount) && (float) $order->escrow_amount > 0) {
+            return (float) $order->escrow_amount;
+        }
+
+        return $this->fallbackForOrder($order);
     }
 
     public function unsettled(array $response, string $orderId): ?array
@@ -161,6 +190,11 @@ class TiktokEscrowAmountResolver
                 'transactions' => $transactions,
             ],
         ];
+    }
+
+    private function isProvisionalZeroStatus(?string $status): bool
+    {
+        return in_array(strtoupper((string) $status), self::PROVISIONAL_ZERO_STATUSES, true);
     }
 
     private function hasNumericAmount(array $data, string $key): bool

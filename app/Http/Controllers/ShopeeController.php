@@ -2,17 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use Carbon\Carbon;
+use App\Jobs\SyncShopeeProductJob;
+use App\Models\Order;
+use App\Models\OrderProduct;
 use App\Models\Product;
 use App\Models\Store;
-use Illuminate\Support\Arr;
 use App\Models\VariantProduct;
-use Illuminate\Http\Request;
-use App\Services\ShopeeService;
 use App\Services\InitialOrderSyncDispatcher;
-use Illuminate\Support\Facades\Log;
-use App\Http\Controllers\Controller;
+use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeService;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class ShopeeController extends Controller
 {
@@ -25,8 +28,8 @@ class ShopeeController extends Controller
 
         if (empty($partnerId) || empty($partnerKey) || empty($redirectUrl) || empty($baseUrl)) {
             Log::error('Shopee authorization configuration is incomplete', [
-                'has_partner_id' => !empty($partnerId),
-                'has_partner_key' => !empty($partnerKey),
+                'has_partner_id' => ! empty($partnerId),
+                'has_partner_key' => ! empty($partnerKey),
                 'redirect_uri' => $redirectUrl,
                 'base_url' => $baseUrl,
             ]);
@@ -52,13 +55,13 @@ class ShopeeController extends Controller
 
         $timestamp = time();
         $path = '/api/v2/shop/auth_partner';
-        $baseString = $partnerId . $path . $timestamp;
+        $baseString = $partnerId.$path.$timestamp;
         $sign = hash_hmac('sha256', $baseString, $partnerKey);
         $url = "{$baseUrl}{$path}"
-            . "?partner_id={$partnerId}"
-            . "&timestamp={$timestamp}"
-            . "&sign={$sign}"
-            . "&redirect=" . urlencode($redirectUrl);
+            ."?partner_id={$partnerId}"
+            ."&timestamp={$timestamp}"
+            ."&sign={$sign}"
+            .'&redirect='.urlencode($redirectUrl);
 
         return redirect($url);
     }
@@ -67,13 +70,12 @@ class ShopeeController extends Controller
         Request $request,
         ShopeeService $shopee,
         InitialOrderSyncDispatcher $initialOrderSync
-    )
-    {
+    ) {
         $code = $request->query('code');
         $shopId = (int) $request->query('shop_id');
 
         Log::info('Shopee Callback received', [
-            'has_code' => !empty($code),
+            'has_code' => ! empty($code),
             'shop_id' => $shopId,
             'error' => $request->query('error'),
             'message' => $request->query('message'),
@@ -81,7 +83,7 @@ class ShopeeController extends Controller
 
         if (empty($code) || $shopId <= 0) {
             Log::error('Shopee callback missing required query parameters', [
-                'has_code' => !empty($code),
+                'has_code' => ! empty($code),
                 'shop_id' => $shopId,
             ]);
 
@@ -183,7 +185,7 @@ class ShopeeController extends Controller
                 'user_id' => Auth::id(),
             ]);
 
-            \App\Jobs\SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
+            SyncShopeeProductJob::dispatch($store->id)->onQueue('products');
             $initialOrderSync->dispatch($store);
 
             return redirect('/#/stores')->with('success', 'Toko Shopee berhasil terhubung.');
@@ -210,8 +212,9 @@ class ShopeeController extends Controller
         $store = Auth::user()->stores()->where('platform', 'Shopee')->first();
         $accessToken = $shopee->ensureValidToken($store);
 
-        if (!$store) {
+        if (! $store) {
             Log::warning('Tidak ada toko Shopee yang terhubung.');
+
             return response()->json(['error' => 'No Shopee store linked'], 404);
         }
 
@@ -220,15 +223,16 @@ class ShopeeController extends Controller
 
         if (empty($itemIds)) {
             Log::warning('Item list kosong.');
+
             return;
         }
 
         $itemDetails = $shopee->getItemBaseInfo($store, $itemIds);
         $itemVariants = $shopee->getItemsVariant($store, $itemIds);
 
-
         if (empty($itemDetails)) {
             Log::warning('Item base info kosong.', ['item_id_list' => $itemIds]);
+
             return;
         }
 
@@ -236,45 +240,45 @@ class ShopeeController extends Controller
             try {
                 $savedItems = Product::updateOrCreate(
                     [
-                        'product_id'  => $item['item_id'],
+                        'product_id' => $item['item_id'],
                         'store_id' => $store->id,
                     ],
                     [
-                        'platform'   => 'Shopee',
-                        'product_name'  => $item['item_name'] ?? 'Unknown',
-                        'image'      => $item['promotion_image']['image_url_list'][0]
+                        'platform' => 'Shopee',
+                        'product_name' => $item['item_name'] ?? 'Unknown',
+                        'image' => $item['promotion_image']['image_url_list'][0]
                             ?? $item['images'][0]
                             ?? null,
-                        'price'      => $item['price_info'][0]['current_price'] ?? $item['price'] ?? 69,
-                        'product_sku'   => $item['item_sku'] ?? null,
+                        'price' => $item['price_info'][0]['current_price'] ?? $item['price'] ?? 69,
+                        'product_sku' => $item['item_sku'] ?? null,
                         'product_status' => $item['item_status'] ?? null,
-                        'stock'      => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
-                        'category'   => $item['category_id'] ?? null,
+                        'stock' => $item['stock_info_v2']['summary_info']['total_available_stock'] ?? 0,
+                        'category' => $item['category_id'] ?? null,
                     ]
                 );
                 Log::info("Produk {$item['item_id']} berhasil disimpan");
-                Log::info("Data item yang diterima dari API", [
-                    'raw' => $item
+                Log::info('Data item yang diterima dari API', [
+                    'raw' => $item,
                 ]);
-                if (!empty($itemVariants[$item['item_id']]['model'])) {
+                if (! empty($itemVariants[$item['item_id']]['model'])) {
                     foreach ($itemVariants[$item['item_id']]['model'] as $model) {
                         try {
-                            Log::info("Otw simpan variant", [
-                                'item_id'  => $item['item_id'],
+                            Log::info('Otw simpan variant', [
+                                'item_id' => $item['item_id'],
                                 'model_id' => Arr::get($model, 'model_id'),
                             ]);
 
                             $variantSaved = VariantProduct::updateOrCreate(
                                 [
-                                    'product_id'  => $savedItems->id, // id dari tabel products
+                                    'product_id' => $savedItems->id, // id dari tabel products
                                     'model_id' => Arr::get($model, 'model_id'),
                                 ],
                                 [
                                     'model_name' => Arr::get($model, 'model_name'),
-                                    'model_sku'  => Arr::get($model, 'model_sku'),
-                                    'stock'      => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
-                                    'price'      => Arr::get($model, 'price_info.0.current_price', 0),
-                                    'status'     => Arr::get($model, 'model_status'),
+                                    'model_sku' => Arr::get($model, 'model_sku'),
+                                    'stock' => Arr::get($model, 'stock_info_v2.summary_info.total_available_stock', 0),
+                                    'price' => Arr::get($model, 'price_info.0.current_price', 0),
+                                    'status' => Arr::get($model, 'model_status'),
                                     'tier_index' => Arr::get($model, 'tier_index'),
                                     'variant_name' => Arr::get($model, 'variant_name'),
                                     'variant_options' => Arr::get($model, 'variant_options'),
@@ -286,12 +290,12 @@ class ShopeeController extends Controller
                                 'db_id' => $variantSaved->id,
                             ]);
                         } catch (\Throwable $e) {
-                            Log::error("Gagal simpan variant ke DB", [
-                                'item_id'  => $item['item_id'],
+                            Log::error('Gagal simpan variant ke DB', [
+                                'item_id' => $item['item_id'],
                                 'model_id' => $model['model_id'] ?? null,
-                                'error'    => $e->getMessage(),
-                                'trace'    => $e->getTraceAsString(),
-                                'data'     => $model
+                                'error' => $e->getMessage(),
+                                'trace' => $e->getTraceAsString(),
+                                'data' => $model,
                             ]);
                         }
                     }
@@ -300,7 +304,7 @@ class ShopeeController extends Controller
                 Log::error('Gagal simpan produk Shopee', [
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
-                    'data' => $item
+                    'data' => $item,
                 ]);
             }
         }
@@ -310,15 +314,17 @@ class ShopeeController extends Controller
     }
 
     // AMBIL PESANAN SELAMA 3 BULAN KEBELAKANG
-    public function getShopeeOrders(Request $request, ShopeeService $shopee)
-    {
+    public function getShopeeOrders(
+        Request $request,
+        ShopeeService $shopee,
+        ShopeeEscrowAmountResolver $escrowResolver
+    ) {
         $store = Auth::user()->stores()
             ->where('platform', 'Shopee')
             ->where('id', $request->store_id)
             ->first();
 
-
-        if (!$store) {
+        if (! $store) {
             return response()->json(['error' => 'Shopee store not found.'], 404);
         }
 
@@ -352,15 +358,15 @@ class ShopeeController extends Controller
                 foreach ($orders['response']['order_list'] as $order) {
                     $orderSnList[] = $order['order_sn'];
 
-                    \App\Models\Order::updateOrCreate(
+                    Order::updateOrCreate(
                         ['order_sn' => $order['order_sn']],
                         [
-                            'platform'      => 'Shopee',
-                            'booking_sn'    => $order['booking_sn'] ?? null,
-                            'store_id'      => $store->id,
-                            'item_id'       => 0,
-                            'created_at'    => now(),
-                            'updated_at'    => now(),
+                            'platform' => 'Shopee',
+                            'booking_sn' => $order['booking_sn'] ?? null,
+                            'store_id' => $store->id,
+                            'item_id' => 0,
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]
                     );
                 }
@@ -374,42 +380,40 @@ class ShopeeController extends Controller
                     if (isset($detailsResponse['response']['order_list'])) {
                         foreach ($detailsResponse['response']['order_list'] as $detail) {
                             $escrowResponse = $shopee->getEscrowDetail($store, $detail['order_sn']);
-                            $escrow = $escrowResponse['response'] ?? [];
+                            $income = $escrowResponse['response']['order_income'] ?? null;
 
                             $itemQuery = Product::query();
 
                             $itemConditions = [];
 
                             // Update kembali dengan detail pesanan
-                            $orderModel = \App\Models\Order::updateOrCreate(
+                            $orderModel = Order::updateOrCreate(
                                 ['order_sn' => $detail['order_sn']],
                                 [
-                                    'platform'          => 'Shopee',
-                                    'order_status'      => $detail['order_status'] ?? null,
-                                    'order_time'        => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone')) : now(),
-                                    'cod'               => $detail['cod'] ?? null,
-                                    'ship_by_date'      => isset($detail['ship_by_date']) ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone')) : now(),
+                                    'platform' => 'Shopee',
+                                    'order_status' => $detail['order_status'] ?? null,
+                                    'order_time' => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone')) : now(),
+                                    'cod' => $detail['cod'] ?? null,
+                                    'ship_by_date' => isset($detail['ship_by_date']) ? Carbon::createFromTimestamp($detail['ship_by_date'])->setTimezone(config('app.timezone')) : now(),
                                     'message_to_seller' => $detail['message_to_seller'] ?? null,
-                                    'updated_at'        => isset($detail['updated_at']) ? Carbon::createFromTimestamp($detail['updated_at'])->setTimezone(config('app.timezone')) : Carbon::now()->timezone('Asia/Jakarta'),
-
-                                    // escrow fields
-                                    'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? null,
-                                    'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? null,
-                                    'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? null,
-                                    'fee_details' => $escrow['order_income'] ?? null,
+                                    'updated_at' => isset($detail['updated_at']) ? Carbon::createFromTimestamp($detail['updated_at'])->setTimezone(config('app.timezone')) : Carbon::now()->timezone('Asia/Jakarta'),
 
                                 ]
                             );
 
-                            if (!empty($detail['item_list'])) {
+                            if (is_array($income) && $income !== []) {
+                                $orderModel->update($escrowResolver->updates($orderModel, $income));
+                            }
+
+                            if (! empty($detail['item_list'])) {
                                 foreach ($detail['item_list'] as $shopeeItem) {
                                     $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
                                     $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
-                                    
-                                    \App\Models\OrderProduct::updateOrCreate(
+
+                                    OrderProduct::updateOrCreate(
                                         [
                                             'order_id' => $orderModel->id,
-                                            'product_id' => $shopeeItem['item_id']
+                                            'product_id' => $shopeeItem['item_id'],
                                         ],
                                         [
                                             'product_name' => $shopeeItem['item_name'] ?? null,

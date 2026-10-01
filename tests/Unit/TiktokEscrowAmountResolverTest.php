@@ -2,7 +2,10 @@
 
 namespace Tests\Unit;
 
+use App\Models\Order;
+use App\Models\OrderProduct;
 use App\Services\TiktokEscrowAmountResolver;
+use Illuminate\Support\Collection;
 use PHPUnit\Framework\TestCase;
 
 class TiktokEscrowAmountResolverTest extends TestCase
@@ -106,6 +109,34 @@ class TiktokEscrowAmountResolverTest extends TestCase
         ], 'ORDER-1');
 
         $this->assertSame(0.0, $result['amount']);
+    }
+
+    public function test_active_order_keeps_positive_fallback_when_finance_zero_is_provisional(): void
+    {
+        $order = new Order([
+            'order_status' => 'IN_TRANSIT',
+            'escrow_amount' => 0,
+        ]);
+        $order->setRelation('orderProducts', new Collection([
+            new OrderProduct(['price' => 98_000, 'quantity_purchased' => 2]),
+        ]));
+
+        $this->assertSame(196_000.0, $this->resolver->amountForOrder($order, 0));
+        $this->assertTrue($this->resolver->needsRefresh([
+            'source' => 'unsettled',
+            'transactions' => [['est_settlement_amount' => '0']],
+        ], 'IN_TRANSIT', 0));
+    }
+
+    public function test_completed_order_accepts_a_final_zero_amount(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => 125_000,
+        ]);
+        $order->setRelation('orderProducts', new Collection);
+
+        $this->assertSame(0.0, $this->resolver->amountForOrder($order, 0));
     }
 
     public function test_completed_order_keeps_refreshing_until_settled_data_is_available(): void

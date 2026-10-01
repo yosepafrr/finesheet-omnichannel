@@ -66,3 +66,8 @@ Schedule::call(function () {
 })->everyFifteenMinutes()
     ->name('dispatch-tiktok-unsettled-sync')
     ->withoutOverlapping(10);
+
+Schedule::command('sync:shopee-escrow --days=180')
+    ->hourlyAt(20)
+    ->name('dispatch-shopee-escrow-reconciliation')
+    ->withoutOverlapping(55);

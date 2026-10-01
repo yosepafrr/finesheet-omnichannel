@@ -74,6 +74,7 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
         $lastUpdatedOrder = null;
         foreach ($transactionsByOrder->chunk(500) as $transactionChunk) {
             $orders = Order::query()
+                ->with('orderProducts')
                 ->where('store_id', $store->id)
                 ->where('platform', 'Tiktokshop')
                 ->whereIn('order_sn', $transactionChunk->keys()->all())
@@ -98,7 +99,10 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
                 }
 
                 $order->fill([
-                    'escrow_amount' => $result['amount'],
+                    'escrow_amount' => $resolver->amountForOrder(
+                        $order,
+                        (float) $result['amount']
+                    ),
                     'fee_details' => $result['details'],
                 ]);
 

@@ -2,31 +2,38 @@
 
 namespace App\Jobs;
 
-use Carbon\Carbon;
-use App\Models\Order;
-use App\Models\Store;
-use App\Models\OrderProduct;
 use App\Events\OrderStockSyncRequested;
-use Illuminate\Bus\Queueable;
-use App\Services\ShopeeService;
+use App\Models\Order;
+use App\Models\OrderPackage;
+use App\Models\OrderProduct;
+use App\Models\Store;
 use App\Services\LogisticsStatusNormalizer;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use App\Services\OrderCancellationMapper;
+use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeService;
+use Carbon\Carbon;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
-class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
+class HandleShopeeOrderWebhookJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 3;
+
     public $timeout = 60;
+
     public $backoff = [10, 30, 60];
+
     public $uniqueFor = 300;
 
     protected $shopId;
+
     protected $orderSn;
 
     public function __construct($shopId, $orderSn)
@@ -40,16 +47,20 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         return $this->shopId.':'.$this->orderSn;
     }
 
-    public function handle(ShopeeService $shopee, LogisticsStatusNormalizer $logisticsNormalizer)
-    {
+    public function handle(
+        ShopeeService $shopee,
+        LogisticsStatusNormalizer $logisticsNormalizer,
+        ShopeeEscrowAmountResolver $escrowResolver
+    ) {
         Log::info("HandleShopeeOrderWebhookJob started for Order: {$this->orderSn}");
 
         $store = Store::where('platform', 'Shopee')
-                      ->where('shopee_shop_id', $this->shopId)
-                      ->first();
+            ->where('shopee_shop_id', $this->shopId)
+            ->first();
 
-        if (!$store) {
+        if (! $store) {
             Log::warning("Shopee Store not found for shop_id: {$this->shopId}");
+
             return;
         }
 
@@ -75,8 +86,8 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             $cancelReason = $detail['cancel_reason'] ?? null;
             $buyerCancelReason = $detail['buyer_cancel_reason'] ?? null;
             $normalizedCancelCategory = null;
-            if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || !empty($cancelSource) || !empty($cancelReason)) {
-                $normalizedCancelCategory = \App\Services\OrderCancellationMapper::normalize(
+            if (in_array($detail['order_status'] ?? '', ['CANCEL', 'CANCELLED', 'IN_CANCEL']) || ! empty($cancelSource) || ! empty($cancelReason)) {
+                $normalizedCancelCategory = OrderCancellationMapper::normalize(
                     'Shopee',
                     $cancelSource,
                     $cancelReason,
@@ -107,7 +118,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 ]
             );
 
-            if (!empty($detail['package_list'])) {
+            if (! empty($detail['package_list'])) {
                 $realPackageNumbers = [];
                 foreach ($detail['package_list'] as $package) {
                     $packageNumber = $package['package_number'] ?? $orderModel->order_sn;
@@ -119,7 +130,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                         $realPackageNumbers[] = $packageNumber;
                     }
 
-                    \App\Models\OrderPackage::updateOrCreate(
+                    OrderPackage::updateOrCreate(
                         [
                             'order_id' => $orderModel->id,
                             'package_id' => $packageNumber,
@@ -134,13 +145,13 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                     );
                 }
 
-                if (!empty($realPackageNumbers)) {
-                    \App\Models\OrderPackage::where('order_id', $orderModel->id)
+                if (! empty($realPackageNumbers)) {
+                    OrderPackage::where('order_id', $orderModel->id)
                         ->where('package_id', $orderModel->order_sn)
                         ->delete();
                 }
             } else {
-                \App\Models\OrderPackage::firstOrCreate(
+                OrderPackage::firstOrCreate(
                     [
                         'order_id' => $orderModel->id,
                         'package_id' => $orderModel->order_sn,
@@ -149,11 +160,11 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
                 );
             }
 
-            if (!empty($detail['item_list'])) {
+            if (! empty($detail['item_list'])) {
                 foreach ($detail['item_list'] as $shopeeItem) {
                     $price = $shopeeItem['model_discounted_price'] ?? $shopeeItem['model_original_price'] ?? 0;
                     $imageUrl = $shopeeItem['image_info']['image_url'] ?? null;
-                    $modelName = !empty($shopeeItem['model_name'])
+                    $modelName = ! empty($shopeeItem['model_name'])
                         ? $shopeeItem['model_name']
                         : 'without variant';
 
@@ -180,13 +191,9 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
             try {
                 $escrowResponse = $shopee->getEscrowDetail($store, $this->orderSn);
                 $escrow = $escrowResponse['response'] ?? [];
-                if (!empty($escrow)) {
-                    $orderModel->update([
-                        'order_selling_price' => $escrow['order_income']['order_selling_price'] ?? $orderModel->order_selling_price,
-                        'escrow_amount' => $escrow['order_income']['escrow_amount'] ?? $orderModel->escrow_amount,
-                        'escrow_amount_after_adjustment' => $escrow['order_income']['escrow_amount_after_adjustment'] ?? $orderModel->escrow_amount_after_adjustment,
-                        'fee_details' => $escrow['order_income'] ?? $orderModel->fee_details,
-                    ]);
+                $income = $escrow['order_income'] ?? null;
+                if (is_array($income) && $income !== []) {
+                    $orderModel->update($escrowResolver->updates($orderModel, $income));
                 }
             } catch (\Throwable $escrowException) {
                 Log::warning("Escrow failed for {$this->orderSn}, webhook order detail was still saved", [
@@ -198,7 +205,7 @@ class HandleShopeeOrderWebhookJob implements ShouldQueue, ShouldBeUnique
         } catch (\Throwable $e) {
             Log::error("Error processing HandleShopeeOrderWebhookJob for {$this->orderSn}", [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e; // Throw exception to let the queue worker retry
         }

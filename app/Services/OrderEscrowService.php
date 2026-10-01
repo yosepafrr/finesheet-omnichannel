@@ -35,12 +35,18 @@ class OrderEscrowService
     public function amount(Order $order): float
     {
         $amount = $order->escrow_amount;
+        $adjustedAmount = $order->escrow_amount_after_adjustment;
 
-        if ($amount === null) {
-            $amount = $order->escrow_amount_after_adjustment;
+        // Shopee can temporarily return escrow_amount=0 while the adjusted
+        // amount is already populated. Treat the positive adjusted value as
+        // the usable amount instead of displaying a misleading zero.
+        if ((! is_numeric($amount) || (float) $amount <= 0)
+            && is_numeric($adjustedAmount)
+            && (float) $adjustedAmount > 0) {
+            return (float) $adjustedAmount;
         }
 
-        return (float) ($amount ?? 0);
+        return (float) ($amount ?? $adjustedAmount ?? 0);
     }
 
     public function category(Order $order): ?string

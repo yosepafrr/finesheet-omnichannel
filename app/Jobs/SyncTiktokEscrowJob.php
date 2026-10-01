@@ -79,6 +79,7 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
         }
 
         $orderModel = Order::query()
+            ->with('orderProducts')
             ->where('store_id', $store->id)
             ->where('platform', 'Tiktokshop')
             ->where('order_sn', $this->orderId)
@@ -130,7 +131,10 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
         }
 
         if ($financeResult !== null) {
-            $escrowAmount = $financeResult['amount'];
+            $escrowAmount = $resolver->amountForOrder(
+                $orderModel,
+                (float) $financeResult['amount']
+            );
         } else {
             Log::warning('TikTok finance data is not available; keeping the best fallback', [
                 'order_id' => $this->orderId,

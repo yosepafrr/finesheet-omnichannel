@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Models\Store;
+use App\Services\ShopeeEscrowAmountResolver;
 use App\Services\ShopeeService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -26,8 +27,7 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         protected int $storeId,
         protected string $orderSn
-    ) {
-    }
+    ) {}
 
     public function uniqueId(): string
     {
@@ -39,8 +39,10 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
         return [60, 300, 900];
     }
 
-    public function handle(ShopeeService $shopee): void
-    {
+    public function handle(
+        ShopeeService $shopee,
+        ShopeeEscrowAmountResolver $resolver
+    ): void {
         $store = Store::query()
             ->whereKey($this->storeId)
             ->whereRaw('LOWER(platform) = ?', ['shopee'])
@@ -75,11 +77,6 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $order->update([
-            'order_selling_price' => $income['order_selling_price'] ?? $order->order_selling_price,
-            'escrow_amount' => $income['escrow_amount'] ?? $order->escrow_amount,
-            'escrow_amount_after_adjustment' => $income['escrow_amount_after_adjustment'] ?? $order->escrow_amount_after_adjustment,
-            'fee_details' => $income,
-        ]);
+        $order->update($resolver->updates($order, $income));
     }
 }
