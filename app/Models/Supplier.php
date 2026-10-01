@@ -24,6 +24,15 @@ class Supplier extends Model
         'first_period_start' => 'datetime',
     ];
 
+    protected $appends = [
+        'first_period_start_local',
+    ];
+
+    public function getFirstPeriodStartLocalAttribute(): ?string
+    {
+        return $this->first_period_start?->format('Y-m-d\TH:i');
+    }
+
     public function periods()
     {
         return $this->hasMany(PayablePeriod::class);

@@ -423,25 +423,27 @@ class PayableController extends Controller
             'first_period_start' => 'nullable|date',
         ]);
 
-        $oldLength = $supplier->period_length_days;
-        $oldStart = clone $supplier->first_period_start;
-
         $updateData = $validated;
-        if (isset($updateData['first_period_start'])) {
+        if (! empty($updateData['first_period_start'])) {
             $updateData['first_period_start'] = Carbon::parse($updateData['first_period_start']);
         }
-        $supplier->update($updateData);
+
+        $supplier->fill($updateData);
+        $periodConfigChanged = $supplier->isDirty([
+            'first_period_start',
+            'period_length_days',
+        ]);
+        $supplier->save();
 
         // If period config changed, regenerate periods
-        $newStart = $supplier->fresh()->first_period_start;
-        if ($oldLength != $supplier->period_length_days || ! $oldStart?->equalTo($newStart)) {
+        if ($periodConfigChanged) {
             PayablePeriod::where('supplier_id', $supplier->id)->where('is_manual', false)->delete();
             app(PayableService::class)->syncPayableForUser($userId);
-        }
 
-        $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-        if ($config && ! empty($config->value['first_period_start'])) {
-            SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
+            if ($config && ! empty($config->value['first_period_start'])) {
+                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            }
         }
 
         return response()->json([
