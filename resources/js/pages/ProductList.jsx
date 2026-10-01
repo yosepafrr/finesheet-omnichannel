@@ -12,6 +12,7 @@ import BulkHppModal from "../components/BulkHppModal";
 import HppEditor from "../components/HppEditor";
 import MasterProductPanel from "../components/MasterProductPanel";
 import SupplierAssignmentModal from "../components/SupplierAssignmentModal";
+import ManageSuppliersModal from "../../views/components/react/ManageSuppliersModal";
 import OnboardingTour from "@/components/OnboardingTour";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -163,6 +164,9 @@ export default function ProductList() {
     const [activeTab, setActiveTab] = useState("master");
     const [supplierModal, setSupplierModal] = useState({ open: false, products: [] });
     const [supplierNotice, setSupplierNotice] = useState("");
+    const [supplierManagerOpen, setSupplierManagerOpen] = useState(false);
+    const [managedSuppliers, setManagedSuppliers] = useState([]);
+    const [supplierRevision, setSupplierRevision] = useState(0);
 
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
@@ -257,6 +261,25 @@ export default function ProductList() {
             setLoading(false);
         }
     }, [search]);
+
+    const loadManagedSuppliers = useCallback(async () => {
+        try {
+            const response = await axios.get("/api/payable/suppliers");
+            setManagedSuppliers(response.data.data || []);
+        } catch (error) {
+            console.error("Failed to load suppliers", error);
+        }
+    }, []);
+
+    const openSupplierManager = useCallback(() => {
+        setSupplierManagerOpen(true);
+        loadManagedSuppliers();
+    }, [loadManagedSuppliers]);
+
+    const handleSuppliersUpdated = useCallback(async () => {
+        await Promise.all([loadManagedSuppliers(), fetchData()]);
+        setSupplierRevision((current) => current + 1);
+    }, [fetchData, loadManagedSuppliers]);
 
     useEffect(() => {
         if (activeTab !== "products") return undefined;
@@ -438,7 +461,11 @@ export default function ProductList() {
 
                     {/* Main Content Area */}
                     {activeTab === "master" ? (
-                        <MasterProductPanel search={search} />
+                        <MasterProductPanel
+                            search={search}
+                            onManageSuppliers={openSupplierManager}
+                            supplierRevision={supplierRevision}
+                        />
                     ) : (
                         <>
                             {supplierNotice && (
@@ -1458,8 +1485,16 @@ export default function ProductList() {
                 itemCount={supplierModal.products.length}
                 currentSupplierId={supplierModal.products[0]?.supplier_id || ""}
                 suppliers={data?.suppliers || []}
+                onManageSuppliers={openSupplierManager}
                 onClose={() => setSupplierModal({ open: false, products: [] })}
                 onSave={updateMarketplaceSupplier}
+            />
+            <ManageSuppliersModal
+                isOpen={supplierManagerOpen}
+                onClose={() => setSupplierManagerOpen(false)}
+                suppliers={managedSuppliers}
+                onUpdated={handleSuppliersUpdated}
+                zIndex={10050}
             />
             <OnboardingTour
                 steps={PRODUCT_TOUR_STEPS}

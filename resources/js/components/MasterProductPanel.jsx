@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import SupplierAssignmentModal from "./SupplierAssignmentModal";
+import SupplierSelect from "./SupplierSelect";
 
 const EMPTY_FORM = {
     name: "",
@@ -222,7 +223,7 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete,
     );
 }
 
-function MasterSkuModal({ row, preset, suppliers, onClose, onSaved }) {
+function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSuppliers }) {
     const [form, setForm] = useState(() => row ? {
         name: row.name || "",
         image: row.image || "",
@@ -327,14 +328,17 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved }) {
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Nama varian</span>
                             <input value={form.variant_name} onChange={(event) => update("variant_name", event.target.value)} placeholder="Opsional" className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
                         </label>
-                        <label className="sm:col-span-2">
+                        <div className="sm:col-span-2">
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Supplier</span>
-                            <select value={form.supplier_id} onChange={(event) => update("supplier_id", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white">
-                                <option value="">Belum ditentukan</option>
-                                {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                            </select>
+                            <SupplierSelect
+                                value={form.supplier_id}
+                                onChange={(supplierId) => update("supplier_id", supplierId)}
+                                suppliers={suppliers}
+                                onManageSuppliers={onManageSuppliers}
+                                buttonClassName="dark:bg-slate-900"
+                            />
                             <span className="mt-1 block text-xs text-slate-400">Supplier master menjadi sumber utama untuk perhitungan payable.</span>
-                        </label>
+                        </div>
                         <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Stok tersedia</span>
                             <input type="number" min="0" required value={form.stock} onChange={(event) => update("stock", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
@@ -861,7 +865,7 @@ function LoadingRows() {
     );
 }
 
-export default function MasterProductPanel({ search = "" }) {
+export default function MasterProductPanel({ search = "", onManageSuppliers, supplierRevision = 0 }) {
     const [rows, setRows] = useState([]);
     const [detected, setDetected] = useState([]);
     const [filterOptions, setFilterOptions] = useState({ product_clusters: [], variant_clusters: [], suppliers: [] });
@@ -886,6 +890,7 @@ export default function MasterProductPanel({ search = "" }) {
     const [bulkBusy, setBulkBusy] = useState(false);
     const [busyId, setBusyId] = useState(null);
     const [notice, setNotice] = useState("");
+    const supplierRevisionRef = useRef(supplierRevision);
 
     const fetchRows = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
@@ -927,6 +932,11 @@ export default function MasterProductPanel({ search = "" }) {
         return () => clearTimeout(timeout);
     }, [fetchRows]);
     useEffect(() => { fetchDetected(); }, [fetchDetected]);
+    useEffect(() => {
+        if (supplierRevisionRef.current === supplierRevision) return;
+        supplierRevisionRef.current = supplierRevision;
+        fetchRows(true);
+    }, [fetchRows, supplierRevision]);
     useEffect(() => {
         const interval = window.setInterval(() => fetchRows(true), 10000);
         return () => window.clearInterval(interval);
@@ -1265,14 +1275,17 @@ export default function MasterProductPanel({ search = "" }) {
             <div className="grid grid-cols-1 gap-2 border-y border-slate-200 bg-slate-50/70 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-end dark:border-slate-700 dark:bg-slate-800/40">
                 <ClusterMultiSelect label="Cluster produk" options={filterOptions.product_clusters} selected={productClusters} onChange={setProductClusters} placeholder="Semua cluster produk" />
                 <ClusterMultiSelect label="Cluster varian" options={filterOptions.variant_clusters} selected={variantClusters} onChange={setVariantClusters} placeholder="Semua cluster varian" />
-                <label className="min-w-0">
+                <div className="min-w-0">
                     <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Supplier</span>
-                    <select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} className="h-10 w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                        <option value="">Semua supplier</option>
-                        <option value="unassigned">Belum ditentukan</option>
-                        {filterOptions.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                    </select>
-                </label>
+                    <SupplierSelect
+                        value={supplierFilter}
+                        onChange={setSupplierFilter}
+                        suppliers={filterOptions.suppliers}
+                        defaultLabel="Semua supplier"
+                        includeUnassigned
+                        onManageSuppliers={onManageSuppliers}
+                    />
+                </div>
             </div>
 
             {hasClusterFilter && (
@@ -1390,7 +1403,7 @@ export default function MasterProductPanel({ search = "" }) {
                 )}
             </div>
 
-            <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} suppliers={filterOptions.suppliers} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
+            <AnimatePresence>{modal.open && <MasterSkuModal row={modal.row} preset={modal.preset} suppliers={filterOptions.suppliers} onManageSuppliers={onManageSuppliers} onClose={() => setModal({ open: false, row: null, preset: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{valueModal.open && <MasterValueModal row={valueModal.row} field={valueModal.field} onClose={() => setValueModal({ open: false, row: null, field: null })} onSaved={refresh} />}</AnimatePresence>
             <AnimatePresence>{bulkValueField && <BulkValueModal count={selectedRows.length} field={bulkValueField} onClose={() => setBulkValueField(null)} onSaved={bulkUpdate} />}</AnimatePresence>
             <SupplierAssignmentModal
@@ -1399,6 +1412,7 @@ export default function MasterProductPanel({ search = "" }) {
                 itemCount={supplierModal.rows.length}
                 currentSupplierId={supplierModal.rows.length > 0 && supplierModal.rows.every((row) => String(row.supplier_id || "") === String(supplierModal.rows[0].supplier_id || "")) ? supplierModal.rows[0].supplier_id || "" : ""}
                 suppliers={filterOptions.suppliers}
+                onManageSuppliers={onManageSuppliers}
                 onClose={() => setSupplierModal({ open: false, rows: [] })}
                 onSave={updateSuppliers}
             />

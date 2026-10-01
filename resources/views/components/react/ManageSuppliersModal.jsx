@@ -18,7 +18,7 @@ import {
     AlertTriangle
 } from 'lucide-react';
 
-export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], onUpdated }) {
+export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], onUpdated, zIndex = 130 }) {
     const [localSuppliers, setLocalSuppliers] = useState(suppliers);
     const [isDeletingId, setIsDeletingId] = useState(null);
     const [supplierToDelete, setSupplierToDelete] = useState(null);
@@ -289,7 +289,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
     if (!isOpen) return null;
 
     return createPortal((
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 overflow-y-auto" style={{ zIndex }}>
             {/* Backdrop */}
             <motion.div
                 initial={{ opacity: 0 }}
@@ -889,7 +889,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
             {typeof document !== 'undefined' && createPortal(
                 <AnimatePresence>
                     {supplierToDelete && (
-                        <div className="fixed inset-0 z-[520] flex items-center justify-center p-4 overflow-y-auto">
+                        <div className="fixed inset-0 flex items-center justify-center p-4 overflow-y-auto" style={{ zIndex: zIndex + 10 }}>
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
