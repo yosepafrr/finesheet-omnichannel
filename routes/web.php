@@ -87,6 +87,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'updateConfig']);
         Route::post('/payable/config/duration', [\App\Http\Controllers\Api\PayableController::class, 'updateDuration']);
         Route::post('/payable/sync', [\App\Http\Controllers\Api\PayableController::class, 'sync']);
+        Route::get('/payable/sync-status', [\App\Http\Controllers\Api\PayableController::class, 'syncStatus']);
         Route::get('/payable/periods', [\App\Http\Controllers\Api\PayableController::class, 'getPeriods']);
         Route::post('/payable/periods/manual', [\App\Http\Controllers\Api\PayableController::class, 'createManualPeriod']);
         Route::delete('/payable/periods/{id}', [\App\Http\Controllers\Api\PayableController::class, 'destroy']);

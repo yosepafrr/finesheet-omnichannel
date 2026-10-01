@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\SyncPayableHistoryJob;
 use App\Models\MasterProductVariant;
 use App\Models\Order;
 use App\Models\OrderReturn;
@@ -16,6 +15,7 @@ use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Services\PayableService;
+use App\Services\PayableSyncStatusService;
 use App\Services\ProductHppService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -146,7 +146,7 @@ class PayableController extends Controller
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
             if ($config && ! empty($config->value['first_period_start'])) {
-                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+                app(PayableSyncStatusService::class)->dispatch($config->value['first_period_start'], $userId, 'supplier_setup');
             }
 
             return response()->json([
@@ -208,7 +208,7 @@ class PayableController extends Controller
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
             if ($config && ! empty($config->value['first_period_start'])) {
-                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+                app(PayableSyncStatusService::class)->dispatch($config->value['first_period_start'], $userId, 'supplier_setup');
             }
 
             return response()->json([
@@ -342,32 +342,53 @@ class PayableController extends Controller
 
         $supplier = Supplier::where('user_id', $userId)->findOrFail($validated['supplier_id']);
 
-        DB::beginTransaction();
         try {
-            $assignedCount = 0;
-            foreach ($validated['product_ids'] as $catalogItemId) {
-                if ($this->assignSupplierToCatalogItem($catalogItemId, $supplier->id, $userId)) {
-                    $assignedCount++;
+            $assignedCount = DB::transaction(function () use ($validated, $supplier, $userId) {
+                $catalogItemIds = collect($validated['product_ids'])->unique()->values();
+                $masterVariantIds = $catalogItemIds
+                    ->filter(fn ($id) => is_string($id) && str_starts_with($id, 'master:'))
+                    ->map(fn (string $id) => (int) substr($id, strlen('master:')))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $validMasterVariantIds = MasterProductVariant::query()
+                    ->where('user_id', $userId)
+                    ->whereIn('id', $masterVariantIds)
+                    ->pluck('id');
+                if ($validMasterVariantIds->isNotEmpty()) {
+                    MasterProductVariant::query()
+                        ->where('user_id', $userId)
+                        ->whereIn('id', $validMasterVariantIds)
+                        ->update(['supplier_id' => $supplier->id]);
                 }
-            }
 
-            DB::commit();
+                $count = $validMasterVariantIds->count();
+                foreach ($catalogItemIds->reject(fn ($id) => is_string($id) && str_starts_with($id, 'master:')) as $catalogItemId) {
+                    if ($this->assignSupplierToCatalogItem($catalogItemId, $supplier->id, $userId)) {
+                        $count++;
+                    }
+                }
 
-            // Re-evaluate affected events synchronously so user sees instant updates!
-            app(PayableService::class)->syncPayableForUser($userId);
+                return $count;
+            });
 
-            $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
-            if ($config && ! empty($config->value['first_period_start'])) {
-                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+            $payableStart = Supplier::query()
+                ->where('user_id', $userId)
+                ->whereNotNull('first_period_start')
+                ->min('first_period_start');
+            $syncQueued = ! empty($payableStart);
+            if ($syncQueued) {
+                app(PayableSyncStatusService::class)->dispatch((string) $payableStart, $userId, 'supplier_assignment');
             }
 
             return response()->json([
                 'status' => 'success',
-                'message' => $assignedCount." produk berhasil dialihkan ke supplier '{$supplier->name}'.",
+                'message' => $assignedCount." produk berhasil dialihkan ke supplier '{$supplier->name}'."
+                    .($syncQueued ? ' Perhitungan payable diperbarui di latar belakang.' : ''),
+                'sync_queued' => $syncQueued,
             ]);
         } catch (\Throwable $e) {
-            DB::rollBack();
-
             return response()->json(['status' => 'error', 'message' => 'Gagal mengubah supplier produk: '.$e->getMessage()], 500);
         }
     }
@@ -442,7 +463,7 @@ class PayableController extends Controller
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
             if ($config && ! empty($config->value['first_period_start'])) {
-                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+                app(PayableSyncStatusService::class)->dispatch($config->value['first_period_start'], $userId, 'supplier_update');
             }
         }
 
@@ -473,7 +494,7 @@ class PayableController extends Controller
 
             $config = Setting::where('key', 'recap_period_config')->where('user_id', $userId)->first();
             if ($config && ! empty($config->value['first_period_start'])) {
-                SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+                app(PayableSyncStatusService::class)->dispatch($config->value['first_period_start'], $userId, 'supplier_delete');
             }
         } catch (\Exception $e) {
             DB::rollBack();
@@ -620,10 +641,11 @@ class PayableController extends Controller
         );
 
         // Sync historical orders for this user in background
-        SyncPayableHistoryJob::dispatch(
+        app(PayableSyncStatusService::class)->dispatch(
             $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
-            $userId
-        )->onQueue('orders');
+            $userId,
+            'period_update'
+        );
 
         return response()->json([
             'status' => 'success',
@@ -679,7 +701,7 @@ class PayableController extends Controller
                 ->delete();
 
             // Re-sync from the beginning so events get reassigned to the new periods
-            SyncPayableHistoryJob::dispatch($firstStart->format('Y-m-d H:i:s'), $userId)->onQueue('orders');
+            app(PayableSyncStatusService::class)->dispatch($firstStart->format('Y-m-d H:i:s'), $userId, 'period_update');
 
             return response()->json([
                 'status' => 'success',
@@ -1132,11 +1154,26 @@ class PayableController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Belum ada konfigurasi periode'], 422);
         }
 
-        SyncPayableHistoryJob::dispatch($config->value['first_period_start'], $userId)->onQueue('orders');
+        $syncStatus = app(PayableSyncStatusService::class);
+        $syncStatus->dispatch($config->value['first_period_start'], $userId, 'manual');
 
         return response()->json([
             'status' => 'success',
             'message' => 'Sinkronisasi ulang dimulai',
+            'data' => $syncStatus->get($userId),
+        ]);
+    }
+
+    public function syncStatus()
+    {
+        $status = app(PayableSyncStatusService::class)->get(Auth::id());
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                ...$status,
+                'is_syncing' => in_array($status['status'], ['queued', 'running'], true),
+            ],
         ]);
     }
 

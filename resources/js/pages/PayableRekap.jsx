@@ -37,6 +37,7 @@ import SupplierOnboardingModal from "../../views/components/react/SupplierOnboar
 import ManageSuppliersModal from "../../views/components/react/ManageSuppliersModal";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { usePayableSyncStatus } from "@/hooks/usePayableSyncStatus";
 
 const PAYABLE_TOUR_STEPS = [
     {
@@ -209,8 +210,13 @@ export default function PayableRekap() {
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [isSyncing, setIsSyncing] = useState(false);
-    const pollingRef = useRef(null);
+    const {
+        syncStatus: payableSyncStatus,
+        isSyncing,
+        refresh: refreshPayableSyncStatus,
+        applyStatus: applyPayableSyncStatus,
+    } = usePayableSyncStatus();
+    const activeSyncRevisionRef = useRef(null);
 
     // Settings (duration change) modal
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -488,7 +494,7 @@ export default function PayableRekap() {
             setIsSettingsModalOpen(false);
             setSettingsDurationConfirm(false);
             await fetchConfig(activeSupplierId);
-            if (settingsForm.apply_mode === 'all') startSyncPolling(selectedPeriodId);
+            if (settingsForm.apply_mode === 'all') await refreshPayableSyncStatus();
             else await fetchPeriods(true);
         } catch (err) {
             toast.error('Gagal menyimpan durasi periode');
@@ -618,7 +624,6 @@ export default function PayableRekap() {
 
         initialize();
         return () => {
-            if (pollingRef.current) clearInterval(pollingRef.current);
             if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
         };
     }, []);
@@ -655,6 +660,7 @@ export default function PayableRekap() {
     useEffect(() => {
         const handleRealtimeUpdate = (e) => {
             console.log("PayableRekap: Real-time event received:", e.type, e.detail);
+            refreshPayableSyncStatus();
             triggerAutoRefresh();
         };
 
@@ -664,7 +670,27 @@ export default function PayableRekap() {
             window.removeEventListener('payable-updated', handleRealtimeUpdate);
             window.removeEventListener('order-created', handleRealtimeUpdate);
         };
-    }, [triggerAutoRefresh]);
+    }, [refreshPayableSyncStatus, triggerAutoRefresh]);
+
+    useEffect(() => {
+        if (isSyncing) {
+            activeSyncRevisionRef.current = payableSyncStatus.revision;
+            return;
+        }
+
+        if (!activeSyncRevisionRef.current || activeSyncRevisionRef.current !== payableSyncStatus.revision) {
+            return;
+        }
+
+        if (payableSyncStatus.status === 'completed') {
+            triggerAutoRefresh();
+            toast.success('Histori payable berhasil diperbarui.');
+        } else if (payableSyncStatus.status === 'failed') {
+            toast.error(payableSyncStatus.message || 'Sinkronisasi payable gagal.');
+        }
+
+        activeSyncRevisionRef.current = null;
+    }, [isSyncing, payableSyncStatus, triggerAutoRefresh]);
 
     // Refresh when tab gains focus or becomes visible
     useEffect(() => {
@@ -704,59 +730,12 @@ export default function PayableRekap() {
             });
             toast.success("Konfigurasi berhasil disimpan, sinkronisasi data dimulai...");
             setIsConfigModalOpen(false);
-            // Fetch periods first, then start polling for sync completion
+            // Fetch periods first; the persistent sync indicator tracks completion.
             await fetchPeriods();
-            startSyncPolling();
+            await refreshPayableSyncStatus();
         } catch (error) {
             toast.error("Gagal menyimpan konfigurasi");
         }
-    };
-
-    // Poll every 2s until events appear (max 60s)
-    const startSyncPolling = (initialPeriodId) => {
-        setIsSyncing(true);
-        let attempts = 0;
-        const maxAttempts = 30;
-        if (pollingRef.current) clearInterval(pollingRef.current);
-        pollingRef.current = setInterval(async () => {
-            attempts++;
-            try {
-                const requestedSupplierIds = [...selectedSupplierIdsRef.current];
-                const requestId = ++periodsRequestRef.current;
-                const params = {};
-                if (requestedSupplierIds.length > 0) {
-                    params.supplier_ids = requestedSupplierIds.join(',');
-                }
-
-                const res = await axios.get('/api/payable/periods', { params });
-                const selectionUnchanged = requestedSupplierIds.join(',') === selectedSupplierIdsRef.current.join(',');
-                if (requestId !== periodsRequestRef.current || !selectionUnchanged) return;
-
-                const updatedPeriods = res.data.data || [];
-                setPeriods(updatedPeriods);
-                // Check if any period now has events
-                const hasEvents = updatedPeriods.some(p => (p.event_count || 0) > 0);
-                if (hasEvents || attempts >= maxAttempts) {
-                    clearInterval(pollingRef.current);
-                    pollingRef.current = null;
-                    setIsSyncing(false);
-                    if (hasEvents) {
-                        toast.success("Data pesanan berhasil disinkronisasi!");
-                        // Reload detail of selected period, using the first available if not passed
-                        const targetId = initialPeriodId || (updatedPeriods.length > 0 ? updatedPeriods[0].id : null);
-                        if (targetId) {
-                            selectedPeriodIdRef.current = targetId;
-                            setSelectedPeriodId(targetId);
-                            fetchPeriodDetails(targetId, false, requestedSupplierIds);
-                        }
-                    } else {
-                        toast.error("Sinkronisasi selesai, tapi belum ada data. Cek log server.");
-                    }
-                }
-            } catch (e) {
-                // ignore polling errors
-            }
-        }, 2000);
     };
 
     const handleSavePayment = async (e) => {
@@ -830,9 +809,9 @@ export default function PayableRekap() {
 
     const handleManualSync = async () => {
         try {
-            await axios.post('/api/payable/sync');
+            const response = await axios.post('/api/payable/sync');
+            applyPayableSyncStatus(response.data?.data);
             toast.success("Sinkronisasi dimulai...");
-            startSyncPolling(selectedPeriodId);
         } catch (error) {
             toast.error("Gagal memulai sinkronisasi");
         }
@@ -1850,6 +1829,32 @@ export default function PayableRekap() {
                     </div>
                 </div>
 
+                <AnimatePresence initial={false}>
+                    {isSyncing && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            className="mb-4 flex items-center gap-3 rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3.5 py-3 dark:border-indigo-800/60 dark:bg-indigo-950/30"
+                        >
+                            <RotateCcw className="h-4 w-4 flex-shrink-0 animate-spin text-indigo-600 dark:text-indigo-400" />
+                            <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                                    {payableSyncStatus.status === 'queued'
+                                        ? 'Sinkronisasi payable sedang mengantre'
+                                        : 'Memperbarui histori payable'}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                    Data tersimpan. Ringkasan dan periode akan diperbarui otomatis di latar belakang.
+                                </p>
+                            </div>
+                            <span className="hidden flex-shrink-0 text-[10px] font-semibold uppercase text-indigo-500 sm:inline dark:text-indigo-400">
+                                {payableSyncStatus.status === 'queued' ? 'Menunggu worker' : 'Sedang diproses'}
+                            </span>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {isLoading ? (
                     <div className="flex justify-center items-center h-64">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
@@ -1953,21 +1958,6 @@ export default function PayableRekap() {
                     </div>
                 ) : (
                     <div className="space-y-4" ref={reportContainerRef}>
-                        {/* Syncing Banner */}
-                        {isSyncing && (
-                            <motion.div
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="flex items-center gap-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl px-4 py-3"
-                            >
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-500 flex-shrink-0"></div>
-                                <div>
-                                    <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Sinkronisasi data sedang berjalan...</p>
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Data pesanan akan muncul otomatis dalam beberapa detik.</p>
-                                </div>
-                            </motion.div>
-                        )}
-
                         {/* Top Section: Metrics + Card Pembayaran */}
                         <div id="tour-supplier-summary" className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
 
@@ -3092,6 +3082,7 @@ export default function PayableRekap() {
                         onClose={() => setIsManageSupplierOpen(false)}
                         suppliers={suppliers}
                         onUpdated={async () => {
+                            await refreshPayableSyncStatus();
                             await fetchSuppliers();
                             await fetchPeriods(true, selectedSupplierIdsRef.current);
                             const currentPeriodId = selectedPeriodIdRef.current || selectedPeriodId;

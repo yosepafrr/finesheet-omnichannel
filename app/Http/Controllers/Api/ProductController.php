@@ -3,11 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\SyncPayableHistoryJob;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Models\VariantProduct;
+use App\Services\PayableSyncStatusService;
 use App\Services\ProductHppService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -275,7 +275,7 @@ class ProductController extends Controller
             ->min('first_period_start');
 
         if ($payableStart) {
-            SyncPayableHistoryJob::dispatch((string) $payableStart, $userId)->onQueue('orders');
+            app(PayableSyncStatusService::class)->dispatch((string) $payableStart, $userId, 'product_update');
         }
     }
 }

@@ -5,13 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncMasterProductStocksJob;
 use App\Jobs\SyncMasterProductVariantsJob;
-use App\Jobs\SyncPayableHistoryJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Services\MasterProductClusterService;
 use App\Services\MasterSkuSyncService;
+use App\Services\PayableSyncStatusService;
 use App\Services\StockSyncService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -273,7 +273,7 @@ class MasterProductController extends Controller
             : null;
 
         if ($payableStart) {
-            SyncPayableHistoryJob::dispatch((string) $payableStart, $user->id)->onQueue('orders');
+            app(PayableSyncStatusService::class)->dispatch((string) $payableStart, $user->id, 'master_product_update');
         }
 
         return response()->json([
@@ -984,7 +984,7 @@ class MasterProductController extends Controller
             ->min('first_period_start');
 
         if ($payableStart) {
-            SyncPayableHistoryJob::dispatch((string) $payableStart, $userId)->onQueue('orders');
+            app(PayableSyncStatusService::class)->dispatch((string) $payableStart, $userId, 'master_product_update');
         }
     }
 }

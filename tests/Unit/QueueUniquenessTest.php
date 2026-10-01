@@ -16,6 +16,7 @@ use App\Jobs\SyncTiktokOrderJob;
 use App\Jobs\SyncTiktokProductJob;
 use App\Jobs\SyncTiktokUnsettledJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use PHPUnit\Framework\TestCase;
 
@@ -115,9 +116,11 @@ class QueueUniquenessTest extends TestCase
         $sameScope = new SyncPayableHistoryJob('2026-09-01 00:00:00', 12);
 
         $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertInstanceOf(ShouldBeUniqueUntilProcessing::class, $job);
         $this->assertSame($job->uniqueId(), $sameScope->uniqueId());
         $this->assertSame('12:2026-09-01 00:00:00', $job->uniqueId());
         $this->assertSame(300, $job->timeout);
         $this->assertSame(1200, $job->uniqueFor);
+        $this->assertInstanceOf(WithoutOverlapping::class, $job->middleware()[0]);
     }
 }
