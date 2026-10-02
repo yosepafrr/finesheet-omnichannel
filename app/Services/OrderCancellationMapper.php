@@ -51,7 +51,10 @@ class OrderCancellationMapper
                     str_contains($reasonLower, 'dts') ||
                     str_contains($reasonLower, 'fulfill') ||
                     str_contains($reasonLower, 'collection') ||
-                    str_contains($reasonLower, 'not ship')
+                    str_contains($reasonLower, 'not ship') ||
+                    str_contains($reasonLower, 'terlambat mengirim') ||
+                    str_contains($reasonLower, 'batas waktu pengiriman') ||
+                    str_contains($reasonLower, 'gagal mengirim')
                 ) {
                     return 'SELLER_LATE_SHIPMENT';
                 }
@@ -77,7 +80,11 @@ class OrderCancellationMapper
                     str_contains($reasonLower, 'collection time out') ||
                     str_contains($reasonLower, 'dispatch time out') ||
                     str_contains($reasonLower, 'sla time out') ||
-                    str_contains($reasonLower, 'late dispatch')
+                    str_contains($reasonLower, 'late dispatch') ||
+                    str_contains($reasonLower, 'batas waktu pick up') ||
+                    str_contains($reasonLower, 'batas waktu pickup') ||
+                    str_contains($reasonLower, 'batas waktu pengiriman') ||
+                    str_contains($reasonLower, 'terlambat mengirim')
                 ) {
                     return 'SELLER_LATE_SHIPMENT';
                 }
@@ -111,7 +118,11 @@ class OrderCancellationMapper
                 str_contains($reasonLower, 'collection time out') ||
                 str_contains($reasonLower, 'dispatch time out') ||
                 str_contains($reasonLower, 'sla time out') ||
-                str_contains($reasonLower, 'late dispatch')
+                str_contains($reasonLower, 'late dispatch') ||
+                str_contains($reasonLower, 'batas waktu pick up') ||
+                str_contains($reasonLower, 'batas waktu pickup') ||
+                str_contains($reasonLower, 'batas waktu pengiriman') ||
+                str_contains($reasonLower, 'terlambat mengirim')
             ) {
                 return 'SELLER_LATE_SHIPMENT';
             }

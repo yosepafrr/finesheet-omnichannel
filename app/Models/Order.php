@@ -86,6 +86,7 @@ class Order extends Model
         'cancel_reason',
         'buyer_cancel_reason',
         'normalized_cancel_category',
+        'cancelled_at',
         'stock_sync_processed_at',
         'stock_sync_deductions',
         'stock_sync_reverted_at',
@@ -108,6 +109,7 @@ class Order extends Model
         'stock_sync_deductions' => 'array',
         'stock_sync_reverted_at' => 'datetime',
         'stock_sync_shipped_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     public function product()

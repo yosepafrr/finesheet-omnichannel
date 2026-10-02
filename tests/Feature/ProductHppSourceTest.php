@@ -331,6 +331,129 @@ class ProductHppSourceTest extends TestCase
         ]);
     }
 
+    public function test_paid_seller_late_cancellation_is_deducted_in_the_cancellation_period(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Late Cancellation Supplier',
+            'period_length_days' => 10,
+            'first_period_start' => now()->subDays(20)->startOfDay(),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Tiktokshop',
+            'order_sn' => 'SELLER-LATE-AFTER-PAID',
+            'order_status' => 'AWAITING_SHIPMENT',
+            'order_time' => now()->subDays(18),
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $createEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'CREATE_ORDER')
+            ->firstOrFail();
+        $originPeriod = $createEvent->period;
+        $originPeriod->update(['payment_status' => 'PAID']);
+
+        // Simulate historical data where the old cancellation logic removed the order event.
+        $createEvent->delete();
+        $cancelledAt = now()->subDays(8)->startOfMinute();
+        $order->updateQuietly([
+            'order_status' => 'CANCELLED',
+            'cancel_source' => 'SYSTEM',
+            'cancel_reason' => 'Late dispatch: seller did not ship in time',
+            'normalized_cancel_category' => 'SELLER_LATE_SHIPMENT',
+            'raw_data' => ['update_time' => $cancelledAt->timestamp],
+        ]);
+
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $payable->recordCancellationEvent($order->fresh(['orderProducts', 'store']));
+
+        $restoredCreateEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'CREATE_ORDER')
+            ->firstOrFail();
+        $cancelEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'SELLER_LATE_CANCEL')
+            ->firstOrFail();
+
+        $this->assertSame($originPeriod->id, $restoredCreateEvent->payable_period_id);
+        $this->assertNotSame($originPeriod->id, $cancelEvent->payable_period_id);
+        $this->assertSame($originPeriod->id, $cancelEvent->original_period_id);
+        $this->assertSame('UNPAID', $cancelEvent->period->payment_status);
+        $this->assertSame('-25000.00', $cancelEvent->amount);
+        $this->assertSame($cancelledAt->format('Y-m-d H:i:s'), $cancelEvent->event_date->format('Y-m-d H:i:s'));
+
+        $order->updateQuietly(['raw_data' => ['update_time' => now()->timestamp]]);
+        $payable->recordCancellationEvent($order->fresh(['orderProducts', 'store']));
+        $this->assertSame(
+            $cancelledAt->format('Y-m-d H:i:s'),
+            $cancelEvent->fresh()->event_date->format('Y-m-d H:i:s')
+        );
+    }
+
+    public function test_unpaid_seller_late_cancellation_does_not_create_payable_events(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Unpaid Late Cancellation Supplier',
+            'period_length_days' => 10,
+            'first_period_start' => now()->subDays(20)->startOfDay(),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Tiktokshop',
+            'order_sn' => 'SELLER-LATE-BEFORE-PAID',
+            'order_status' => 'CANCELLED',
+            'normalized_cancel_category' => 'SELLER_LATE_SHIPMENT',
+            'cancel_reason' => 'Late dispatch',
+            'order_time' => now()->subDays(18),
+            'raw_data' => ['update_time' => now()->subDays(8)->timestamp],
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $payable->recordCancellationEvent($order->fresh(['orderProducts', 'store']));
+
+        $this->assertDatabaseMissing('payable_events', ['source_id' => $order->order_sn]);
+    }
+
     private function createLinkedVariant(int $localHpp, int $masterHpp): array
     {
         [$product, $variant, $user] = $this->createMarketplaceVariant($localHpp);

@@ -901,7 +901,7 @@ class PayableController extends Controller
 
         $postShipmentAdjustmentIds = PayableEvent::where('user_id', $userId)
             ->whereIn('source_id', $sourceIds)
-            ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
+            ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY', 'SELLER_LATE_CANCEL'])
             ->pluck('source_id')
             ->flip();
 

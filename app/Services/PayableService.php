@@ -270,12 +270,13 @@ class PayableService
 
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
         $isCancelled = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL']);
+        $isSettledSellerLateCancellation = $isCancelled && $this->isSellerLateCancellation($order);
 
         // Marketplace order statuses can become CANCELLED after a shipped package is
         // returned. Only remove the debt for a genuine pre-shipment cancellation.
-        if ($isCancelled && ! $this->hasPostShipmentAdjustment($order)) {
+        if ($isCancelled && ! $this->hasPostShipmentAdjustment($order) && ! $isSettledSellerLateCancellation) {
             PayableEvent::where('source_id', $order->order_sn)
-                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL', 'SELLER_LATE_CANCEL'])
                 ->delete();
             Log::info('PayableService: Deleted CREATE_ORDER events for cancelled order '.$order->order_sn);
 
@@ -331,6 +332,12 @@ class PayableService
             if (! $period) {
                 continue;
             } // Before first period
+
+            // A pre-shipment seller-late cancellation is normally excluded. Keep
+            // the original debt only when that supplier period was already settled.
+            if ($isSettledSellerLateCancellation && ! $this->isSettledPeriod($period)) {
+                continue;
+            }
 
             $groupHpp = 0;
             if (empty($items)) {
@@ -701,6 +708,181 @@ class PayableService
         return $dates->first() ?? Carbon::parse(now());
     }
 
+    private function cancellationEventDate(Order $order): Carbon
+    {
+        if ($order->cancelled_at) {
+            return Carbon::parse($order->cancelled_at);
+        }
+
+        $raw = $order->raw_data ?? [];
+        $value = data_get($raw, 'cancel_time')
+            ?? data_get($raw, 'cancelled_time')
+            ?? data_get($raw, 'cancellation_time')
+            ?? data_get($raw, 'update_time')
+            ?? data_get($raw, 'update_time_millis');
+
+        try {
+            if (is_numeric($value)) {
+                $numeric = (int) $value;
+                $date = $numeric > 9999999999
+                    ? Carbon::createFromTimestampMs($numeric)
+                    : Carbon::createFromTimestamp($numeric);
+                $date->setTimezone(config('app.timezone'));
+            } else {
+                $date = $value ? Carbon::parse($value) : Carbon::parse($order->updated_at ?? now());
+            }
+        } catch (\Throwable) {
+            $date = Carbon::parse($order->updated_at ?? now());
+        }
+
+        $order->forceFill(['cancelled_at' => $date])->saveQuietly();
+
+        return $date;
+    }
+
+    private function isSellerLateCancellation(Order $order): bool
+    {
+        $category = $order->normalized_cancel_category;
+        if (in_array($category, [null, '', 'UNKNOWN'], true)) {
+            $normalized = OrderCancellationMapper::normalize(
+                (string) $order->platform,
+                $order->cancel_source,
+                $order->cancel_reason,
+                $order->buyer_cancel_reason,
+            );
+            if ($normalized !== 'UNKNOWN') {
+                $category = $normalized;
+                $order->forceFill(['normalized_cancel_category' => $normalized])->saveQuietly();
+            }
+        }
+
+        return $category === 'SELLER_LATE_SHIPMENT';
+    }
+
+    private function isSettledPeriod(PayablePeriod $period): bool
+    {
+        return $period->payment_status === 'PAID' || $period->is_closed;
+    }
+
+    private function resolveSellerLateAdjustmentPeriod(
+        Carbon $date,
+        int $userId,
+        Supplier $supplier,
+        PayablePeriod $originPeriod,
+    ): ?PayablePeriod {
+        $naturalPeriod = $this->getPeriodForDate($date, $userId, $supplier);
+        if ($naturalPeriod && ! $this->isSettledPeriod($naturalPeriod)) {
+            return $naturalPeriod;
+        }
+
+        $this->ensureAllPeriods($supplier->first_period_start ?? $date, $userId, $supplier);
+        $after = $naturalPeriod?->end_date ?? $originPeriod->end_date;
+
+        $openPeriod = PayablePeriod::query()
+            ->where('user_id', $userId)
+            ->where('supplier_id', $supplier->id)
+            ->where('start_date', '>', $after)
+            ->where('payment_status', '!=', 'PAID')
+            ->where('is_closed', false)
+            ->orderBy('start_date')
+            ->first();
+
+        if ($openPeriod) {
+            return $openPeriod;
+        }
+
+        $latestPeriod = PayablePeriod::query()
+            ->where('user_id', $userId)
+            ->where('supplier_id', $supplier->id)
+            ->orderByDesc('end_date')
+            ->first();
+
+        return $latestPeriod
+            ? $this->getPeriodForDate($latestPeriod->end_date->copy()->addSecond(), $userId, $supplier)
+            : null;
+    }
+
+    private function recordSettledSellerLateCancellation(Order $order): bool
+    {
+        if (! $this->isSellerLateCancellation($order)) {
+            return false;
+        }
+
+        $userId = $order->store?->user_id ?? Store::where('id', $order->store_id)->value('user_id');
+        if (! $userId) {
+            return false;
+        }
+
+        $createEvents = PayableEvent::query()
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'CREATE_ORDER')
+            ->with('period')
+            ->get();
+        $settledEvents = $createEvents->filter(fn (PayableEvent $event) => $event->period && $this->isSettledPeriod($event->period));
+
+        if ($settledEvents->isEmpty()) {
+            return false;
+        }
+
+        $unsettledEventIds = $createEvents->pluck('id')->diff($settledEvents->pluck('id'));
+        if ($unsettledEventIds->isNotEmpty()) {
+            PayableEvent::whereIn('id', $unsettledEventIds)->delete();
+        }
+
+        $date = $this->cancellationEventDate($order);
+        $recordedSupplierIds = [];
+
+        foreach ($settledEvents as $createEvent) {
+            $supplier = $createEvent->supplier_id ? Supplier::find($createEvent->supplier_id) : null;
+            if (! $supplier) {
+                continue;
+            }
+
+            $existingEvent = PayableEvent::query()
+                ->where('source_id', $order->order_sn)
+                ->where('source_type', 'SELLER_LATE_CANCEL')
+                ->where('supplier_id', $supplier->id)
+                ->first();
+            $targetPeriod = $existingEvent
+                ? PayablePeriod::find($existingEvent->payable_period_id)
+                : null;
+            $targetPeriod ??= $this->resolveSellerLateAdjustmentPeriod($date, $userId, $supplier, $createEvent->period);
+            if (! $targetPeriod) {
+                continue;
+            }
+
+            $recordedSupplierIds[] = $supplier->id;
+            PayableEvent::updateOrCreate(
+                [
+                    'source_id' => $order->order_sn,
+                    'source_type' => 'SELLER_LATE_CANCEL',
+                    'supplier_id' => $supplier->id,
+                ],
+                [
+                    'user_id' => $userId,
+                    'payable_period_id' => $targetPeriod->id,
+                    'store_id' => $order->store_id,
+                    'platform' => $order->platform,
+                    'event_date' => $date,
+                    'amount' => -abs((float) $createEvent->amount),
+                    'original_period_id' => $createEvent->payable_period_id,
+                    'notes' => $order->cancel_reason,
+                ]
+            );
+        }
+
+        PayableEvent::query()
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'SELLER_LATE_CANCEL')
+            ->when(
+                ! empty($recordedSupplierIds),
+                fn ($query) => $query->whereNotIn('supplier_id', $recordedSupplierIds),
+            )
+            ->delete();
+
+        return ! empty($recordedSupplierIds);
+    }
+
     /**
      * Record a cancellation event.
      *
@@ -724,9 +906,13 @@ class PayableService
             && ! $hasConfirmedReturn;
 
         if ($isTrueCancellation) {
+            if ($this->recordSettledSellerLateCancellation($order)) {
+                return;
+            }
+
             // True cancellation: remove CREATE_ORDER completely (order never materialized into a debt)
             PayableEvent::where('source_id', $order->order_sn)
-                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL'])
+                ->whereIn('source_type', ['CREATE_ORDER', 'RETURN_ORDER', 'FAILED_DELIVERY', 'BUYER_CANCEL', 'SELLER_LATE_CANCEL'])
                 ->delete();
             Log::info('PayableService: Deleted payable events for truly cancelled order '.$order->order_sn);
 

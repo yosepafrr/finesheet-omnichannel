@@ -595,6 +595,7 @@ export default function PayableRekap() {
             case 'RETURN_ORDER': return 'Retur';
             case 'FAILED_DELIVERY': return 'Gagal Kirim';
             case 'BUYER_CANCEL': return 'Batal Pembeli';
+            case 'SELLER_LATE_CANCEL': return 'Batal Terlambat Kirim';
             default: return type ? type.replace(/_/g, ' ') : '-';
         }
     };
@@ -822,6 +823,7 @@ export default function PayableRekap() {
             case 'RETURN_ORDER': return 'Retur';
             case 'FAILED_DELIVERY': return 'Batal';
             case 'BUYER_CANCEL': return 'Batal Pembeli';
+            case 'SELLER_LATE_CANCEL': return 'Batal Terlambat Kirim';
             default: return type ? type.replace(/_/g, ' ') : '-';
         }
     };
@@ -850,7 +852,7 @@ export default function PayableRekap() {
     const CANCELLED_ORDER_STATUSES = ['CANCEL', 'CANCELLED', 'IN_CANCEL'];
     const postShipmentAdjustmentOrderIds = new Set(
         payableEvents
-            .filter(ev => ['RETURN_ORDER', 'FAILED_DELIVERY'].includes(ev.source_type))
+            .filter(ev => ['RETURN_ORDER', 'FAILED_DELIVERY', 'SELLER_LATE_CANCEL'].includes(ev.source_type))
             .map(ev => ev.source_id)
             .filter(Boolean)
     );
@@ -2499,9 +2501,16 @@ export default function PayableRekap() {
                                                         </div>
                                                     </td>
                                                     <td className="px-5 py-3.5 align-middle">
-                                                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-500/10 text-rose-500">
-                                                            {getReturnLabel(ev.source_type)}
-                                                        </span>
+                                                        <div className="flex flex-col items-start gap-1">
+                                                            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-500/10 text-rose-500">
+                                                                {getReturnLabel(ev.source_type)}
+                                                            </span>
+                                                            {ev.source_type === 'SELLER_LATE_CANCEL' && (
+                                                                <span className="px-2 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20">
+                                                                    Dibayar periode sebelumnya
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td className="px-5 py-3.5 font-medium text-xs text-slate-700 dark:text-slate-200 align-middle">
                                                         <div className="flex items-center gap-1.5">
