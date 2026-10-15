@@ -146,7 +146,7 @@ function MatchStatus({ row }) {
     );
 }
 
-function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete, onPush }) {
+function ActionMenu({ row, onEdit, onCopy, onEditStock, onEditHpp, onSupplier, onDelete, onPush }) {
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState({ left: 0, top: 0 });
     const buttonRef = useRef(null);
@@ -156,7 +156,7 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete,
         if (!open && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect();
             const menuWidth = 192;
-            const menuHeight = 258;
+            const menuHeight = 302;
             const showAbove = window.innerHeight - rect.bottom < menuHeight && rect.top > menuHeight;
             setPosition({
                 left: Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8),
@@ -208,6 +208,10 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete,
                         <button type="button" onClick={() => { setOpen(false); onEdit(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">edit</span>
                             Edit data
+                        </button>
+                        <button type="button" onClick={() => { setOpen(false); onCopy(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <span className="material-symbols-rounded text-lg">content_copy</span>
+                            Salin sebagai baru
                         </button>
                         {!row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">inventory</span>
@@ -1106,6 +1110,20 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
         });
     };
 
+    const copyAsNew = (row) => {
+        const sourceSku = String(row.sku || "").trim();
+        const copySku = sourceSku ? `${sourceSku.slice(0, 115)}-COPY` : "";
+
+        setModal({
+            open: true,
+            row: null,
+            preset: rowPayload(row, {
+                sku: copySku,
+                components: (row.components || []).map((component) => ({ ...component })),
+            }),
+        });
+    };
+
     const selectedRows = rows.filter((row) => selectedIds.has(row.id));
     const selectedHasBundle = selectedRows.some((row) => row.is_bundle);
     const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
@@ -1445,7 +1463,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             <td className="px-4 py-4 text-right"><button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-800 dark:text-slate-100 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
-                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} /></div></td>
+                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} /></div></td>
                                         </tr>
                                         </React.Fragment>;
                                     })}
@@ -1473,7 +1491,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             <div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div>
                                             <p className="mt-1 truncate text-xs text-slate-400">{row.supplier_name || "Supplier belum ditentukan"}</p>
                                         </div>
-                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} />
+                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} />
                                     </div>
 
                                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
