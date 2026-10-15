@@ -2,6 +2,7 @@
 
 use App\Jobs\SyncShopeeOrderJob;
 use App\Jobs\SyncShopeeProductJob;
+use App\Jobs\SyncShopeeReturnJob;
 use App\Jobs\SyncStoreLogisticsJob;
 use App\Jobs\SyncTiktokOrderJob;
 use App\Jobs\SyncTiktokProductJob;
@@ -23,6 +24,7 @@ Schedule::call(function () {
             foreach ($stores as $store) {
                 if ($store->platform === 'Shopee') {
                     SyncShopeeOrderJob::dispatch($store->id, 14, false, 'scheduled')->onQueue('orders-low');
+                    SyncShopeeReturnJob::dispatch($store->id)->onQueue('orders-low');
                 } else {
                     SyncTiktokOrderJob::dispatch($store->id, 14, null, null, false, 'scheduled')->onQueue('orders-low');
                 }

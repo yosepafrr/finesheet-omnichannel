@@ -13,6 +13,7 @@ use Carbon\Carbon;
 class InitialOrderSyncDispatcher
 {
     public const RECENT_DAYS = 30;
+
     public const HISTORY_DAYS = 180;
 
     public function dispatch(Store $store): void
@@ -83,7 +84,21 @@ class InitialOrderSyncDispatcher
         string $queue
     ): void {
         if ($store->platform === 'Shopee') {
-            SyncShopeeReturnJob::dispatch($store, $start->timestamp, $end->timestamp)->onQueue($queue);
+            $cursor = $end->copy();
+            while ($cursor > $start) {
+                $rangeEnd = $cursor->copy();
+                $rangeStart = $cursor->copy()->subDays(15);
+                if ($rangeStart < $start) {
+                    $rangeStart = $start->copy();
+                }
+
+                SyncShopeeReturnJob::dispatch(
+                    $store,
+                    $rangeStart->timestamp,
+                    $rangeEnd->timestamp,
+                )->onQueue($queue);
+                $cursor = $rangeStart;
+            }
         } elseif ($store->platform === 'Tiktokshop') {
             SyncTiktokReturnJob::dispatch($store, $start->timestamp, $end->timestamp)->onQueue($queue);
         }

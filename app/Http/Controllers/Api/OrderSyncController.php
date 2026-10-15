@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncShopeeOrderJob;
+use App\Jobs\SyncShopeeReturnJob;
 use App\Jobs\SyncTiktokOrderJob;
 use App\Models\Store;
 use App\Services\OrderSyncStatusService;
@@ -59,11 +60,14 @@ class OrderSyncController extends Controller
     {
         if ($store->platform === 'Shopee') {
             SyncShopeeOrderJob::dispatch($store->id, 14, true, 'manual')->onQueue('orders');
+            SyncShopeeReturnJob::dispatch($store->id)->onQueue('orders');
+
             return true;
         }
 
         if ($store->platform === 'Tiktokshop') {
             SyncTiktokOrderJob::dispatch($store->id, 14, null, null, true, 'manual')->onQueue('orders');
+
             return true;
         }
 

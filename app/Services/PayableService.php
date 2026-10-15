@@ -505,11 +505,14 @@ class PayableService
                     ->values();
             }
 
-            $createEvents = PayableEvent::where('source_id', $orderSn)
+            $createEventsQuery = PayableEvent::where('source_id', $orderSn)
                 ->where('user_id', $userId)
-                ->where('source_type', 'CREATE_ORDER')
-                ->whereIn('supplier_id', $mappedSupplierIds)
-                ->get();
+                ->where('source_type', 'CREATE_ORDER');
+            if ($mappedSupplierIds->isNotEmpty()) {
+                $createEventsQuery->whereIn('supplier_id', $mappedSupplierIds);
+            }
+
+            $createEvents = $createEventsQuery->get();
             if ($createEvents->isNotEmpty()) {
                 foreach ($createEvents as $ce) {
                     $returnsBySupplier[$ce->supplier_id] = (float) $ce->amount;
@@ -1041,7 +1044,19 @@ class PayableService
             return true;
         }
 
-        return $order->returns()->exists() && $this->hasShipmentEvidence($order);
+        if (! $order->returns()->exists()) {
+            return false;
+        }
+
+        // Shopee's returns API is the authoritative source for return/refund
+        // cases. The final order payload can already be CANCELLED and omit the
+        // original tracking number, so requiring current package evidence here
+        // incorrectly classifies a real return as a pre-shipment cancellation.
+        if (strcasecmp((string) $order->platform, 'Shopee') === 0) {
+            return true;
+        }
+
+        return $this->hasShipmentEvidence($order);
     }
 
     private function hasConfirmedFailedPackage(Order $order): bool

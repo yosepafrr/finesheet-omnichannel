@@ -80,6 +80,37 @@ class ShopeeOrderApiTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_return_list_sends_one_based_page_and_requested_time_range(): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'error' => '',
+                'response' => [
+                    'return' => [],
+                    'more' => false,
+                ],
+            ]),
+        ]);
+
+        app(ShopeeService::class)->getReturnList(
+            'access-token',
+            '987654',
+            1,
+            100,
+            1_700_000_000,
+            1_700_086_400,
+        );
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return ($query['page_no'] ?? null) === '1'
+                && ($query['page_size'] ?? null) === '100'
+                && ($query['create_time_from'] ?? null) === '1700000000'
+                && ($query['create_time_to'] ?? null) === '1700086400';
+        });
+    }
+
     private function store(): Store
     {
         return new Store([

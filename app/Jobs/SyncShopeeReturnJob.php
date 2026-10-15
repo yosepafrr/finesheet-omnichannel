@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderReturn;
 use App\Models\OrderReturnItem;
 use App\Models\Store;
+use App\Services\PayableService;
 use App\Services\ShopeeService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -19,8 +20,18 @@ class SyncShopeeReturnJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    private const WINDOW_SECONDS = 15 * 24 * 60 * 60;
+
+    private const MAX_PAGES_PER_WINDOW = 100;
+
+    public int $timeout = 300;
+
+    public int $tries = 3;
+
     protected $storeId;
+
     protected $timeFrom;
+
     protected $timeTo;
 
     public function __construct(Store|int $store, $timeFrom = null, $timeTo = null)
@@ -31,12 +42,13 @@ class SyncShopeeReturnJob implements ShouldQueue
         $this->timeFrom = $timeFrom ?? Carbon::now()->subDays(30)->timestamp;
     }
 
-    public function handle(ShopeeService $shopeeService)
+    public function handle(ShopeeService $shopeeService, PayableService $payableService): void
     {
         try {
             $store = Store::find($this->storeId);
-            if (!$store) {
+            if (! $store) {
                 Log::warning("SyncShopeeReturnJob skipped: Store {$this->storeId} not found");
+
                 return;
             }
 
@@ -44,99 +56,162 @@ class SyncShopeeReturnJob implements ShouldQueue
             $accessToken = $shopeeService->ensureValidToken($store);
             $shopId = $store->shopee_shop_id;
 
-            $hasMore = true;
-            $pageNo = 0;
+            $rangeFrom = max(0, (int) $this->timeFrom);
+            $rangeTo = max($rangeFrom, (int) $this->timeTo);
 
-            while ($hasMore) {
-                $response = $shopeeService->getReturnList($accessToken, $shopId, $pageNo, 100);
-
-                if (isset($response['error']) && !empty($response['error'])) {
-                    Log::error("Shopee return list error", ['response' => $response]);
-                    break;
-                }
-
-                $returns = $response['response']['return'] ?? [];
-                $hasMore = $response['response']['more'] ?? false;
-
-                foreach ($returns as $returnItem) {
-                    try {
-                        $returnSn = $returnItem['return_sn'];
-
-                        // Fetch detailed return to get order_sn and items
-                        $detailRes = $shopeeService->getReturnDetail($accessToken, $shopId, $returnSn);
-                        if (isset($detailRes['error']) && !empty($detailRes['error'])) {
-                            Log::error("Shopee return detail error for {$returnSn}", ['response' => $detailRes]);
-                            continue;
-                        }
-
-                        $detail = $detailRes['response'] ?? [];
-                        if (empty($detail)) {
-                            continue;
-                        }
-
-                        $orderSn = $detail['order_sn'] ?? null;
-                        if (!$orderSn) {
-                            continue;
-                        }
-
-                        $order = Order::where('platform', 'Shopee')->where('order_sn', $orderSn)->first();
-                        
-                        if (!$order) {
-                            Log::warning("Order {$orderSn} not found for return {$returnSn}");
-                            // Can't link, skip for now. We could still store it without order_id but order_id is required
-                            continue;
-                        }
-
-                        $platformStatus = $detail['status'] ?? 'UNKNOWN';
-                        $normalizedStatus = $this->normalizeStatus($platformStatus);
-
-                        $orderReturn = OrderReturn::updateOrCreate(
-                            [
-                                'platform' => 'Shopee',
-                                'external_return_id' => $returnSn,
-                            ],
-                            [
-                                'order_id' => $order->id,
-                                'return_status' => $platformStatus,
-                                'normalized_status' => $normalizedStatus,
-                                'return_type' => $detail['return_type'] ?? null,
-                                'refund_amount' => $detail['refund_amount'] ?? 0,
-                                'return_reason' => $detail['reason'] ?? null,
-                                'text_reason' => $detail['text_reason'] ?? null,
-                                'tracking_number' => $detail['tracking_number'] ?? null,
-                                'created_at_platform' => isset($detail['create_time']) ? Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone')) : null,
-                                'updated_at_platform' => isset($detail['update_time']) ? Carbon::createFromTimestamp($detail['update_time'])->setTimezone(config('app.timezone')) : null,
-                                'raw_data' => $detail,
-                            ]
-                        );
-
-                        // Sync Items
-                        if (isset($detail['item']) && is_array($detail['item'])) {
-                            foreach ($detail['item'] as $item) {
-                                OrderReturnItem::updateOrCreate(
-                                    [
-                                        'order_return_id' => $orderReturn->id,
-                                        'sku_id' => $item['model_id'] ?? $item['item_id'] ?? null,
-                                    ],
-                                    [
-                                        'external_line_item_id' => $item['item_id'] ?? null,
-                                        'quantity' => $item['amount'] ?? 1,
-                                        'raw_data' => $item,
-                                    ]
-                                );
-                            }
-                        }
-                    } catch (\Exception $e) {
-                        Log::error("Error processing Shopee return {$returnItem['return_sn']}: " . $e->getMessage());
-                        // continue to next return
-                    }
-                }
-
-                $pageNo++;
+            while ($rangeFrom <= $rangeTo) {
+                $windowTo = min($rangeTo, $rangeFrom + self::WINDOW_SECONDS - 1);
+                $this->syncWindow(
+                    $shopeeService,
+                    $payableService,
+                    $store,
+                    $accessToken,
+                    (string) $shopId,
+                    $rangeFrom,
+                    $windowTo,
+                );
+                $rangeFrom = $windowTo + 1;
             }
-        } catch (\Exception $e) {
-            Log::error("SyncShopeeReturnJob failed for Store ID: {$this->storeId} - " . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error("SyncShopeeReturnJob failed for Store ID: {$this->storeId} - ".$e->getMessage());
+
+            throw $e;
         }
+    }
+
+    private function syncWindow(
+        ShopeeService $shopeeService,
+        PayableService $payableService,
+        Store $store,
+        string $accessToken,
+        string $shopId,
+        int $timeFrom,
+        int $timeTo,
+    ): void {
+        $pageNo = 1;
+
+        do {
+            $response = $shopeeService->getReturnList(
+                $accessToken,
+                $shopId,
+                $pageNo,
+                100,
+                $timeFrom,
+                $timeTo,
+            );
+
+            if (! empty($response['error'])) {
+                throw new \RuntimeException(
+                    'Shopee return list error: '.$response['error'].' - '.($response['message'] ?? 'unknown error')
+                );
+            }
+
+            $returns = $response['response']['return'] ?? [];
+            $hasMore = (bool) ($response['response']['more'] ?? false);
+
+            foreach ($returns as $returnItem) {
+                $this->syncReturn(
+                    $shopeeService,
+                    $payableService,
+                    $store,
+                    $accessToken,
+                    $shopId,
+                    $returnItem,
+                );
+            }
+
+            $pageNo++;
+        } while ($hasMore && $pageNo <= self::MAX_PAGES_PER_WINDOW);
+
+        if ($hasMore) {
+            throw new \RuntimeException("Shopee return pagination exceeded the safety limit for store {$store->id}");
+        }
+    }
+
+    private function syncReturn(
+        ShopeeService $shopeeService,
+        PayableService $payableService,
+        Store $store,
+        string $accessToken,
+        string $shopId,
+        array $returnItem,
+    ): void {
+        $returnSn = (string) ($returnItem['return_sn'] ?? '');
+        if ($returnSn === '') {
+            return;
+        }
+
+        $detailResponse = $shopeeService->getReturnDetail($accessToken, $shopId, $returnSn);
+        if (! empty($detailResponse['error'])) {
+            throw new \RuntimeException(
+                'Shopee return detail error: '.$detailResponse['error'].' - '.($detailResponse['message'] ?? 'unknown error')
+            );
+        }
+
+        $detail = $detailResponse['response'] ?? [];
+        $orderSn = $detail['order_sn'] ?? null;
+        if (! $orderSn) {
+            return;
+        }
+
+        $order = Order::query()
+            ->where('store_id', $store->id)
+            ->where('platform', 'Shopee')
+            ->where('order_sn', $orderSn)
+            ->first();
+        if (! $order) {
+            Log::warning("Order {$orderSn} not found for return {$returnSn}", [
+                'store_id' => $store->id,
+            ]);
+
+            return;
+        }
+
+        $platformStatus = $detail['status'] ?? 'UNKNOWN';
+        $orderReturn = OrderReturn::firstOrNew([
+            'platform' => 'Shopee',
+            'external_return_id' => $returnSn,
+        ]);
+        $orderReturn->fill([
+            'order_id' => $order->id,
+            'return_status' => $platformStatus,
+            'normalized_status' => $this->normalizeStatus($platformStatus),
+            'return_type' => $detail['return_type'] ?? null,
+            'refund_amount' => $detail['refund_amount'] ?? 0,
+            'return_reason' => $detail['reason'] ?? null,
+            'text_reason' => $detail['text_reason'] ?? null,
+            'tracking_number' => $detail['tracking_number'] ?? null,
+            'updated_at_platform' => isset($detail['update_time'])
+                ? Carbon::createFromTimestamp($detail['update_time'])->setTimezone(config('app.timezone'))
+                : null,
+            'raw_data' => $detail,
+        ]);
+        if (isset($detail['create_time'])) {
+            $orderReturn->preserveEarliestPlatformCreatedAt(
+                Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone'))
+            );
+        }
+        $orderReturn->save();
+
+        foreach ($detail['item'] ?? [] as $item) {
+            OrderReturnItem::updateOrCreate(
+                [
+                    'order_return_id' => $orderReturn->id,
+                    'sku_id' => $item['model_id'] ?? $item['item_id'] ?? null,
+                ],
+                [
+                    'external_line_item_id' => $item['item_id'] ?? null,
+                    'product_name' => $item['item_name'] ?? null,
+                    'quantity' => $item['amount'] ?? 1,
+                    'refund_amount' => $item['refund_amount'] ?? null,
+                    'raw_data' => $item,
+                ]
+            );
+        }
+
+        $payableService->reconcileOrderLogistics(
+            $order->fresh(['orderProducts', 'store', 'returns.items', 'packages'])
+        );
     }
 
     private function normalizeStatus($status)

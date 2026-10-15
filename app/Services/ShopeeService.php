@@ -305,20 +305,31 @@ class ShopeeService
     }
 
     // AMBIL DATA LIST RETURN
-    public function getReturnList(string $accessToken, string $shopId, int $pageNo, int $pageSize = 100)
-    {
+    public function getReturnList(
+        string $accessToken,
+        string $shopId,
+        int $pageNo,
+        int $pageSize = 100,
+        ?int $timeFrom = null,
+        ?int $timeTo = null
+    ) {
         $timestamp = time();
         $path = '/api/v2/returns/get_return_list';
         $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
 
-        $url = "{$this->baseUrl}{$path}"
-            ."?partner_id={$this->partnerId}"
-            ."&timestamp={$timestamp}"
-            ."&sign={$sign}"
-            ."&access_token={$accessToken}"
-            ."&shop_id={$shopId}"
-            ."&page_no={$pageNo}"
-            ."&page_size={$pageSize}";
+        $query = array_filter([
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $sign,
+            'access_token' => $accessToken,
+            'shop_id' => $shopId,
+            'page_no' => $pageNo,
+            'page_size' => $pageSize,
+            'create_time_from' => $timeFrom,
+            'create_time_to' => $timeTo,
+        ], fn ($value) => $value !== null);
+
+        $url = "{$this->baseUrl}{$path}?".http_build_query($query, '', '&', PHP_QUERY_RFC3986);
 
         $response = $this->httpClient()->get($url);
 

@@ -37,7 +37,7 @@ class InitialOrderSyncDispatcherTest extends TestCase
         });
         Queue::assertPushed(SyncTiktokOrderJob::class, function ($job) {
             return $job->queue === 'orders-low'
-                && !$job->showProgress
+                && ! $job->showProgress
                 && $job->syncContext === 'backfill';
         });
         Queue::assertPushed(SyncTiktokReturnJob::class, 2);
@@ -55,7 +55,7 @@ class InitialOrderSyncDispatcherTest extends TestCase
         app(InitialOrderSyncDispatcher::class)->dispatch($store);
 
         Queue::assertPushed(SyncShopeeOrderJob::class, 12);
-        Queue::assertPushed(SyncShopeeReturnJob::class, 2);
+        Queue::assertPushed(SyncShopeeReturnJob::class, 12);
         Queue::assertPushed(SyncStoreLogisticsJob::class, function ($job) {
             return $job->queue === 'logistics' && $job->storeId === 18;
         });
