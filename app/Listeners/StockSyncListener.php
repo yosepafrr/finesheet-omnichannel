@@ -8,6 +8,7 @@ use App\Models\OrderProduct;
 use App\Models\Product;
 use App\Models\SkuSyncGroup;
 use App\Models\VariantProduct;
+use App\Services\BundleInventoryService;
 use App\Services\StockSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -72,7 +73,7 @@ class StockSyncListener
 
     private function deductOrderStock(OrderStockSyncRequested $event): void
     {
-        DB::transaction(function () use ($event) {
+        $changedGroupIds = DB::transaction(function () use ($event) {
             $order = $event->order->newQuery()
                 ->with(['orderProducts', 'store'])
                 ->lockForUpdate()
@@ -126,12 +127,18 @@ class StockSyncListener
                 'stock_sync_processed_at' => now(),
                 'stock_sync_deductions' => $deductions,
             ]);
+
+            return collect($stockChanges)->pluck('group.id')->all();
         });
+
+        if ($changedGroupIds) {
+            app(BundleInventoryService::class)->refreshAffectedByGroupIds($changedGroupIds);
+        }
     }
 
     private function restoreCancelledOrder(OrderStockSyncRequested $event): void
     {
-        DB::transaction(function () use ($event) {
+        $changedGroupIds = DB::transaction(function () use ($event) {
             $order = $event->order->newQuery()
                 ->with(['orderProducts', 'store', 'packages'])
                 ->lockForUpdate()
@@ -217,7 +224,13 @@ class StockSyncListener
                 'order_sn' => $order->order_sn,
                 'groups' => count($restorations),
             ]);
+
+            return collect($restorations)->pluck('group.id')->all();
         });
+
+        if ($changedGroupIds) {
+            app(BundleInventoryService::class)->refreshAffectedByGroupIds($changedGroupIds);
+        }
     }
 
     private function markOrderAsShipped(OrderStockSyncRequested $event): void
@@ -321,21 +334,67 @@ class StockSyncListener
 
             $quantity = (int) $item->quantity_purchased;
             if ($group && $quantity > 0) {
-                if (! isset($stockChanges[$group->id])) {
-                    $stockChanges[$group->id] = [
-                        'group' => $group,
-                        'sku' => $skuToSync,
-                        'quantity' => 0,
-                    ];
+                $group->loadMissing('masterVariant.bundleComponents.componentVariant.syncGroup');
+                $masterVariant = $group->masterVariant;
+
+                if ($masterVariant?->is_bundle) {
+                    if ($masterVariant->bundleComponents->isEmpty()) {
+                        Log::warning('StockSyncListener: Bundle has no components', [
+                            'order_sn' => $order->order_sn,
+                            'sku' => $skuToSync,
+                        ]);
+
+                        return null;
+                    }
+
+                    foreach ($masterVariant->bundleComponents as $component) {
+                        $componentVariant = $component->componentVariant;
+                        $componentGroup = $componentVariant?->syncGroup;
+                        if (
+                            ! $componentVariant
+                            || $componentVariant->is_bundle
+                            || ! $componentGroup?->is_active
+                        ) {
+                            Log::warning('StockSyncListener: Bundle component is not ready for stock synchronization', [
+                                'order_sn' => $order->order_sn,
+                                'bundle_sku' => $skuToSync,
+                                'component_variant_id' => $component->component_variant_id,
+                            ]);
+
+                            return null;
+                        }
+
+                        $this->appendStockChange(
+                            $stockChanges,
+                            $componentGroup,
+                            $componentVariant->sku,
+                            $quantity * max(1, (int) $component->quantity),
+                        );
+                    }
+
+                    continue;
                 }
 
-                $stockChanges[$group->id]['quantity'] += $quantity;
+                $this->appendStockChange($stockChanges, $group, $skuToSync, $quantity);
             }
         }
 
         ksort($stockChanges);
 
         return $stockChanges;
+    }
+
+    private function appendStockChange(array &$stockChanges, SkuSyncGroup $group, string $sku, int $quantity): void
+    {
+        if (! isset($stockChanges[$group->id])) {
+            $stockChanges[$group->id] = [
+                'group' => $group,
+                'sku' => $sku,
+                'quantity' => 0,
+            ];
+        }
+
+        $stockChanges[$group->id]['quantity'] += max(0, $quantity);
     }
 
     /**

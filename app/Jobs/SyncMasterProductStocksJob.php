@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\MasterProductVariant;
+use App\Services\BundleInventoryService;
 use App\Services\MasterSkuSyncService;
 use App\Services\StockSyncService;
 use Illuminate\Bus\Queueable;
@@ -32,18 +33,32 @@ class SyncMasterProductStocksJob implements ShouldBeUnique, ShouldQueue
         return hash('sha256', implode(',', $ids));
     }
 
-    public function handle(MasterSkuSyncService $skuSync, StockSyncService $stockSync): void
-    {
-        MasterProductVariant::query()
+    public function handle(
+        MasterSkuSyncService $skuSync,
+        StockSyncService $stockSync,
+        BundleInventoryService $bundleInventory
+    ): void {
+        $variants = MasterProductVariant::query()
             ->whereIn('id', $this->variantIds)
             ->with('masterProduct')
             ->orderBy('id')
-            ->get()
-            ->each(function (MasterProductVariant $variant) use ($skuSync, $stockSync) {
-                $group = $skuSync->syncVariant($variant);
-                if ($group) {
-                    $stockSync->setMasterStock($group, (int) $variant->stock);
-                }
-            });
+            ->get();
+
+        $variants->each(function (MasterProductVariant $variant) use ($skuSync, $stockSync, $bundleInventory) {
+            if ($variant->is_bundle) {
+                $bundleInventory->refreshBundle($variant);
+
+                return;
+            }
+
+            $group = $skuSync->syncVariant($variant);
+            if ($group) {
+                $stockSync->setMasterStock($group, (int) $variant->stock);
+            }
+        });
+
+        $bundleInventory->refreshAffectedByVariantIds(
+            $variants->where('is_bundle', false)->pluck('id')
+        );
     }
 }

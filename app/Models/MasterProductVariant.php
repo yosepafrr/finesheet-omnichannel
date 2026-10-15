@@ -23,6 +23,7 @@ class MasterProductVariant extends Model
         'stock',
         'attributes',
         'is_active',
+        'is_bundle',
     ];
 
     protected $casts = [
@@ -32,6 +33,7 @@ class MasterProductVariant extends Model
         'hpp' => 'decimal:2',
         'stock' => 'integer',
         'is_active' => 'boolean',
+        'is_bundle' => 'boolean',
     ];
 
     public function masterProduct()
@@ -47,6 +49,16 @@ class MasterProductVariant extends Model
     public function syncGroup()
     {
         return $this->hasOne(SkuSyncGroup::class);
+    }
+
+    public function bundleComponents()
+    {
+        return $this->hasMany(MasterProductBundleComponent::class, 'bundle_variant_id');
+    }
+
+    public function usedInBundles()
+    {
+        return $this->hasMany(MasterProductBundleComponent::class, 'component_variant_id');
     }
 
     protected static function booted(): void

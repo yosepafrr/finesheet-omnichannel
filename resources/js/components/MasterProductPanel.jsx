@@ -19,6 +19,8 @@ const EMPTY_FORM = {
     stock: 0,
     hpp: 0,
     is_active: true,
+    is_bundle: false,
+    components: [],
 };
 
 function formatRp(value) {
@@ -47,8 +49,19 @@ function rowPayload(row, overrides = {}) {
         stock: Number(row.stock || 0),
         hpp: Number(row.hpp || 0),
         is_active: row.is_active ?? true,
+        is_bundle: row.is_bundle ?? false,
+        components: row.components || [],
         ...overrides,
     };
+}
+
+function BundleBadge({ compact = false }) {
+    return (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            <span className="material-symbols-rounded text-[13px]">package_2</span>
+            {!compact && "Bundle"}
+        </span>
+    );
 }
 
 function useModalScrollLock(onClose) {
@@ -196,14 +209,14 @@ function ActionMenu({ row, onEdit, onEditStock, onEditHpp, onSupplier, onDelete,
                             <span className="material-symbols-rounded text-lg">edit</span>
                             Edit data
                         </button>
-                        <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        {!row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">inventory</span>
                             Edit stok
-                        </button>
-                        <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        </button>}
+                        {!row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">payments</span>
                             Edit HPP
-                        </button>
+                        </button>}
                         <button type="button" onClick={() => { setOpen(false); onSupplier(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">local_shipping</span>
                             Atur supplier
@@ -238,13 +251,72 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
         stock: row.stock ?? 0,
         hpp: row.hpp ?? 0,
         is_active: row.is_active ?? true,
+        is_bundle: row.is_bundle ?? false,
+        components: row.components || [],
     } : { ...EMPTY_FORM, ...preset });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+    const [componentSearch, setComponentSearch] = useState("");
+    const [componentOptions, setComponentOptions] = useState([]);
+    const [componentLoading, setComponentLoading] = useState(false);
 
     useModalScrollLock(onClose);
 
     const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+    useEffect(() => {
+        if (!form.is_bundle) return undefined;
+
+        const timeout = window.setTimeout(async () => {
+            setComponentLoading(true);
+            try {
+                const response = await axios.get("/api/master-products/components", {
+                    params: {
+                        search: componentSearch,
+                        exclude_id: row?.id || undefined,
+                    },
+                });
+                setComponentOptions(response.data?.data || []);
+            } catch (requestError) {
+                setError(errorMessage(requestError));
+            } finally {
+                setComponentLoading(false);
+            }
+        }, componentSearch ? 250 : 0);
+
+        return () => window.clearTimeout(timeout);
+    }, [componentSearch, form.is_bundle, row?.id]);
+
+    const addComponent = (component) => setForm((current) => {
+        if (current.components.some((item) => Number(item.master_product_variant_id) === Number(component.id))) return current;
+
+        return {
+            ...current,
+            components: [...current.components, {
+                master_product_variant_id: component.id,
+                quantity: 1,
+                sku: component.sku,
+                name: component.name,
+                variant_name: component.variant_name,
+                stock: Number(component.stock || 0),
+                hpp: Number(component.hpp || 0),
+            }],
+        };
+    });
+    const removeComponent = (id) => setForm((current) => ({
+        ...current,
+        components: current.components.filter((item) => Number(item.master_product_variant_id) !== Number(id)),
+    }));
+    const updateComponentQuantity = (id, quantity) => setForm((current) => ({
+        ...current,
+        components: current.components.map((item) => Number(item.master_product_variant_id) === Number(id)
+            ? { ...item, quantity: Math.max(1, Number(quantity || 1)) }
+            : item),
+    }));
+    const derivedStock = form.components.length
+        ? Math.min(...form.components.map((component) => Math.floor(Number(component.stock || 0) / Math.max(1, Number(component.quantity || 1)))))
+        : 0;
+    const derivedHpp = form.components.reduce((total, component) => total + (Number(component.hpp || 0) * Math.max(1, Number(component.quantity || 1))), 0);
 
     const submit = async (event) => {
         event.preventDefault();
@@ -263,6 +335,11 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
                 variant_name: form.variant_name || null,
                 stock: Number(form.stock || 0),
                 hpp: Number(form.hpp || 0),
+                is_bundle: Boolean(form.is_bundle),
+                components: form.is_bundle ? form.components.map((component) => ({
+                    master_product_variant_id: Number(component.master_product_variant_id),
+                    quantity: Math.max(1, Number(component.quantity || 1)),
+                })) : [],
             };
 
             if (row) {
@@ -283,6 +360,8 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
                         stock: normalized.stock,
                         hpp: normalized.hpp,
                         is_active: normalized.is_active,
+                        is_bundle: normalized.is_bundle,
+                        components: normalized.components,
                     }],
                 });
             }
@@ -320,6 +399,13 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Nama master produk</span>
                             <input required value={form.name} onChange={(event) => update("name", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
                         </label>
+                        <div className="sm:col-span-2">
+                            <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Jenis SKU master</span>
+                            <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900">
+                                <button type="button" onClick={() => update("is_bundle", false)} className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${!form.is_bundle ? "bg-white text-[#304674] shadow-sm dark:bg-slate-700 dark:text-blue-300" : "text-slate-500 dark:text-slate-400"}`}>Produk tunggal</button>
+                                <button type="button" onClick={() => update("is_bundle", true)} className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${form.is_bundle ? "bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-300" : "text-slate-500 dark:text-slate-400"}`}><span className="material-symbols-rounded text-lg">package_2</span>Bundle</button>
+                            </div>
+                        </div>
                         <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">SKU</span>
                             <input required value={form.sku} onChange={(event) => update("sku", event.target.value)} className="w-full rounded-lg border-slate-300 font-mono text-sm uppercase focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
@@ -339,14 +425,35 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
                             />
                             <span className="mt-1 block text-xs text-slate-400">Supplier master menjadi sumber utama untuk perhitungan payable.</span>
                         </div>
-                        <label>
+                        {form.is_bundle && <div className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-500/30 dark:bg-amber-500/5">
+                            <div className="mb-3 flex items-start justify-between gap-3">
+                                <div><p className="text-sm font-bold text-slate-900 dark:text-white">Komponen bundle</p><p className="text-xs text-slate-500 dark:text-slate-400">Stok dan HPP dihitung otomatis dari SKU komponen.</p></div>
+                                <BundleBadge />
+                            </div>
+                            <div className="relative">
+                                <span className="material-symbols-rounded pointer-events-none absolute left-3 top-2.5 text-lg text-slate-400">search</span>
+                                <input value={componentSearch} onChange={(event) => setComponentSearch(event.target.value)} placeholder="Cari nama atau SKU komponen..." className="w-full rounded-lg border-slate-300 py-2 pl-10 pr-3 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+                            </div>
+                            <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                                {componentLoading ? <p className="px-3 py-3 text-sm text-slate-400">Memuat SKU...</p> : componentOptions.length === 0 ? <p className="px-3 py-3 text-sm text-slate-400">Tidak ada SKU yang cocok.</p> : componentOptions.map((component) => {
+                                    const selected = form.components.some((item) => Number(item.master_product_variant_id) === Number(component.id));
+                                    return <button key={component.id} type="button" disabled={selected} onClick={() => addComponent(component)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-slate-50 disabled:cursor-default disabled:bg-slate-50/70 dark:border-slate-700 dark:hover:bg-slate-800 dark:disabled:bg-slate-800/50"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{component.name}</span><span className="block truncate font-mono text-xs uppercase text-slate-500">{component.sku}</span></span><span className={`material-symbols-rounded shrink-0 text-lg ${selected ? "text-emerald-500" : "text-[#304674] dark:text-blue-400"}`}>{selected ? "check_circle" : "add_circle"}</span></button>;
+                                })}
+                            </div>
+                            <div className="mt-3 space-y-2">
+                                {form.components.map((component) => <div key={component.master_product_variant_id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{component.name}</p><p className="truncate font-mono text-xs uppercase text-slate-500">{component.sku}</p></div><label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500"><span>Qty</span><input type="number" min="1" max="999" value={component.quantity} onChange={(event) => updateComponentQuantity(component.master_product_variant_id, event.target.value)} className="h-9 w-20 rounded-lg border-slate-300 text-center text-sm font-bold focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-white" /></label><button type="button" onClick={() => removeComponent(component.master_product_variant_id)} className="flex h-9 w-9 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" aria-label={`Hapus ${component.sku}`}><span className="material-symbols-rounded text-lg">delete</span></button></div>)}
+                                {form.components.length === 0 && <p className="rounded-lg border border-dashed border-amber-300 px-3 py-4 text-center text-sm text-amber-700 dark:border-amber-500/40 dark:text-amber-300">Pilih minimal satu SKU komponen.</p>}
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-amber-200 pt-3 dark:border-amber-500/20"><div><p className="text-[10px] font-bold uppercase text-slate-400">Stok bundle</p><p className="text-xl font-extrabold text-[#304674] dark:text-blue-300">{derivedStock.toLocaleString("id-ID")}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase text-slate-400">HPP komponen</p><p className="text-base font-bold text-slate-900 dark:text-white">{formatRp(derivedHpp)}</p></div></div>
+                        </div>}
+                        {!form.is_bundle && <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Stok tersedia</span>
                             <input type="number" min="0" required value={form.stock} onChange={(event) => update("stock", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
-                        </label>
-                        <label>
+                        </label>}
+                        {!form.is_bundle && <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">HPP</span>
                             <input type="number" min="0" required value={form.hpp} onChange={(event) => update("hpp", event.target.value)} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
-                        </label>
+                        </label>}
                         <label>
                             <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Barcode</span>
                             <input value={form.barcode} onChange={(event) => update("barcode", event.target.value)} placeholder="Opsional" className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
@@ -368,7 +475,7 @@ function MasterSkuModal({ row, preset, suppliers, onClose, onSaved, onManageSupp
 
                 <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800">
                     <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Batal</button>
-                    <button type="submit" disabled={saving} className="inline-flex min-w-28 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2 text-sm font-semibold text-white hover:bg-[#243558] disabled:opacity-60 dark:bg-blue-600">
+                    <button type="submit" disabled={saving || (form.is_bundle && form.components.length === 0)} className="inline-flex min-w-28 items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2 text-sm font-semibold text-white hover:bg-[#243558] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600">
                         <span className={`material-symbols-rounded text-lg ${saving ? "animate-spin" : ""}`}>{saving ? "progress_activity" : "save"}</span>
                         {saving ? "Menyimpan" : "Simpan"}
                     </button>
@@ -955,6 +1062,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
     };
 
     const openValueModal = (row, field) => {
+        if (row.is_bundle) return;
         setValueModal({ open: true, row, field });
     };
 
@@ -999,6 +1107,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
     };
 
     const selectedRows = rows.filter((row) => selectedIds.has(row.id));
+    const selectedHasBundle = selectedRows.some((row) => row.is_bundle);
     const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
     const someRowsSelected = selectedRows.length > 0 && !allRowsSelected;
 
@@ -1259,10 +1368,10 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                         <button type="button" disabled={bulkBusy} onClick={bulkPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className={`material-symbols-rounded text-lg ${bulkBusy ? "animate-spin" : ""}`}>{bulkBusy ? "progress_activity" : "sync"}</span><span>Sinkronkan</span>
                         </button>
-                        <button type="button" disabled={bulkBusy} onClick={() => setBulkValueField("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "Stok bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">inventory</span><span>Edit stok</span>
                         </button>
-                        <button type="button" disabled={bulkBusy} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "HPP bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">payments</span><span>Edit HPP</span>
                         </button>
                         <button type="button" disabled={bulkBusy} onClick={() => openSupplierModal(selectedRows)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
@@ -1330,10 +1439,10 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                         {clusterKey !== previousCluster && <tr className="border-y border-slate-200 bg-slate-100/80 dark:border-slate-700 dark:bg-slate-900/60"><td colSpan={bulkMode ? 8 : 7} className="px-4 py-2"><div className="flex items-center gap-2"><span className="material-symbols-rounded text-lg text-[#304674] dark:text-blue-400">folder_copy</span><span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.product_cluster_label || "TANPA CLUSTER"}</span><span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">{pageClusterCounts[clusterKey]} SKU di halaman ini</span></div></td></tr>}
                                         <tr className={`${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
                                             {bulkMode && <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
-                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p><p className="truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
+                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p>{row.is_bundle && <BundleBadge />}</div><p className="truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
                                             <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
-                                            <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "stock")} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] dark:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
-                                            <td className="px-4 py-4 text-right"><button type="button" onClick={() => openValueModal(row, "hpp")} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] dark:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">edit</span></button></td>
+                                            <td className="px-4 py-4 text-right"><button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit stok"} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-900 dark:text-white dark:disabled:hover:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button></td>
+                                            <td className="px-4 py-4 text-right"><button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-800 dark:text-slate-100 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button></td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
                                             <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} /></div></td>
@@ -1357,9 +1466,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             <ProductImage row={row} size="lg" />
                                         </button>
                                         <div className="min-w-0 flex-1">
-                                            <button type="button" onClick={() => handleProductClick(row)} className="line-clamp-2 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">
-                                                {row.name}
-                                            </button>
+                                            <div className="flex items-start gap-2"><button type="button" onClick={() => handleProductClick(row)} className="line-clamp-2 min-w-0 text-left text-sm font-bold leading-tight text-slate-900 dark:text-white">{row.name}</button>{row.is_bundle && <BundleBadge compact />}</div>
                                              <p className="mt-1 truncate font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
                                                  {String(row.sku || "").toUpperCase()}
                                              </p>
@@ -1372,16 +1479,16 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
                                         <div className="min-w-0">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">Stok tersedia</p>
-                                            <button type="button" onClick={() => openValueModal(row, "stock")} className="mt-1 inline-flex items-center gap-1 text-lg font-extrabold text-[#304674] dark:text-blue-400">
+                                            <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "stock")} className="mt-1 inline-flex items-center gap-1 text-lg font-extrabold text-[#304674] disabled:cursor-default dark:text-blue-400">
                                                 <span>{row.stock.toLocaleString("id-ID")}</span>
-                                                <span className="material-symbols-rounded text-[16px] text-slate-400">edit</span>
+                                                <span className="material-symbols-rounded text-[16px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>
                                             </button>
                                         </div>
                                         <div className="min-w-0 text-right">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">HPP</p>
-                                            <button type="button" onClick={() => openValueModal(row, "hpp")} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 dark:text-white">
+                                            <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 disabled:cursor-default dark:text-white">
                                                 <span className="truncate">{formatRp(row.hpp)}</span>
-                                                <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">edit</span>
+                                                <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>
                                             </button>
                                         </div>
                                     </div>

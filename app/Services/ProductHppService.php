@@ -8,6 +8,8 @@ use App\Models\VariantProduct;
 
 class ProductHppService
 {
+    public function __construct(private readonly BundleInventoryService $bundleInventory) {}
+
     public function productDetails(Product $product): array
     {
         return $this->details(
@@ -28,7 +30,12 @@ class ProductHppService
     {
         $masterVariant = $this->masterVariantForProduct($product);
         if ($masterVariant) {
+            if ($masterVariant->is_bundle) {
+                return $this->details($masterVariant, (float) ($product->hpp ?? 0));
+            }
+
             $masterVariant->update(['hpp' => $hpp]);
+            $this->bundleInventory->refreshAffectedByVariantIds([$masterVariant->id], false);
 
             return $this->details($masterVariant->fresh(), (float) ($product->hpp ?? 0));
         }
@@ -43,7 +50,12 @@ class ProductHppService
     {
         $masterVariant = $this->masterVariantForVariant($variant);
         if ($masterVariant) {
+            if ($masterVariant->is_bundle) {
+                return $this->details($masterVariant, (float) ($variant->hpp ?? 0));
+            }
+
             $masterVariant->update(['hpp' => $hpp]);
+            $this->bundleInventory->refreshAffectedByVariantIds([$masterVariant->id], false);
 
             return $this->details($masterVariant->fresh(), (float) ($variant->hpp ?? 0));
         }
@@ -233,7 +245,9 @@ class ProductHppService
 
     private function details(?MasterProductVariant $masterVariant, float $localHpp): array
     {
-        $masterHpp = (float) ($masterVariant?->hpp ?? 0);
+        $masterHpp = $masterVariant
+            ? $this->bundleInventory->hppFor($masterVariant)
+            : 0.0;
         $usesMasterHpp = $masterVariant && $masterHpp > 0;
 
         return [

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Events\OrderStockSyncRequested;
 use App\Jobs\SyncStockToMarketplaceJob;
+use App\Models\MasterProduct;
+use App\Models\MasterProductVariant;
 use App\Models\Order;
 use App\Models\OrderPackage;
 use App\Models\OrderProduct;
@@ -122,6 +124,91 @@ class StockSyncTest extends TestCase
         $this->assertSame(5, $group->fresh()->master_stock);
         $this->assertNotNull($order->fresh()->stock_sync_processed_at);
         Queue::assertPushed(SyncStockToMarketplaceJob::class, 1);
+    }
+
+    public function test_bundle_order_deducts_components_and_cancellation_restores_them(): void
+    {
+        Queue::fake();
+        [$marketplaceProduct, , $bundleGroup] = $this->createSyncMember(
+            'Shopee',
+            '3PCS-DSP-KLR-HHN-M',
+            'BUNDLE-PRODUCT',
+            'BUNDLE-VARIANT'
+        );
+        $user = $marketplaceProduct->store->user;
+        $master = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Master Bundle',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $black = MasterProductVariant::create([
+            'master_product_id' => $master->id,
+            'user_id' => $user->id,
+            'sku' => 'DSP-KLR-HTM-M',
+            'stock' => 10,
+            'hpp' => 20000,
+        ]);
+        $navy = MasterProductVariant::create([
+            'master_product_id' => $master->id,
+            'user_id' => $user->id,
+            'sku' => 'DSP-KLR-NVY-M',
+            'stock' => 5,
+            'hpp' => 22000,
+        ]);
+        $bundle = MasterProductVariant::create([
+            'master_product_id' => $master->id,
+            'user_id' => $user->id,
+            'sku' => '3PCS-DSP-KLR-HHN-M',
+            'stock' => 5,
+            'hpp' => 62000,
+            'is_bundle' => true,
+        ]);
+        $bundle->bundleComponents()->createMany([
+            ['component_variant_id' => $black->id, 'quantity' => 2],
+            ['component_variant_id' => $navy->id, 'quantity' => 1],
+        ]);
+        $blackGroup = SkuSyncGroup::create([
+            'user_id' => $user->id,
+            'master_product_variant_id' => $black->id,
+            'sku' => $black->sku,
+            'master_stock' => 10,
+            'is_active' => true,
+        ]);
+        $navyGroup = SkuSyncGroup::create([
+            'user_id' => $user->id,
+            'master_product_variant_id' => $navy->id,
+            'sku' => $navy->sku,
+            'master_stock' => 5,
+            'is_active' => true,
+        ]);
+        $bundleGroup->update([
+            'master_product_variant_id' => $bundle->id,
+            'master_stock' => 5,
+        ]);
+        $order = $this->createReadyOrder($marketplaceProduct, 'BUNDLE-ORDER-1');
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $marketplaceProduct->product_id,
+            'product_name' => $marketplaceProduct->product_name,
+            'model_name' => 'Black + Navy',
+            'sku' => $bundle->sku,
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+
+        $this->assertSame(6, $blackGroup->fresh()->master_stock);
+        $this->assertSame(3, $navyGroup->fresh()->master_stock);
+        $this->assertSame(3, $bundleGroup->fresh()->master_stock);
+        $this->assertCount(2, $order->fresh()->stock_sync_deductions);
+
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $this->assertSame(10, $blackGroup->fresh()->master_stock);
+        $this->assertSame(5, $navyGroup->fresh()->master_stock);
+        $this->assertSame(5, $bundleGroup->fresh()->master_stock);
     }
 
     public function test_tiktok_order_uses_platform_variant_id_when_variant_name_differs(): void

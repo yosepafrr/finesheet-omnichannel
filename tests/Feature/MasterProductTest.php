@@ -144,6 +144,104 @@ class MasterProductTest extends TestCase
         $this->assertDatabaseCount('sku_sync_groups', 0);
     }
 
+    public function test_bundle_master_sku_derives_stock_and_hpp_from_its_components(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Kaos Dasar',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $black = MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'sku' => 'DSP-KLR-HTM-M',
+            'stock' => 10,
+            'hpp' => 20000,
+        ]);
+        $navy = MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'sku' => 'DSP-KLR-NVY-M',
+            'stock' => 7,
+            'hpp' => 22000,
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/api/master-products', [
+            'name' => 'Paket Kaos 3 PCS',
+            'status' => 'active',
+            'variants' => [[
+                'sku' => '3PCS-DSP-KLR-HHN-M',
+                'hpp' => 0,
+                'stock' => 0,
+                'is_active' => true,
+                'is_bundle' => true,
+                'components' => [
+                    ['master_product_variant_id' => $black->id, 'quantity' => 2],
+                    ['master_product_variant_id' => $navy->id, 'quantity' => 1],
+                ],
+            ]],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('variants.0.is_bundle', true)
+            ->assertJsonPath('variants.0.stock', 5)
+            ->assertJsonPath('variants.0.hpp', 62000.0)
+            ->assertJsonCount(2, 'variants.0.components');
+        $this->assertDatabaseHas('master_product_bundle_components', [
+            'component_variant_id' => $black->id,
+            'quantity' => 2,
+        ]);
+        $this->assertDatabaseHas('sku_sync_groups', [
+            'sku' => '3PCS-DSP-KLR-HHN-M',
+            'master_stock' => 5,
+        ]);
+    }
+
+    public function test_component_sku_cannot_be_deleted_while_it_is_used_by_a_bundle(): void
+    {
+        $user = User::factory()->create();
+        $componentProduct = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Komponen',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $component = MasterProductVariant::create([
+            'master_product_id' => $componentProduct->id,
+            'user_id' => $user->id,
+            'sku' => 'KOMPONEN-1',
+            'stock' => 10,
+            'hpp' => 10000,
+        ]);
+        $bundleProduct = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Bundle',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $bundle = MasterProductVariant::create([
+            'master_product_id' => $bundleProduct->id,
+            'user_id' => $user->id,
+            'sku' => 'BUNDLE-1',
+            'stock' => 10,
+            'hpp' => 10000,
+            'is_bundle' => true,
+        ]);
+        $bundle->bundleComponents()->create([
+            'component_variant_id' => $component->id,
+            'quantity' => 1,
+        ]);
+
+        $this->actingAs($user)
+            ->deleteJson("/api/master-products/{$componentProduct->id}/variants/{$component->id}")
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('master_product_variants', ['id' => $component->id]);
+    }
+
     public function test_duplicate_marketplace_sku_is_suggested_until_master_is_created(): void
     {
         $user = User::factory()->create();
