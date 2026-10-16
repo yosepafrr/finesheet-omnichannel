@@ -1301,9 +1301,6 @@ export default function OrderList() {
                                     0,
                                 )
                                 : Number(data?.totals?.profit_amount || 0);
-                            const hasMissingHpp = hasClientOnlyEscrowFilter
-                                ? ordersForTotals.some((order) => order.has_missing_hpp)
-                                : Boolean(data?.totals?.has_missing_hpp);
                             const itemsPerPage = limitByStore[store.id] || 30;
                             const totalPages = Math.ceil(
                                 totalOrders / itemsPerPage,
@@ -1685,13 +1682,6 @@ export default function OrderList() {
                                                         {formatRp(totalProfit)}
                                                     </td>
                                                 </tr>
-                                                {hasMissingHpp && (
-                                                    <tr>
-                                                        <td colSpan={8} className="px-6 pb-3 text-right">
-                                                            <HppWarning className="justify-end" />
-                                                        </td>
-                                                    </tr>
-                                                )}
                                                 {selectedFilterId === 'dikirim' && (
                                                     <tr>
                                                         <td colSpan={8} className="px-6 py-3 text-right">
@@ -1947,11 +1937,6 @@ export default function OrderList() {
                                                     <p className={`mt-1 truncate text-xs font-bold ${totalProfit < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(totalProfit)}</p>
                                                 </div>
                                             </div>
-                                            {hasMissingHpp && (
-                                                <div className="border-t border-amber-100 bg-amber-50/60 px-3 pb-2.5 pt-1 dark:border-amber-900/40 dark:bg-amber-900/10">
-                                                    <HppWarning />
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
 

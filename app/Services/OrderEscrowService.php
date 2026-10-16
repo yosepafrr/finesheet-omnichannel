@@ -27,6 +27,12 @@ class OrderEscrowService
         'TO_CONFIRM_RECEIVE',
     ];
 
+    private const PROFIT_ANALYTICS_STATUSES = [
+        ...self::NEEDS_SHIPPING_STATUSES,
+        ...self::SHIPPED_STATUSES,
+        'COMPLETED',
+    ];
+
     private const INACTIVE_RETURN_STATUSES = [
         'REJECTED',
         'CANCELLED',
@@ -64,6 +70,29 @@ class OrderEscrowService
         }
 
         return null;
+    }
+
+    public function isProfitAnalyticsEligible(Order $order): bool
+    {
+        $status = strtoupper(trim((string) $order->order_status));
+
+        return in_array($status, self::PROFIT_ANALYTICS_STATUSES, true)
+            && ! $this->hasReturnOrFailedDelivery($order);
+    }
+
+    /** @return array<int, string> */
+    public function realtimeStatuses(): array
+    {
+        return array_values(array_unique([
+            ...self::NEEDS_SHIPPING_STATUSES,
+            ...self::SHIPPED_STATUSES,
+        ]));
+    }
+
+    /** @return array<int, string> */
+    public function profitAnalyticsStatuses(): array
+    {
+        return self::PROFIT_ANALYTICS_STATUSES;
     }
 
     /**

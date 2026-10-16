@@ -112,6 +112,23 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertNull($this->service->category($order));
     }
 
+    public function test_completed_order_is_included_in_profit_analytics(): void
+    {
+        $this->assertTrue($this->service->isProfitAnalyticsEligible(
+            $this->order('COMPLETED', 150_000),
+        ));
+    }
+
+    public function test_returned_order_is_excluded_from_profit_analytics(): void
+    {
+        $order = $this->order('COMPLETED', 150_000);
+        $order->setRelation('returns', new Collection([
+            new OrderReturn(['normalized_status' => 'RETURN_PROCESSING']),
+        ]));
+
+        $this->assertFalse($this->service->isProfitAnalyticsEligible($order));
+    }
+
     private function order(string $status, ?float $escrow, ?float $adjusted = null): Order
     {
         $order = new Order([

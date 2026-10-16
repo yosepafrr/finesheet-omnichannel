@@ -6,13 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncTiktokEscrowJob;
 use App\Models\Order;
-use App\Models\Product;
 use App\Models\VariantProduct;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
+use App\Services\OrderProfitService;
 use App\Services\PayableService;
-use App\Services\ProductHppService;
 use App\Services\TiktokEscrowAmountResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,7 +22,7 @@ class OrderController extends Controller
         Request $request,
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService,
-        ProductHppService $hppService
+        OrderProfitService $profitService
     ) {
         $user = Auth::user();
         $stores = $user->stores()->get();
@@ -164,48 +163,7 @@ class OrderController extends Controller
 
         $orders = $query->get();
 
-        $marketplaceProducts = Product::query()
-            ->with([
-                'store',
-                'skuSyncMember.group.masterVariant.bundleComponents.componentVariant.syncGroup',
-                'variantProducts.skuSyncMember.group.masterVariant.bundleComponents.componentVariant.syncGroup',
-            ])
-            ->whereIn('store_id', $orders->pluck('store_id')->unique())
-            ->whereIn('product_id', $orders->flatMap(
-                fn (Order $order) => $order->orderProducts->pluck('product_id'),
-            )->filter()->unique())
-            ->get()
-            ->keyBy(fn (Product $product) => $product->store_id.':'.$product->product_id);
-
-        foreach ($orders as $order) {
-            foreach ($order->orderProducts as $item) {
-                $item->setRelation('order', $order);
-                $item->setRelation(
-                    'product',
-                    $marketplaceProducts->get($order->store_id.':'.$item->product_id),
-                );
-            }
-        }
-
-        $financialSummaries = $orders->mapWithKeys(function (Order $order) use ($escrowService, $hppService) {
-            $hppAmount = 0.0;
-            $hasMissingHpp = $order->orderProducts->isEmpty();
-
-            foreach ($order->orderProducts as $item) {
-                $details = $hppService->orderItemHppDetails($item);
-                $hppAmount += (float) $details['hpp'] * (int) ($item->quantity_purchased ?? 0);
-                $hasMissingHpp = $hasMissingHpp || ! $details['available'];
-            }
-
-            $escrowAmount = (float) $escrowService->amount($order);
-
-            return [$order->id => [
-                'hpp_amount' => $hppAmount,
-                'escrow_amount' => $escrowAmount,
-                'profit_amount' => $escrowAmount - $hppAmount,
-                'has_missing_hpp' => $hasMissingHpp,
-            ]];
-        });
+        $financialSummaries = $profitService->summaries($orders);
 
         return response()->json([
             'status_counts' => $statusCounts,

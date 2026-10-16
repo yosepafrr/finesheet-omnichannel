@@ -18,7 +18,7 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(filterPerluDikirim).toBeVisible();
     await expect(filterDikirim).toBeVisible();
     await expect(filterReturn).toBeVisible();
-    await expect(page.getByText('Coming Soon', { exact: true })).toBeVisible();
+    await expect(page.getByText('Coming Soon', { exact: true }).first()).toBeVisible();
 
     // Verify initial states (assuming default is Perlu Dikirim = ON, Dikirim = ON, Return = OFF)
     await expect(filterPerluDikirim).toHaveClass(/text-white/);

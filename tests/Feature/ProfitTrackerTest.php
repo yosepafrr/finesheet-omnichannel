@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\OrderProduct;
 use App\Models\OrderReturn;
+use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
+use App\Models\VariantProduct;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -30,6 +33,8 @@ class ProfitTrackerTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('total_escrow_amount', 700_000)
+            ->assertJsonPath('total_hpp_amount', 0)
+            ->assertJsonPath('total_order_count', 3)
             ->assertJsonPath('stores.0.id', $tiktok->id)
             ->assertJsonPath('stores.0.escrow', 400_000)
             ->assertJsonPath('stores.0.status_counts.perlu_dikirim', 1)
@@ -41,6 +46,59 @@ class ProfitTrackerTest extends TestCase
 
         $storeTotal = collect($response->json('stores'))->sum('escrow');
         $this->assertSame((float) $response->json('total_escrow_amount'), (float) $storeTotal);
+    }
+
+    public function test_realtime_hpp_uses_the_same_orders_as_escrow_and_analytics_includes_completed_sales(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee HPP', 'shop-hpp');
+        $product = Product::create([
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'product_id' => 'product-hpp',
+            'product_name' => 'Produk HPP',
+            'product_sku' => 'SKU-HPP-PROFIT',
+            'stock' => 10,
+            'price' => 50_000,
+        ]);
+        $variant = VariantProduct::create([
+            'product_id' => $product->id,
+            'model_id' => 'variant-hpp',
+            'model_name' => 'Black',
+            'model_sku' => 'SKU-HPP-PROFIT',
+            'stock' => 10,
+            'price' => 50_000,
+            'hpp' => 20_000,
+        ]);
+
+        $activeOrder = $this->createOrder($store, 'ACTIVE-HPP', 'SHIPPED', 100_000);
+        $completedOrder = $this->createOrder($store, 'COMPLETED-HPP', 'COMPLETED', 75_000);
+
+        foreach ([[$activeOrder, 2], [$completedOrder, 1]] as [$order, $quantity]) {
+            OrderProduct::withoutEvents(fn () => OrderProduct::create([
+                'order_id' => $order->id,
+                'product_id' => $product->product_id,
+                'product_name' => $product->product_name,
+                'model_name' => $variant->model_name,
+                'platform_variant_id' => $variant->model_id,
+                'sku' => $variant->model_sku,
+                'quantity_purchased' => $quantity,
+                'price' => 50_000,
+            ]));
+        }
+
+        $response = $this->actingAs($user)->getJson('/api/profit-tracker?analytics_period=today');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total_order_count', 1)
+            ->assertJsonPath('total_escrow_amount', 100_000)
+            ->assertJsonPath('total_hpp_amount', 40_000)
+            ->assertJsonPath('total_profit_amount', 60_000)
+            ->assertJsonPath('analytics.totals.order_count', 2)
+            ->assertJsonPath('analytics.totals.hpp_amount', 60_000)
+            ->assertJsonPath('analytics.totals.escrow_amount', 175_000)
+            ->assertJsonPath('analytics.totals.profit_amount', 115_000);
     }
 
     public function test_return_cancel_is_limited_to_the_order_list_shipped_scope(): void
