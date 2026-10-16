@@ -34,12 +34,23 @@ class SyncShopeeReturnJob implements ShouldQueue
 
     protected $timeTo;
 
-    public function __construct(Store|int $store, $timeFrom = null, $timeTo = null)
-    {
+    public ?string $returnSn = null;
+
+    public array $returnData = [];
+
+    public function __construct(
+        Store|int $store,
+        $timeFrom = null,
+        $timeTo = null,
+        ?string $returnSn = null,
+        array $returnData = [],
+    ) {
         $this->storeId = $store instanceof Store ? $store->id : $store;
         // Default to last 30 days if not provided
         $this->timeTo = $timeTo ?? time();
         $this->timeFrom = $timeFrom ?? Carbon::now()->subDays(30)->timestamp;
+        $this->returnSn = $returnSn;
+        $this->returnData = $returnData;
     }
 
     public function handle(ShopeeService $shopeeService, PayableService $payableService): void
@@ -56,21 +67,35 @@ class SyncShopeeReturnJob implements ShouldQueue
             $accessToken = $shopeeService->ensureValidToken($store);
             $shopId = $store->shopee_shop_id;
 
+            if ($this->returnSn) {
+                $this->syncReturn(
+                    $shopeeService,
+                    $payableService,
+                    $store,
+                    $accessToken,
+                    (string) $shopId,
+                    array_replace($this->returnData, ['return_sn' => $this->returnSn]),
+                );
+
+                return;
+            }
+
             $rangeFrom = max(0, (int) $this->timeFrom);
             $rangeTo = max($rangeFrom, (int) $this->timeTo);
 
-            while ($rangeFrom <= $rangeTo) {
-                $windowTo = min($rangeTo, $rangeFrom + self::WINDOW_SECONDS - 1);
+            $windowTo = $rangeTo;
+            while ($windowTo >= $rangeFrom) {
+                $windowFrom = max($rangeFrom, $windowTo - self::WINDOW_SECONDS + 1);
                 $this->syncWindow(
                     $shopeeService,
                     $payableService,
                     $store,
                     $accessToken,
                     (string) $shopId,
-                    $rangeFrom,
+                    $windowFrom,
                     $windowTo,
                 );
-                $rangeFrom = $windowTo + 1;
+                $windowTo = $windowFrom - 1;
             }
         } catch (\Throwable $e) {
             Log::error("SyncShopeeReturnJob failed for Store ID: {$this->storeId} - ".$e->getMessage());
@@ -110,14 +135,22 @@ class SyncShopeeReturnJob implements ShouldQueue
             $hasMore = (bool) ($response['response']['more'] ?? false);
 
             foreach ($returns as $returnItem) {
-                $this->syncReturn(
-                    $shopeeService,
-                    $payableService,
-                    $store,
-                    $accessToken,
-                    $shopId,
-                    $returnItem,
-                );
+                try {
+                    $this->syncReturn(
+                        $shopeeService,
+                        $payableService,
+                        $store,
+                        $accessToken,
+                        $shopId,
+                        $returnItem,
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('Shopee return item sync failed', [
+                        'store_id' => $store->id,
+                        'return_sn' => $returnItem['return_sn'] ?? null,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
             }
 
             $pageNo++;
@@ -142,16 +175,23 @@ class SyncShopeeReturnJob implements ShouldQueue
         }
 
         $detailResponse = $shopeeService->getReturnDetail($accessToken, $shopId, $returnSn);
+        $detailPayload = $detailResponse['response'] ?? [];
         if (! empty($detailResponse['error'])) {
-            throw new \RuntimeException(
-                'Shopee return detail error: '.$detailResponse['error'].' - '.($detailResponse['message'] ?? 'unknown error')
-            );
+            Log::warning('Shopee return detail unavailable, using return list payload', [
+                'store_id' => $store->id,
+                'return_sn' => $returnSn,
+                'error' => $detailResponse['error'],
+                'message' => $detailResponse['message'] ?? null,
+            ]);
+            $detailPayload = [];
         }
 
-        $detail = $detailResponse['response'] ?? [];
-        $orderSn = $detail['order_sn'] ?? null;
+        // Some Shopee responses expose timestamps and item identifiers only in
+        // the list payload. Keep both shapes, with detail values taking priority.
+        $detail = array_replace($returnItem, $detailPayload);
+        $orderSn = $detail['order_sn'] ?? $detail['ordersn'] ?? null;
         if (! $orderSn) {
-            return;
+            throw new \RuntimeException("Shopee return {$returnSn} does not contain order_sn");
         }
 
         $order = Order::query()
@@ -167,12 +207,12 @@ class SyncShopeeReturnJob implements ShouldQueue
             return;
         }
 
-        $platformStatus = $detail['status'] ?? 'UNKNOWN';
+        $platformStatus = $detail['status'] ?? $detail['return_status'] ?? 'UNKNOWN';
         $orderReturn = OrderReturn::firstOrNew([
             'platform' => 'Shopee',
             'external_return_id' => $returnSn,
         ]);
-        $orderReturn->fill([
+        $attributes = [
             'order_id' => $order->id,
             'return_status' => $platformStatus,
             'normalized_status' => $this->normalizeStatus($platformStatus),
@@ -181,11 +221,16 @@ class SyncShopeeReturnJob implements ShouldQueue
             'return_reason' => $detail['reason'] ?? null,
             'text_reason' => $detail['text_reason'] ?? null,
             'tracking_number' => $detail['tracking_number'] ?? null,
-            'updated_at_platform' => isset($detail['update_time'])
-                ? Carbon::createFromTimestamp($detail['update_time'])->setTimezone(config('app.timezone'))
-                : null,
-            'raw_data' => $detail,
-        ]);
+            'raw_data' => [
+                'list' => $returnItem,
+                'detail' => $detailPayload,
+            ],
+        ];
+        if (isset($detail['update_time'])) {
+            $attributes['updated_at_platform'] = Carbon::createFromTimestamp($detail['update_time'])
+                ->setTimezone(config('app.timezone'));
+        }
+        $orderReturn->fill($attributes);
         if (isset($detail['create_time'])) {
             $orderReturn->preserveEarliestPlatformCreatedAt(
                 Carbon::createFromTimestamp($detail['create_time'])->setTimezone(config('app.timezone'))
@@ -193,14 +238,20 @@ class SyncShopeeReturnJob implements ShouldQueue
         }
         $orderReturn->save();
 
-        foreach ($detail['item'] ?? [] as $item) {
+        $items = $detail['item'] ?? $detail['item_list'] ?? [];
+        foreach ($items as $item) {
+            $skuId = $item['model_id']
+                ?? $item['model_sku']
+                ?? $item['item_id']
+                ?? $item['item_sku']
+                ?? null;
             OrderReturnItem::updateOrCreate(
                 [
                     'order_return_id' => $orderReturn->id,
-                    'sku_id' => $item['model_id'] ?? $item['item_id'] ?? null,
+                    'sku_id' => $skuId,
                 ],
                 [
-                    'external_line_item_id' => $item['item_id'] ?? null,
+                    'external_line_item_id' => $item['return_item_id'] ?? $item['item_id'] ?? null,
                     'product_name' => $item['item_name'] ?? null,
                     'quantity' => $item['amount'] ?? 1,
                     'refund_amount' => $item['refund_amount'] ?? null,
@@ -224,8 +275,11 @@ class SyncShopeeReturnJob implements ShouldQueue
             'CANCELLED' => 'CANCELLED',
             'JUDGING' => 'DISPUTED',
             'REFUND_PAID' => 'COMPLETED',
+            'COMPLETED' => 'COMPLETED',
+            'REFUNDING' => 'PROCESSING',
             'CLOSED' => 'REJECTED',
             'PROCESSING' => 'PROCESSING',
+            'SELLER_DISPUTE' => 'DISPUTED',
         ];
 
         return $map[strtoupper($status)] ?? 'UNKNOWN';

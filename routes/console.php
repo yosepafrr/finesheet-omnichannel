@@ -73,3 +73,8 @@ Schedule::command('sync:shopee-escrow --days=180')
     ->hourlyAt(20)
     ->name('dispatch-shopee-escrow-reconciliation')
     ->withoutOverlapping(55);
+
+Schedule::command('sync:shopee-returns --days=180')
+    ->dailyAt('02:20')
+    ->name('dispatch-shopee-return-backfill')
+    ->withoutOverlapping(180);

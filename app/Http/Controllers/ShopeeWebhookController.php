@@ -101,13 +101,18 @@ class ShopeeWebhookController extends Controller
 
         if ($code === self::RETURN_PUSH_CODE) {
             $store = $this->findStore($shopId);
+            $returnSn = $this->extractReturnSn($data);
 
             if ($orderSn) {
                 $this->dispatchOrderSync($shopId, $orderSn, $code);
             }
 
             if ($store) {
-                SyncShopeeReturnJob::dispatch($store)->onQueue('orders');
+                $returnData = array_filter(array_replace($data, [
+                    'return_sn' => $returnSn,
+                    'order_sn' => $orderSn,
+                ]), fn ($value) => $value !== null);
+                SyncShopeeReturnJob::dispatch($store, null, null, $returnSn, $returnData)->onQueue('orders');
             } else {
                 Log::warning('Shopee return push ignored because store was not found', [
                     'shop_id' => $shopId,
@@ -217,6 +222,16 @@ class ShopeeWebhookController extends Controller
             ?? data_get($data, 'package_list.0.order_sn');
 
         return $orderSn ? (string) $orderSn : null;
+    }
+
+    private function extractReturnSn(array $data): ?string
+    {
+        $returnSn = data_get($data, 'return_sn')
+            ?? data_get($data, 'returnsn')
+            ?? data_get($data, 'return.return_sn')
+            ?? data_get($data, 'return_refund.return_sn');
+
+        return $returnSn ? (string) $returnSn : null;
     }
 
     private function dispatchOrderSync(string|int $shopId, string $orderSn, int $code): void

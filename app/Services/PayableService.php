@@ -427,6 +427,18 @@ class PayableService
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
 
+        $orderReturns = $order
+            ? $this->activeReturnsForOrder($order)
+            : collect([$return])->filter(fn (OrderReturn $item) => $this->isActiveReturn($item));
+
+        if ($orderReturns->isEmpty()) {
+            PayableEvent::whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
+                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->delete();
+
+            return;
+        }
+
         if ($order
             && in_array(strtoupper(trim($order->order_status ?? '')), ['CANCEL', 'CANCELLED', 'IN_CANCEL'], true)
             && ! $this->hasPostShipmentAdjustment($order)) {
@@ -446,7 +458,7 @@ class PayableService
         $returnsBySupplier = [];
 
         if ($order) {
-            $orderReturns = OrderReturn::with('items')->where('order_id', $order->id)->get();
+            $order->loadMissing('orderProducts');
             $date = $orderReturns
                 ->map(fn (OrderReturn $orderReturn) => $this->returnEventDate($orderReturn))
                 ->sortBy(fn (Carbon $returnDate) => $returnDate->getTimestamp())
@@ -454,21 +466,29 @@ class PayableService
 
             foreach ($orderReturns as $ret) {
                 foreach ($ret->items as $item) {
-                    [$variant, $product] = $this->resolveReturnListing($item->sku_id, $order, $userId);
-                    $supplierId = $product
-                        ? $this->resolveSupplierIdForItem((object) [
-                            'product_id' => $product->product_id,
-                            'model_name' => $variant?->model_name,
-                            'platform_variant_id' => $variant?->model_id,
-                            'sku' => $variant?->model_sku ?? $item->sku_id,
-                            'order' => $order,
-                        ], $userId)
-                        : null;
-                    $hpp = $variant
-                        ? $this->hppService->variantDetails($variant)['hpp']
-                        : ($product ? $this->hppService->productDetails($product)['hpp'] : 0);
+                    $orderItem = $this->resolveOrderItemForReturn($item, $order);
+                    if ($orderItem) {
+                        $supplierId = $this->resolveSupplierIdForItem($orderItem, $userId);
+                        $hpp = $this->getItemHpp($orderItem);
+                    } else {
+                        [$variant, $product] = $this->resolveReturnListing($item->sku_id, $order, $userId);
+                        $supplierId = $product
+                            ? $this->resolveSupplierIdForItem((object) [
+                                'product_id' => $product->product_id,
+                                'model_name' => $variant?->model_name,
+                                'platform_variant_id' => $variant?->model_id,
+                                'sku' => $variant?->model_sku ?? $item->sku_id,
+                                'order' => $order,
+                            ], $userId)
+                            : null;
+                        $hpp = $variant
+                            ? $this->hppService->variantDetails($variant)['hpp']
+                            : ($product ? $this->hppService->productDetails($product)['hpp'] : 0);
+                    }
+
                     if ($supplierId && $hpp > 0) {
-                        $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $item->quantity);
+                        $quantity = max(1, (int) ($item->quantity ?? 1));
+                        $returnsBySupplier[$supplierId] = ($returnsBySupplier[$supplierId] ?? 0) + ($hpp * $quantity);
                     }
                 }
             }
@@ -495,24 +515,10 @@ class PayableService
 
         // Fallback: If return items don't have supplier, distribute from CREATE_ORDER events
         if (empty($returnsBySupplier) && $orderSn) {
-            $mappedSupplierIds = collect();
-            if ($order) {
-                $order->loadMissing('orderProducts');
-                $mappedSupplierIds = $order->orderProducts
-                    ->map(fn ($item) => $this->resolveSupplierIdForItem($item, $userId))
-                    ->filter()
-                    ->unique()
-                    ->values();
-            }
-
-            $createEventsQuery = PayableEvent::where('source_id', $orderSn)
+            $createEvents = PayableEvent::where('source_id', $orderSn)
                 ->where('user_id', $userId)
-                ->where('source_type', 'CREATE_ORDER');
-            if ($mappedSupplierIds->isNotEmpty()) {
-                $createEventsQuery->whereIn('supplier_id', $mappedSupplierIds);
-            }
-
-            $createEvents = $createEventsQuery->get();
+                ->where('source_type', 'CREATE_ORDER')
+                ->get();
             if ($createEvents->isNotEmpty()) {
                 foreach ($createEvents as $ce) {
                     $returnsBySupplier[$ce->supplier_id] = (float) $ce->amount;
@@ -622,6 +628,37 @@ class PayableService
                 $cleanup->whereNotNull('supplier_id')->whereNotIn('supplier_id', $nonNull)->delete();
             }
         }
+    }
+
+    private function resolveOrderItemForReturn(mixed $returnItem, Order $order): mixed
+    {
+        $rawData = is_array($returnItem->raw_data ?? null) ? $returnItem->raw_data : [];
+        $identifiers = collect([
+            $returnItem->sku_id ?? null,
+            $returnItem->external_line_item_id ?? null,
+            data_get($rawData, 'model_id'),
+            data_get($rawData, 'model_sku'),
+            data_get($rawData, 'item_id'),
+            data_get($rawData, 'item_sku'),
+            data_get($rawData, 'sku'),
+        ])->filter(fn ($value) => $value !== null && trim((string) $value) !== '')
+            ->map(fn ($value) => mb_strtolower(trim((string) $value)))
+            ->unique();
+
+        if ($identifiers->isEmpty()) {
+            return null;
+        }
+
+        return $order->orderProducts->first(function ($orderItem) use ($identifiers) {
+            $orderIdentifiers = collect([
+                $orderItem->platform_variant_id,
+                $orderItem->sku,
+                $orderItem->product_id,
+            ])->filter(fn ($value) => $value !== null && trim((string) $value) !== '')
+                ->map(fn ($value) => mb_strtolower(trim((string) $value)));
+
+            return $orderIdentifiers->intersect($identifiers)->isNotEmpty();
+        });
     }
 
     private function resolveReturnListing(mixed $skuId, ?Order $order, int $userId): array
@@ -902,7 +939,7 @@ class PayableService
         $hasFailedPackage = $this->hasConfirmedFailedPackage($order);
         $hasReturn = PayableEvent::where('source_id', $order->order_sn)
             ->where('source_type', 'RETURN_ORDER')
-            ->exists() || $order->returns()->exists();
+            ->exists() || $this->hasActiveReturn($order);
         $hasConfirmedReturn = $hasReturn && $this->hasShipmentEvidence($order);
         $isTrueCancellation = in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])
             && ! $hasFailedPackage
@@ -1028,7 +1065,7 @@ class PayableService
             $this->recordOrderEvent($order->loadMissing(['orderProducts', 'store']));
         }
 
-        $return = $order->returns()->first();
+        $return = $this->activeReturnsForOrder($order)->first();
         if ($return) {
             $this->recordReturnEvent($return->loadMissing(['items', 'order.store']));
 
@@ -1044,7 +1081,7 @@ class PayableService
             return true;
         }
 
-        if (! $order->returns()->exists()) {
+        if (! $this->hasActiveReturn($order)) {
             return false;
         }
 
@@ -1097,6 +1134,29 @@ class PayableService
             ->whereNotNull('tracking_number')
             ->where('tracking_number', '!=', '')
             ->exists();
+    }
+
+    private function hasActiveReturn(Order $order): bool
+    {
+        return $this->activeReturnsForOrder($order)->isNotEmpty();
+    }
+
+    private function activeReturnsForOrder(Order $order)
+    {
+        return $order->returns()
+            ->with('items')
+            ->get()
+            ->filter(fn (OrderReturn $return) => $this->isActiveReturn($return))
+            ->values();
+    }
+
+    private function isActiveReturn(OrderReturn $return): bool
+    {
+        return ! in_array(
+            strtoupper(trim((string) $return->normalized_status)),
+            ['CANCELLED', 'REJECTED'],
+            true,
+        );
     }
 
     public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int
@@ -1199,10 +1259,6 @@ class PayableService
         $returns = OrderReturn::with('items', 'order')
             ->whereHas('order', function ($q) use ($userStores) {
                 $q->whereIn('store_id', $userStores);
-            })
-            ->where(function ($q) {
-                $q->whereNotNull('updated_at_platform')
-                    ->orWhereNotNull('created_at_platform');
             })
             ->get();
 
