@@ -101,6 +101,30 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.profit_amount', 115_000);
     }
 
+    public function test_profit_analytics_supports_seven_and_fourteen_day_presets(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Preset', 'shop-preset');
+
+        $recentOrder = $this->createOrder($store, 'RECENT-ORDER', 'COMPLETED', 80_000);
+        $recentOrder->forceFill(['order_time' => now()->subDays(6)])->saveQuietly();
+
+        $olderOrder = $this->createOrder($store, 'OLDER-ORDER', 'COMPLETED', 120_000);
+        $olderOrder->forceFill(['order_time' => now()->subDays(10)])->saveQuietly();
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=last_7_days')
+            ->assertOk()
+            ->assertJsonPath('analytics.totals.order_count', 1)
+            ->assertJsonPath('analytics.totals.escrow_amount', 80_000);
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=last_14_days')
+            ->assertOk()
+            ->assertJsonPath('analytics.totals.order_count', 2)
+            ->assertJsonPath('analytics.totals.escrow_amount', 200_000);
+    }
+
     public function test_return_cancel_is_limited_to_the_order_list_shipped_scope(): void
     {
         $user = User::factory()->create();

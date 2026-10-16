@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
+import { CalendarDays } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -31,11 +32,14 @@ const PROFIT_TOUR_STEPS = [
     },
 ];
 
-const POLLING_INTERVAL = 5000;
+const FALLBACK_POLLING_INTERVAL = 60000;
+const REALTIME_REFRESH_DELAY = 1200;
 const ANALYTICS_PERIODS = [
     { id: "today", label: "Hari Ini" },
     { id: "date", label: "Pilih Hari" },
     { id: "range", label: "Rentang" },
+    { id: "last_7_days", label: "7 Hari" },
+    { id: "last_14_days", label: "14 Hari" },
     { id: "last_30_days", label: "30 Hari" },
     { id: "last_60_days", label: "60 Hari" },
     { id: "last_90_days", label: "90 Hari" },
@@ -62,6 +66,47 @@ function formatPeriodLabel(key, granularity) {
         ? { month: "long", year: "numeric" }
         : { day: "2-digit", month: "short", year: "numeric" }
     ).format(date);
+}
+
+function formatSelectedDate(value) {
+    if (!value) return "Belum dipilih";
+
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat("id-ID", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+    }).format(date);
+}
+
+function DatePickerField({ id, label, value, onChange, min, max }) {
+    return (
+        <label htmlFor={id} className="group block min-w-0">
+            <span className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</span>
+            <span className="flex min-h-[68px] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm transition-colors focus-within:border-[#304674] focus-within:ring-2 focus-within:ring-[#304674]/10 dark:border-slate-700 dark:bg-slate-800 dark:focus-within:border-blue-500 dark:focus-within:ring-blue-500/10">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-300">
+                    <CalendarDays aria-hidden="true" size={18} strokeWidth={1.8} />
+                </span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        {formatSelectedDate(value)}
+                    </span>
+                    <input
+                        id={id}
+                        type="date"
+                        value={value}
+                        min={min}
+                        max={max}
+                        onChange={(event) => onChange(event.target.value)}
+                        className="mt-0.5 block w-full cursor-pointer border-0 bg-transparent p-0 text-xs text-slate-500 shadow-none focus:ring-0 dark:text-slate-400"
+                    />
+                </span>
+            </span>
+        </label>
+    );
 }
 
 const PLATFORM_CONFIG = {
@@ -141,7 +186,11 @@ export default function ProfitTracker() {
     const thirtyDaysAgo = localDateString(new Date(Date.now() - (29 * 24 * 60 * 60 * 1000)));
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState("");
+    const fetchDataRef = useRef(null);
+    const realtimeRefreshTimeoutRef = useRef(null);
+    const requestSequenceRef = useRef(0);
     const [escrowFilters, setEscrowFilters] = useState({
         include_perlu_dikirim: 1,
         include_dikirim: 1,
@@ -156,12 +205,18 @@ export default function ProfitTracker() {
         year: today.slice(0, 4),
     });
 
-    const fetchData = useCallback(async (realtimeOnly = false) => {
+    const fetchData = useCallback(async ({ silent = false } = {}) => {
+        const requestSequence = ++requestSequenceRef.current;
+
+        if (silent) {
+            setRefreshing(true);
+        }
+
         try {
             const params = {
                 ...escrowFilters,
                 analytics_period: analyticsFilter.period,
-                include_analytics: realtimeOnly ? 0 : 1,
+                include_analytics: 1,
             };
 
             if (analyticsFilter.period === "date") params.analytics_date = analyticsFilter.date;
@@ -173,24 +228,74 @@ export default function ProfitTracker() {
             if (analyticsFilter.period === "year") params.analytics_year = analyticsFilter.year;
 
             const response = await axios.get("/api/profit-tracker", { params });
-            setData((previous) => realtimeOnly
-                ? { ...previous, ...response.data, analytics: previous?.analytics }
-                : response.data
-            );
+
+            if (requestSequence !== requestSequenceRef.current) return;
+
+            setData(response.data);
             setError("");
         } catch (requestError) {
+            if (requestSequence !== requestSequenceRef.current) return;
+
             console.error(requestError);
             setError(requestError.response?.data?.message || "Data profit belum dapat dimuat.");
         } finally {
-            setLoading(false);
+            if (requestSequence === requestSequenceRef.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
         }
     }, [analyticsFilter, escrowFilters]);
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(() => fetchData(true), POLLING_INTERVAL);
-        return () => clearInterval(interval);
     }, [fetchData]);
+
+    useEffect(() => {
+        fetchDataRef.current = fetchData;
+    }, [fetchData]);
+
+    useEffect(() => {
+        const handleOrderEvent = () => {
+            if (realtimeRefreshTimeoutRef.current) {
+                clearTimeout(realtimeRefreshTimeoutRef.current);
+            }
+
+            realtimeRefreshTimeoutRef.current = setTimeout(() => {
+                realtimeRefreshTimeoutRef.current = null;
+                fetchDataRef.current?.({ silent: true });
+            }, REALTIME_REFRESH_DELAY);
+        };
+
+        window.addEventListener("order-created", handleOrderEvent);
+        window.addEventListener("order-updated", handleOrderEvent);
+
+        return () => {
+            if (realtimeRefreshTimeoutRef.current) {
+                clearTimeout(realtimeRefreshTimeoutRef.current);
+            }
+            window.removeEventListener("order-created", handleOrderEvent);
+            window.removeEventListener("order-updated", handleOrderEvent);
+        };
+    }, []);
+
+    useEffect(() => {
+        const refreshIfRealtimeUnavailable = () => {
+            const connectionState = window.Echo?.connector?.pusher?.connection?.state;
+            const realtimeConnected = connectionState === "connected";
+
+            if (document.visibilityState === "visible" && !realtimeConnected) {
+                fetchDataRef.current?.({ silent: true });
+            }
+        };
+
+        const interval = setInterval(refreshIfRealtimeUnavailable, FALLBACK_POLLING_INTERVAL);
+        document.addEventListener("visibilitychange", refreshIfRealtimeUnavailable);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener("visibilitychange", refreshIfRealtimeUnavailable);
+        };
+    }, []);
 
     const toggleFilter = (key) => {
         setEscrowFilters((previous) => ({
@@ -220,7 +325,9 @@ export default function ProfitTracker() {
                                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
                             </span>
-                            <span className="text-xs font-medium text-gray-600 dark:text-slate-300">Live Update (5s)</span>
+                            <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
+                                {refreshing ? "Memperbarui data..." : "Real-time aktif"}
+                            </span>
                         </div>
                     </div>
 
@@ -387,22 +494,37 @@ export default function ProfitTracker() {
                                 </div>
 
                                 {analyticsFilter.period === "date" && (
-                                    <div className="max-w-xs">
-                                        <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="analytics-date">Tanggal</label>
-                                        <input id="analytics-date" type="date" value={analyticsFilter.date} onChange={(event) => updateAnalyticsFilter("date", event.target.value)} className="w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" />
+                                    <div className="max-w-md rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                                        <DatePickerField
+                                            id="analytics-date"
+                                            label="Tanggal analisis"
+                                            value={analyticsFilter.date}
+                                            onChange={(value) => updateAnalyticsFilter("date", value)}
+                                            max={today}
+                                        />
                                     </div>
                                 )}
 
                                 {analyticsFilter.period === "range" && (
-                                    <div className="grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
-                                        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                                            <span className="mb-1.5 block">Dari tanggal</span>
-                                            <input type="date" value={analyticsFilter.start} max={analyticsFilter.end} onChange={(event) => updateAnalyticsFilter("start", event.target.value)} className="w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" />
-                                        </label>
-                                        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                                            <span className="mb-1.5 block">Sampai tanggal</span>
-                                            <input type="date" value={analyticsFilter.end} min={analyticsFilter.start} onChange={(event) => updateAnalyticsFilter("end", event.target.value)} className="w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" />
-                                        </label>
+                                    <div className="max-w-2xl rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
+                                            <DatePickerField
+                                                id="analytics-start-date"
+                                                label="Dari tanggal"
+                                                value={analyticsFilter.start}
+                                                onChange={(value) => updateAnalyticsFilter("start", value)}
+                                                max={analyticsFilter.end || today}
+                                            />
+                                            <span className="hidden pb-6 text-xs font-semibold text-slate-400 sm:block">sampai</span>
+                                            <DatePickerField
+                                                id="analytics-end-date"
+                                                label="Sampai tanggal"
+                                                value={analyticsFilter.end}
+                                                onChange={(value) => updateAnalyticsFilter("end", value)}
+                                                min={analyticsFilter.start}
+                                                max={today}
+                                            />
+                                        </div>
                                     </div>
                                 )}
 

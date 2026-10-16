@@ -36,4 +36,30 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(filterReturn).toHaveClass(/text-white/);
   });
 
+  test('Analytics presets and styled date picker are available', async ({ page }) => {
+    await expect(page.getByRole('button', { name: '7 Hari', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '14 Hari', exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Pilih Hari', exact: true }).click();
+
+    await expect(page.getByLabel('Tanggal analisis')).toBeVisible();
+    await expect(page.locator('#analytics-date').locator('..').locator('..')).toHaveClass(/focus-within:ring/);
+  });
+
+  test('Analytics refreshes after a real-time order event', async ({ page }) => {
+    const refreshRequest = page.waitForRequest((request) => (
+      request.method() === 'GET'
+      && request.url().includes('/api/profit-tracker')
+      && request.url().includes('include_analytics=1')
+    ));
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('order-updated', {
+        detail: { id: 1, order_status: 'COMPLETED' },
+      }));
+    });
+
+    await refreshRequest;
+  });
+
 });

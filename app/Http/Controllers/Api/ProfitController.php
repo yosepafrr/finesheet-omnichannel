@@ -20,7 +20,7 @@ class ProfitController extends Controller
         OrderProfitService $profitService,
     ) {
         $request->validate([
-            'analytics_period' => 'nullable|in:today,date,range,last_30_days,last_60_days,last_90_days,month,year',
+            'analytics_period' => 'nullable|in:today,date,range,last_7_days,last_14_days,last_30_days,last_60_days,last_90_days,month,year',
             'analytics_date' => 'nullable|date_format:Y-m-d',
             'analytics_start' => 'nullable|date_format:Y-m-d',
             'analytics_end' => 'nullable|date_format:Y-m-d',
@@ -151,6 +151,8 @@ class ProfitController extends Controller
                 $timezone,
             ),
             'range' => $this->customRangePeriod($request, $timezone),
+            'last_7_days' => [$today->copy()->subDays(6), $today->copy()->endOfDay(), 'day'],
+            'last_14_days' => [$today->copy()->subDays(13), $today->copy()->endOfDay(), 'day'],
             'last_60_days' => [$today->copy()->subDays(59), $today->copy()->endOfDay(), 'day'],
             'last_90_days' => [$today->copy()->subDays(89), $today->copy()->endOfDay(), 'day'],
             'month' => $this->monthPeriod(
