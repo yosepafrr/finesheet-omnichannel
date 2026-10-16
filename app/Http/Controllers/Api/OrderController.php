@@ -13,6 +13,7 @@ use App\Services\OrderFinancialBreakdownService;
 use App\Services\OrderProfitService;
 use App\Services\PayableService;
 use App\Services\TiktokEscrowAmountResolver;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -386,6 +387,33 @@ class OrderController extends Controller
             'returns' => $order->returns->map(function ($ret) use ($payableService) {
                 $effectiveEventAt = $payableService->returnEventDate($ret);
                 $platformCreatedAt = $ret->created_at_platform;
+                $reverseTracking = data_get($ret->raw_data, 'reverse_tracking', []);
+                $reverseTrackingHistory = collect([
+                    [
+                        'segment' => 'Pembeli ke pusat validasi',
+                        'events' => $reverseTracking['tracking_info'] ?? [],
+                    ],
+                    [
+                        'segment' => 'Pusat validasi ke penjual',
+                        'events' => $reverseTracking['post_return_logistics_tracking_info'] ?? [],
+                    ],
+                ])->flatMap(function ($segment) {
+                    return collect($segment['events'])->map(function ($event) use ($segment) {
+                        $timestamp = $event['update_time'] ?? null;
+
+                        return [
+                            'segment' => $segment['segment'],
+                            'description' => $event['tracking_description']
+                                ?? $event['description']
+                                ?? 'Status pengembalian diperbarui',
+                            'occurred_at' => $timestamp
+                                ? Carbon::createFromTimestamp((int) $timestamp)->toIso8601String()
+                                : null,
+                        ];
+                    });
+                })->sortByDesc(function ($event) {
+                    return $event['occurred_at'] ?? '';
+                })->values();
 
                 return [
                     'id' => $ret->id,
@@ -404,6 +432,12 @@ class OrderController extends Controller
                     'effective_event_at' => $effectiveEventAt->format('d M Y, H:i'),
                     'uses_logistics_failure_date' => $platformCreatedAt
                         && ! $effectiveEventAt->equalTo($platformCreatedAt),
+                    'reverse_tracking_number' => $reverseTracking['tracking_number'] ?? null,
+                    'rts_tracking_number' => $reverseTracking['rts_tracking_number'] ?? null,
+                    'reverse_logistics_status' => $reverseTracking['reverse_logistics_status']
+                        ?? $reverseTracking['post_return_logistics_status']
+                        ?? null,
+                    'reverse_tracking_history' => $reverseTrackingHistory,
                     'items' => $ret->items->map(function ($item) {
                         return [
                             'product_name' => $item->product_name,

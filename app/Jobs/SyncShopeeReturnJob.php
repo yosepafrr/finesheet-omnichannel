@@ -207,25 +207,56 @@ class SyncShopeeReturnJob implements ShouldQueue
             return;
         }
 
-        $platformStatus = $detail['status'] ?? $detail['return_status'] ?? 'UNKNOWN';
+        $reverseTrackingPayload = $this->getReverseTrackingPayload(
+            $shopeeService,
+            $accessToken,
+            $shopId,
+            $returnSn,
+            $store->id,
+        );
         $orderReturn = OrderReturn::firstOrNew([
             'platform' => 'Shopee',
             'external_return_id' => $returnSn,
         ]);
+        $platformStatus = $detail['status']
+            ?? $detail['return_status']
+            ?? $orderReturn->platform_status
+            ?? $orderReturn->return_status
+            ?? 'UNKNOWN';
+        $existingRawData = is_array($orderReturn->raw_data) ? $orderReturn->raw_data : [];
+        $effectiveReverseTracking = $reverseTrackingPayload
+            ?: ($existingRawData['reverse_tracking'] ?? []);
+        $normalizationDetail = array_replace([
+            'refund_amount' => $orderReturn->refund_amount,
+        ], $detail);
         $attributes = [
             'order_id' => $order->id,
             'return_status' => $platformStatus,
-            'normalized_status' => $this->normalizeStatus($platformStatus),
-            'return_type' => $detail['return_type'] ?? null,
-            'refund_amount' => $detail['refund_amount'] ?? 0,
-            'return_reason' => $detail['reason'] ?? null,
-            'text_reason' => $detail['text_reason'] ?? null,
-            'tracking_number' => $detail['tracking_number'] ?? null,
+            'normalized_status' => $this->normalizeStatus(
+                $platformStatus,
+                $normalizationDetail,
+                $effectiveReverseTracking,
+            ),
+            'return_type' => $detail['return_refund_type']
+                ?? $detail['return_type']
+                ?? $this->returnSolutionLabel($detail['return_solution'] ?? null)
+                ?? $orderReturn->return_type,
             'raw_data' => [
                 'list' => $returnItem,
-                'detail' => $detailPayload,
+                'detail' => $detailPayload ?: ($existingRawData['detail'] ?? []),
+                'reverse_tracking' => $effectiveReverseTracking,
             ],
         ];
+        foreach ([
+            'refund_amount' => 'refund_amount',
+            'reason' => 'return_reason',
+            'text_reason' => 'text_reason',
+            'tracking_number' => 'tracking_number',
+        ] as $sourceField => $modelField) {
+            if (array_key_exists($sourceField, $detail)) {
+                $attributes[$modelField] = $detail[$sourceField];
+            }
+        }
         if (isset($detail['update_time'])) {
             $attributes['updated_at_platform'] = Carbon::createFromTimestamp($detail['update_time'])
                 ->setTimezone(config('app.timezone'));
@@ -241,6 +272,7 @@ class SyncShopeeReturnJob implements ShouldQueue
         $items = $detail['item'] ?? $detail['item_list'] ?? [];
         foreach ($items as $item) {
             $skuId = $item['model_id']
+                ?? $item['variation_sku']
                 ?? $item['model_sku']
                 ?? $item['item_id']
                 ?? $item['item_sku']
@@ -252,7 +284,7 @@ class SyncShopeeReturnJob implements ShouldQueue
                 ],
                 [
                     'external_line_item_id' => $item['return_item_id'] ?? $item['item_id'] ?? null,
-                    'product_name' => $item['item_name'] ?? null,
+                    'product_name' => $item['name'] ?? $item['item_name'] ?? null,
                     'quantity' => $item['amount'] ?? 1,
                     'refund_amount' => $item['refund_amount'] ?? null,
                     'raw_data' => $item,
@@ -265,10 +297,47 @@ class SyncShopeeReturnJob implements ShouldQueue
         );
     }
 
-    private function normalizeStatus($status)
+    private function getReverseTrackingPayload(
+        ShopeeService $shopeeService,
+        string $accessToken,
+        string $shopId,
+        string $returnSn,
+        int $storeId,
+    ): array {
+        try {
+            $response = $shopeeService->getReverseTrackingInfo($accessToken, $shopId, $returnSn);
+            if (! empty($response['error'])) {
+                Log::info('Shopee reverse tracking unavailable', [
+                    'store_id' => $storeId,
+                    'return_sn' => $returnSn,
+                    'error' => $response['error'],
+                    'message' => $response['message'] ?? null,
+                ]);
+
+                return [];
+            }
+
+            return is_array($response['response'] ?? null) ? $response['response'] : [];
+        } catch (\Throwable $e) {
+            Log::warning('Shopee reverse tracking request failed', [
+                'store_id' => $storeId,
+                'return_sn' => $returnSn,
+                'message' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function normalizeStatus(string $status, array $detail = [], array $reverseTracking = []): string
     {
-        // Example mapping based on Shopee statuses
-        // You can adjust these based on actual Shopee returns API documentation
+        $status = strtoupper(trim($status));
+        if ($status === 'CLOSED') {
+            return $this->hasCompletedReturnOutcome($detail, $reverseTracking)
+                ? 'COMPLETED'
+                : 'REJECTED';
+        }
+
         $map = [
             'REQUESTED' => 'PENDING',
             'ACCEPTED' => 'APPROVED',
@@ -277,11 +346,42 @@ class SyncShopeeReturnJob implements ShouldQueue
             'REFUND_PAID' => 'COMPLETED',
             'COMPLETED' => 'COMPLETED',
             'REFUNDING' => 'PROCESSING',
-            'CLOSED' => 'REJECTED',
             'PROCESSING' => 'PROCESSING',
             'SELLER_DISPUTE' => 'DISPUTED',
         ];
 
-        return $map[strtoupper($status)] ?? 'UNKNOWN';
+        return $map[$status] ?? 'UNKNOWN';
+    }
+
+    private function hasCompletedReturnOutcome(array $detail, array $reverseTracking): bool
+    {
+        if ((float) ($detail['refund_amount'] ?? 0) > 0) {
+            return true;
+        }
+
+        return ! empty($reverseTracking['post_return_logistics_tracking_info'])
+            || in_array(strtoupper((string) ($reverseTracking['reverse_logistics_status'] ?? '')), [
+                'LOGISTICS_DELIVERY_DONE',
+                'DELIVERED',
+                'RETURNED',
+            ], true)
+            || in_array(strtoupper((string) ($reverseTracking['post_return_logistics_status'] ?? '')), [
+                'LOGISTICS_DELIVERY_DONE',
+                'DELIVERED',
+                'RETURNED',
+            ], true);
+    }
+
+    private function returnSolutionLabel(mixed $solution): ?string
+    {
+        if ($solution === null || $solution === '') {
+            return null;
+        }
+
+        return match ((int) $solution) {
+            0 => 'RETURN_AND_REFUND',
+            1 => 'REFUND_ONLY',
+            default => (string) $solution,
+        };
     }
 }

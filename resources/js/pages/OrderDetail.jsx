@@ -687,6 +687,35 @@ export default function OrderDetail({ routeParams }) {
                                                     <p className="font-bold text-rose-600 dark:text-rose-400">{formatRp(ret.refund_amount)}</p>
                                                 </div>
                                             </div>
+                                            {ret.reverse_tracking_history?.length > 0 && (
+                                                <div className="mt-3 border-t border-rose-100 pt-3 dark:border-rose-900/30">
+                                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-xs font-bold uppercase text-gray-600 dark:text-slate-300">
+                                                            Riwayat logistik pengembalian
+                                                        </p>
+                                                        {(ret.rts_tracking_number || ret.reverse_tracking_number) && (
+                                                            <span className="font-mono text-[10px] text-gray-500 break-all">
+                                                                {ret.rts_tracking_number || ret.reverse_tracking_number}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        {ret.reverse_tracking_history.map((event, idx) => (
+                                                            <div key={`${event.occurred_at || idx}-${idx}`} className="flex items-start gap-2 text-xs">
+                                                                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
+                                                                <div className="min-w-0">
+                                                                    <p className="font-medium text-gray-700 dark:text-slate-300 break-words">
+                                                                        {event.description}
+                                                                    </p>
+                                                                    <p className="mt-0.5 text-[10px] text-gray-400">
+                                                                        {event.segment} · {formatDateTime(event.occurred_at)}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                             {ret.items?.length > 0 && (
                                                 <ul className="mt-3 space-y-2 border-t border-rose-100 pt-3 dark:border-rose-900/30">
                                                     {ret.items.map((item, idx) => (

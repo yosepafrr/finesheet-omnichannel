@@ -111,6 +111,32 @@ class ShopeeOrderApiTest extends TestCase
         });
     }
 
+    public function test_reverse_return_tracking_requests_the_return_identifier(): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'error' => '',
+                'response' => [
+                    'return_sn' => 'RETURN-123',
+                    'tracking_info' => [],
+                ],
+            ]),
+        ]);
+
+        app(ShopeeService::class)->getReverseTrackingInfo(
+            'access-token',
+            '987654',
+            'RETURN-123',
+        );
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_contains($request->url(), '/api/v2/returns/get_reverse_tracking_info')
+                && ($query['return_sn'] ?? null) === 'RETURN-123';
+        });
+    }
+
     private function store(): Store
     {
         return new Store([

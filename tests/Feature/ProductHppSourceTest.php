@@ -399,6 +399,71 @@ class ProductHppSourceTest extends TestCase
         ]);
     }
 
+    public function test_legacy_shopee_closed_return_with_refund_remains_in_payable_history(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Shopee Closed Return Supplier',
+            'period_length_days' => 14,
+            'first_period_start' => now()->subDays(30)->startOfDay(),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Shopee',
+            'order_sn' => 'SHOPEE-CLOSED-RETURN-WITH-REFUND',
+            'order_status' => 'COMPLETED',
+            'order_time' => now()->subDays(10),
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'SHOPEE-CLOSED-RETURN',
+            'return_status' => 'CLOSED',
+            'platform_status' => 'CLOSED',
+            'normalized_status' => 'REJECTED',
+            'refund_amount' => 50000,
+            'created_at_platform' => now()->subDay(),
+        ]));
+        OrderReturnItem::withoutEvents(fn () => OrderReturnItem::create([
+            'order_return_id' => $return->id,
+            'external_line_item_id' => $variant->model_id,
+            'sku_id' => $variant->model_id,
+            'product_name' => $product->product_name,
+            'quantity' => 1,
+        ]));
+
+        $payable->recordReturnEvent($return->fresh(['items', 'order.store']));
+
+        $this->assertDatabaseHas('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'RETURN_ORDER',
+            'supplier_id' => $supplier->id,
+            'amount' => -25000,
+        ]);
+    }
+
     public function test_tiktok_logistics_return_keeps_first_failure_date_and_manual_period(): void
     {
         [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);

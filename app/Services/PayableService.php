@@ -1152,11 +1152,22 @@ class PayableService
 
     private function isActiveReturn(OrderReturn $return): bool
     {
-        return ! in_array(
-            strtoupper(trim((string) $return->normalized_status)),
-            ['CANCELLED', 'REJECTED'],
-            true,
-        );
+        $normalizedStatus = strtoupper(trim((string) $return->normalized_status));
+        if ($normalizedStatus === 'CANCELLED') {
+            return false;
+        }
+
+        if ($normalizedStatus !== 'REJECTED') {
+            return true;
+        }
+
+        $platformStatus = strtoupper(trim((string) ($return->platform_status ?? $return->return_status)));
+
+        // Older syncs classified every Shopee CLOSED request as rejected.
+        // A positive refund proves that the closed request affected payable.
+        return strcasecmp((string) $return->platform, 'Shopee') === 0
+            && $platformStatus === 'CLOSED'
+            && (float) $return->refund_amount > 0;
     }
 
     public function cleanupStaleFailedDeliveryEvents(?int $userId = null): int

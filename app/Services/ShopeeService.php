@@ -356,6 +356,24 @@ class ShopeeService
         return $response->json();
     }
 
+    public function getReverseTrackingInfo(string $accessToken, string $shopId, string $returnSn): array
+    {
+        $timestamp = time();
+        $path = '/api/v2/returns/get_reverse_tracking_info';
+        $sign = $this->generateSign($path, $timestamp, $accessToken, $shopId);
+
+        $url = "{$this->baseUrl}{$path}?".http_build_query([
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $sign,
+            'access_token' => $accessToken,
+            'shop_id' => $shopId,
+            'return_sn' => $returnSn,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return $this->httpClient()->get($url)->json();
+    }
+
     // AMBIL DATA DETAIL ORDER
     public function getOrderDetails($store, $orderSnList)
     {

@@ -11,7 +11,8 @@ class SyncShopeeReturnsCommand extends Command
 {
     protected $signature = 'sync:shopee-returns
         {--days=180 : Number of days to backfill}
-        {--store_id= : Internal store ID}';
+        {--store_id= : Internal store ID}
+        {--queue=orders-low : Queue used for the backfill jobs}';
 
     protected $description = 'Queue Shopee return/refund synchronization for existing stores';
 
@@ -19,6 +20,12 @@ class SyncShopeeReturnsCommand extends Command
     {
         $days = max(1, min(365, (int) $this->option('days')));
         $storeId = $this->option('store_id');
+        $queue = (string) $this->option('queue');
+        if (! in_array($queue, ['orders', 'orders-low'], true)) {
+            $this->error('Queue harus orders atau orders-low.');
+
+            return self::FAILURE;
+        }
         $stores = Store::query()
             ->where('platform', 'Shopee')
             ->when($storeId, fn ($query, $id) => $query->whereKey($id))
@@ -47,14 +54,17 @@ class SyncShopeeReturnsCommand extends Command
                     $store->id,
                     $rangeStart->timestamp,
                     $rangeEnd->timestamp,
-                )->onQueue('orders-low');
+                )->onQueue($queue);
 
                 $jobs++;
                 $cursor = $rangeStart;
             }
         }
 
-        $this->info("Mengantrekan {$jobs} job return Shopee untuk {$stores->count()} toko ({$days} hari).");
+        $this->info(
+            "Mengantrekan {$jobs} job return Shopee untuk {$stores->count()} toko "
+            ."({$days} hari) ke queue {$queue}."
+        );
 
         return self::SUCCESS;
     }
