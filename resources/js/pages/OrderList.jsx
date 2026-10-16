@@ -183,6 +183,15 @@ function AffiliateBadge({ percentage }) {
     );
 }
 
+function HppWarning({ className = "" }) {
+    return (
+        <p className={`mt-1 flex items-start gap-1 text-[10px] font-medium leading-4 text-amber-700 dark:text-amber-300 ${className}`}>
+            <span className="material-symbols-rounded mt-px text-[13px]" aria-hidden="true">warning</span>
+            <span>Profit mungkin tidak akan akurat karena nilai HPP masih nol.</span>
+        </p>
+    );
+}
+
 function SkeletonRow() {
     return (
         <div className="animate-pulse flex items-center gap-4 p-5 border-b border-gray-50 dark:border-slate-700/50">
@@ -1267,21 +1276,34 @@ export default function OrderList() {
                             const totalOrders = storeOrders.length;
                             const hasClientOnlyEscrowFilter = Boolean(searchQuery)
                                 || (selectedFilterId === 'dikirim' && excludeReturns);
-                            const totalSellingPrice = searchQuery
-                                ? storeOrders.reduce(
-                                    (sum, order) => sum + Number(order.order_selling_price || 0),
+                            const ordersForTotals = hasClientOnlyEscrowFilter
+                                ? storeOrders.filter((order) => !(
+                                    selectedFilterId === 'dikirim'
+                                    && excludeReturns
+                                    && isReturnOrCancel(order)
+                                ))
+                                : storeOrders;
+                            const totalHpp = hasClientOnlyEscrowFilter
+                                ? ordersForTotals.reduce(
+                                    (sum, order) => sum + Number(order.hpp_amount || 0),
                                     0,
                                 )
-                                : Number(data?.totals?.order_selling_price || 0);
+                                : Number(data?.totals?.hpp_amount || 0);
                             const totalEscrow = hasClientOnlyEscrowFilter
-                                ? storeOrders.reduce((sum, order) => {
-                                    if (selectedFilterId === 'dikirim' && excludeReturns && isReturnOrCancel(order)) {
-                                        return sum;
-                                    }
-
-                                    return sum + Number(order.escrow_amount || 0);
-                                }, 0)
+                                ? ordersForTotals.reduce(
+                                    (sum, order) => sum + Number(order.escrow_amount || 0),
+                                    0,
+                                )
                                 : Number(data?.totals?.escrow_amount || 0);
+                            const totalProfit = hasClientOnlyEscrowFilter
+                                ? ordersForTotals.reduce(
+                                    (sum, order) => sum + Number(order.profit_amount || 0),
+                                    0,
+                                )
+                                : Number(data?.totals?.profit_amount || 0);
+                            const hasMissingHpp = hasClientOnlyEscrowFilter
+                                ? ordersForTotals.some((order) => order.has_missing_hpp)
+                                : Boolean(data?.totals?.has_missing_hpp);
                             const itemsPerPage = limitByStore[store.id] || 30;
                             const totalPages = Math.ceil(
                                 totalOrders / itemsPerPage,
@@ -1364,10 +1386,13 @@ export default function OrderList() {
                                                         Informasi Logistik
                                                     </th>
                                                     <th className="px-6 py-4 text-right">
-                                                        Total Price
+                                                        HPP
                                                     </th>
                                                     <th className="px-6 py-4 text-right">
-                                                        Escrow (Cuan)
+                                                        Escrow
+                                                    </th>
+                                                    <th className="px-6 py-4 text-right">
+                                                        Profit
                                                     </th>
                                                 </tr>
                                             </thead>
@@ -1540,14 +1565,27 @@ export default function OrderList() {
                                                                         <span className="text-xs text-gray-400 italic">Informasi logistik belum tersedia</span>
                                                                     )}
                                                                 </td>
-                                                                <td className="px-6 py-4 align-top text-right font-medium text-gray-600 dark:text-slate-300">
+                                                                <td className="px-6 py-4 align-top text-right font-semibold text-gray-700 dark:text-slate-200">
                                                                     {formatRp(
-                                                                        order.order_selling_price,
+                                                                        order.hpp_amount,
+                                                                    )}
+                                                                    {order.has_missing_hpp && (
+                                                                        <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                                                                            HPP belum tersedia
+                                                                        </p>
                                                                     )}
                                                                 </td>
-                                                                <td className="px-6 py-4 align-top text-right font-bold text-[#304674] dark:text-blue-400">
+                                                                <td className="px-6 py-4 align-top text-right font-semibold text-[#304674] dark:text-blue-400">
                                                                     {formatRp(
                                                                         order.escrow_amount,
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 align-top text-right">
+                                                                    <p className={`font-bold ${Number(order.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                                        {formatRp(order.profit_amount)}
+                                                                    </p>
+                                                                    {order.has_missing_hpp && (
+                                                                        <HppWarning className="ml-auto max-w-48 justify-end text-left" />
                                                                     )}
                                                                 </td>
                                                             </tr>
@@ -1561,7 +1599,7 @@ export default function OrderList() {
                                                                     >
                                                                         <td
                                                                             colSpan={
-                                                                                7
+                                                                                8
                                                                             }
                                                                             className="px-6 py-4"
                                                                         >
@@ -1638,15 +1676,25 @@ export default function OrderList() {
                                                         Total:
                                                     </td>
                                                     <td className="px-6 py-3 font-bold text-gray-800 dark:text-white text-right">
-                                                        {formatRp(totalSellingPrice)}
+                                                        {formatRp(totalHpp)}
                                                     </td>
-                                                    <td className="px-6 py-3 font-bold text-green-600 dark:text-green-400 text-right">
+                                                    <td className="px-6 py-3 font-bold text-[#304674] dark:text-blue-400 text-right">
                                                         {formatRp(totalEscrow)}
                                                     </td>
+                                                    <td className={`px-6 py-3 text-right font-bold ${totalProfit < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                        {formatRp(totalProfit)}
+                                                    </td>
                                                 </tr>
+                                                {hasMissingHpp && (
+                                                    <tr>
+                                                        <td colSpan={8} className="px-6 pb-3 text-right">
+                                                            <HppWarning className="justify-end" />
+                                                        </td>
+                                                    </tr>
+                                                )}
                                                 {selectedFilterId === 'dikirim' && (
                                                     <tr>
-                                                        <td colSpan={7} className="px-6 py-3 text-right">
+                                                        <td colSpan={8} className="px-6 py-3 text-right">
                                                             <label className="inline-flex items-center cursor-pointer">
                                                                 <input
                                                                     type="checkbox"
@@ -1765,17 +1813,31 @@ export default function OrderList() {
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <div className="text-right">
-                                                            <p className="text-xs text-gray-400 dark:text-slate-500">
-                                                                Escrow
+                                                    </div>
+
+                                                    <div className="mb-3 grid grid-cols-3 divide-x divide-gray-100 rounded-lg border border-gray-100 bg-gray-50/70 dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-900/50">
+                                                        <div className="min-w-0 px-2 py-2.5">
+                                                            <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">HPP</p>
+                                                            <p className="mt-0.5 truncate text-xs font-bold text-gray-700 dark:text-slate-200">
+                                                                {formatRp(order.hpp_amount)}
                                                             </p>
-                                                            <p className="text-sm font-bold text-green-600 dark:text-green-400">
-                                                                {formatRp(
-                                                                    order.escrow_amount,
-                                                                )}
+                                                        </div>
+                                                        <div className="min-w-0 px-2 py-2.5">
+                                                            <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Escrow</p>
+                                                            <p className="mt-0.5 truncate text-xs font-bold text-[#304674] dark:text-blue-400">
+                                                                {formatRp(order.escrow_amount)}
+                                                            </p>
+                                                        </div>
+                                                        <div className="min-w-0 px-2 py-2.5">
+                                                            <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Profit</p>
+                                                            <p className={`mt-0.5 truncate text-xs font-bold ${Number(order.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                                {formatRp(order.profit_amount)}
                                                             </p>
                                                         </div>
                                                     </div>
+                                                    {order.has_missing_hpp && (
+                                                        <HppWarning className="mb-3" />
+                                                    )}
 
                                                     <div
                                                         className="flex items-center gap-3 bg-gray-50 dark:bg-slate-900/50 p-2 rounded-lg cursor-pointer"
@@ -1869,6 +1931,28 @@ export default function OrderList() {
                                                 </div>
                                             );
                                         })}
+
+                                        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                                            <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-slate-700">
+                                                <div className="min-w-0 px-3 py-3">
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total HPP</p>
+                                                    <p className="mt-1 truncate text-xs font-bold text-gray-800 dark:text-white">{formatRp(totalHpp)}</p>
+                                                </div>
+                                                <div className="min-w-0 px-3 py-3">
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total Escrow</p>
+                                                    <p className="mt-1 truncate text-xs font-bold text-[#304674] dark:text-blue-400">{formatRp(totalEscrow)}</p>
+                                                </div>
+                                                <div className="min-w-0 px-3 py-3">
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total Profit</p>
+                                                    <p className={`mt-1 truncate text-xs font-bold ${totalProfit < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(totalProfit)}</p>
+                                                </div>
+                                            </div>
+                                            {hasMissingHpp && (
+                                                <div className="border-t border-amber-100 bg-amber-50/60 px-3 pb-2.5 pt-1 dark:border-amber-900/40 dark:bg-amber-900/10">
+                                                    <HppWarning />
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Pagination Controls */}

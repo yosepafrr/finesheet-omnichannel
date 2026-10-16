@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncTiktokEscrowJob;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\VariantProduct;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
 use App\Services\PayableService;
+use App\Services\ProductHppService;
 use App\Services\TiktokEscrowAmountResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,7 +22,8 @@ class OrderController extends Controller
     public function index(
         Request $request,
         OrderEscrowService $escrowService,
-        OrderFinancialBreakdownService $financialBreakdownService
+        OrderFinancialBreakdownService $financialBreakdownService,
+        ProductHppService $hppService
     ) {
         $user = Auth::user();
         $stores = $user->stores()->get();
@@ -116,7 +119,7 @@ class OrderController extends Controller
             + $shippingProcessCounts['processed'];
 
         $query = (clone $baseQuery)
-            ->with(['orderProducts.product', 'returns', 'packages', 'store'])
+            ->with(['orderProducts', 'returns', 'packages', 'store'])
             ->orderByDesc('order_time')
             ->orderByDesc('id');
 
@@ -161,6 +164,49 @@ class OrderController extends Controller
 
         $orders = $query->get();
 
+        $marketplaceProducts = Product::query()
+            ->with([
+                'store',
+                'skuSyncMember.group.masterVariant.bundleComponents.componentVariant.syncGroup',
+                'variantProducts.skuSyncMember.group.masterVariant.bundleComponents.componentVariant.syncGroup',
+            ])
+            ->whereIn('store_id', $orders->pluck('store_id')->unique())
+            ->whereIn('product_id', $orders->flatMap(
+                fn (Order $order) => $order->orderProducts->pluck('product_id'),
+            )->filter()->unique())
+            ->get()
+            ->keyBy(fn (Product $product) => $product->store_id.':'.$product->product_id);
+
+        foreach ($orders as $order) {
+            foreach ($order->orderProducts as $item) {
+                $item->setRelation('order', $order);
+                $item->setRelation(
+                    'product',
+                    $marketplaceProducts->get($order->store_id.':'.$item->product_id),
+                );
+            }
+        }
+
+        $financialSummaries = $orders->mapWithKeys(function (Order $order) use ($escrowService, $hppService) {
+            $hppAmount = 0.0;
+            $hasMissingHpp = $order->orderProducts->isEmpty();
+
+            foreach ($order->orderProducts as $item) {
+                $details = $hppService->orderItemHppDetails($item);
+                $hppAmount += (float) $details['hpp'] * (int) ($item->quantity_purchased ?? 0);
+                $hasMissingHpp = $hasMissingHpp || ! $details['available'];
+            }
+
+            $escrowAmount = (float) $escrowService->amount($order);
+
+            return [$order->id => [
+                'hpp_amount' => $hppAmount,
+                'escrow_amount' => $escrowAmount,
+                'profit_amount' => $escrowAmount - $hppAmount,
+                'has_missing_hpp' => $hasMissingHpp,
+            ]];
+        });
+
         return response()->json([
             'status_counts' => $statusCounts,
             'cancel_sub_counts' => $cancelSubCounts,
@@ -177,14 +223,15 @@ class OrderController extends Controller
                 ];
             }),
             'totals' => [
-                'order_selling_price' => (float) $orders->sum('order_selling_price'),
-                'escrow_amount' => (float) $orders->sum(
-                    fn (Order $order) => $escrowService->amount($order),
-                ),
+                'hpp_amount' => (float) $financialSummaries->sum('hpp_amount'),
+                'escrow_amount' => (float) $financialSummaries->sum('escrow_amount'),
+                'profit_amount' => (float) $financialSummaries->sum('profit_amount'),
+                'has_missing_hpp' => $financialSummaries->contains('has_missing_hpp', true),
             ],
-            'orders' => $orders->map(function ($order) use ($escrowService, $financialBreakdownService) {
+            'orders' => $orders->map(function ($order) use ($financialBreakdownService, $financialSummaries) {
                 $firstProduct = $order->orderProducts->first();
                 $financialBreakdown = $financialBreakdownService->forOrder($order);
+                $financialSummary = $financialSummaries->get($order->id);
 
                 return [
                     'id' => $order->id,
@@ -200,7 +247,10 @@ class OrderController extends Controller
                     'order_time' => $order->order_time?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'order_selling_price' => $order->order_selling_price,
-                    'escrow_amount' => $escrowService->amount($order),
+                    'hpp_amount' => $financialSummary['hpp_amount'],
+                    'escrow_amount' => $financialSummary['escrow_amount'],
+                    'profit_amount' => $financialSummary['profit_amount'],
+                    'has_missing_hpp' => $financialSummary['has_missing_hpp'],
                     'is_affiliate' => $financialBreakdown['is_affiliate'],
                     'affiliate_percentage' => $financialBreakdown['affiliate_percentage'],
                     'cancel_source' => $order->cancel_source,

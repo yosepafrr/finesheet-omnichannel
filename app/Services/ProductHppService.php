@@ -8,6 +8,8 @@ use App\Models\VariantProduct;
 
 class ProductHppService
 {
+    private array $masterVariantCache = [];
+
     public function __construct(private readonly BundleInventoryService $bundleInventory) {}
 
     public function productDetails(Product $product): array
@@ -115,6 +117,50 @@ class ProductHppService
         return (float) ($item->price ?? 0);
     }
 
+    /**
+     * Resolve the actual HPP configured by the user without falling back to a
+     * marketplace selling price. Order List uses this to flag incomplete HPP.
+     */
+    public function orderItemHppDetails(object $item): array
+    {
+        $product = $this->marketplaceProductForOrderItem($item);
+        if (! $product) {
+            return $this->unavailableOrderItemHpp();
+        }
+
+        $variant = $this->resolveOrderVariant($product, $item);
+        if ($variant) {
+            $details = $this->variantDetails($variant);
+            if ($details['hpp'] > 0) {
+                return [...$details, 'available' => true];
+            }
+        }
+
+        $hasVariantIdentity = ! empty($item->platform_variant_id)
+            || ! empty($item->sku)
+            || ! in_array(strtolower(trim((string) ($item->model_name ?? ''))), ['', 'without variant'], true);
+
+        if (! $variant && ! $hasVariantIdentity) {
+            $firstVariant = $product->variantProducts()->first();
+            if ($firstVariant) {
+                $details = $this->variantDetails($firstVariant);
+                if ($details['hpp'] > 0) {
+                    return [...$details, 'available' => true];
+                }
+            }
+        }
+
+        $details = $this->productDetails($product);
+        if ($details['hpp'] > 0) {
+            return [...$details, 'available' => true];
+        }
+
+        return $this->unavailableOrderItemHpp(
+            $details['source'] ?? null,
+            $details['master_variant_id'] ?? null,
+        );
+    }
+
     public function masterVariantForOrderItem(object $item): ?MasterProductVariant
     {
         $product = $this->marketplaceProductForOrderItem($item);
@@ -157,6 +203,19 @@ class ProductHppService
 
     private function marketplaceProductForOrderItem(object $item): ?Product
     {
+        if (method_exists($item, 'relationLoaded') && $item->relationLoaded('product')) {
+            $loadedProduct = $item->product;
+            $storeId = ($item->order ?? null)?->store_id;
+
+            if (! $loadedProduct) {
+                return null;
+            }
+
+            if ($loadedProduct && (! $storeId || (int) $loadedProduct->store_id === (int) $storeId)) {
+                return $loadedProduct;
+            }
+        }
+
         $query = Product::query()->where('product_id', $item->product_id);
         $storeId = ($item->order ?? null)?->store_id;
         if ($storeId) {
@@ -200,7 +259,12 @@ class ProductHppService
             return null;
         }
 
-        return MasterProductVariant::query()
+        $cacheKey = (int) $userId.':'.mb_strtolower($sku);
+        if (array_key_exists($cacheKey, $this->masterVariantCache)) {
+            return $this->masterVariantCache[$cacheKey];
+        }
+
+        return $this->masterVariantCache[$cacheKey] = MasterProductVariant::query()
             ->where('user_id', $userId)
             ->whereRaw('LOWER(sku) = ?', [mb_strtolower($sku)])
             ->first();
@@ -208,6 +272,42 @@ class ProductHppService
 
     private function resolveOrderVariant(Product $product, object $item): ?VariantProduct
     {
+        if ($product->relationLoaded('variantProducts')) {
+            $variants = $product->variantProducts;
+
+            if (! empty($item->platform_variant_id)) {
+                $variant = $variants->first(
+                    fn (VariantProduct $candidate) => (string) $candidate->model_id === (string) $item->platform_variant_id,
+                );
+                if ($variant) {
+                    return $variant;
+                }
+            }
+
+            $sku = trim((string) ($item->sku ?? ''));
+            if ($sku !== '' && $sku !== '0') {
+                $variant = $variants->first(
+                    fn (VariantProduct $candidate) => mb_strtolower(trim((string) $candidate->model_sku)) === mb_strtolower($sku),
+                );
+                if ($variant) {
+                    return $variant;
+                }
+            }
+
+            $modelName = trim((string) ($item->model_name ?? ''));
+            if ($modelName === '' || strcasecmp($modelName, 'without variant') === 0) {
+                return null;
+            }
+
+            $normalized = str_replace(', ', ',', $modelName);
+
+            return $variants->first(fn (VariantProduct $candidate) => in_array(
+                (string) $candidate->model_name,
+                [$modelName, $normalized],
+                true,
+            ) || (string) $candidate->variant_name === $modelName);
+        }
+
         $query = VariantProduct::query()->where('product_id', $product->id);
 
         if (! empty($item->platform_variant_id)) {
@@ -254,6 +354,16 @@ class ProductHppService
             'hpp' => $usesMasterHpp ? $masterHpp : $localHpp,
             'source' => $usesMasterHpp ? 'master' : 'marketplace',
             'master_variant_id' => $masterVariant?->id,
+        ];
+    }
+
+    private function unavailableOrderItemHpp(?string $source = null, ?int $masterVariantId = null): array
+    {
+        return [
+            'hpp' => 0.0,
+            'source' => $source,
+            'master_variant_id' => $masterVariantId,
+            'available' => false,
         ];
     }
 }

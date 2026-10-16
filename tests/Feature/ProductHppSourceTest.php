@@ -86,6 +86,40 @@ class ProductHppSourceTest extends TestCase
         ));
     }
 
+    public function test_order_list_uses_zero_hpp_and_escrow_as_profit_when_hpp_is_unavailable(): void
+    {
+        [$product, $variant, $user] = $this->createMarketplaceVariant(localHpp: 0);
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Shopee',
+            'order_sn' => 'ORDER-HPP-UNAVAILABLE',
+            'order_status' => 'SHIPPED',
+            'order_time' => now(),
+            'escrow_amount' => 100000,
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 2,
+            'price' => 50000,
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=SHIPPED')
+            ->assertOk()
+            ->assertJsonPath('orders.0.hpp_amount', 0)
+            ->assertJsonPath('orders.0.escrow_amount', 100000)
+            ->assertJsonPath('orders.0.profit_amount', 100000)
+            ->assertJsonPath('orders.0.has_missing_hpp', true)
+            ->assertJsonPath('totals.hpp_amount', 0)
+            ->assertJsonPath('totals.profit_amount', 100000)
+            ->assertJsonPath('totals.has_missing_hpp', true);
+    }
+
     public function test_payable_prefers_master_supplier_and_falls_back_to_marketplace_mapping(): void
     {
         [$product, $variant, $masterVariant, $user] = $this->createLinkedVariant(25000, 18000);
