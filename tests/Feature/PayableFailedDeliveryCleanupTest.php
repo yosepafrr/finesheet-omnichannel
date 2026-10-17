@@ -138,6 +138,77 @@ class PayableFailedDeliveryCleanupTest extends TestCase
         ]);
     }
 
+    public function test_final_failed_delivery_promotes_an_existing_return_event(): void
+    {
+        $user = User::factory()->create();
+        $store = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Tiktokshop',
+            'store_name' => 'TikTok Store',
+            'platform_shop_id' => 'TIKTOK-FAILED-RETURN',
+        ]);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'TikTok Supplier',
+        ]);
+        $period = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'name' => 'Manual Target Period',
+            'start_date' => now()->subDays(5),
+            'end_date' => now()->addDay(),
+            'is_manual' => true,
+        ]));
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $store->id,
+            'platform' => 'Tiktokshop',
+            'order_sn' => 'FAILED-DELIVERY-WITH-RETURN',
+            'order_status' => 'CANCELLED',
+            'order_time' => now()->subDays(4),
+        ]));
+        $failedAt = now()->subDays(2)->startOfMinute();
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'package_id' => $order->order_sn,
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+            'failed_at' => $failedAt,
+        ]));
+
+        foreach (['CREATE_ORDER', 'RETURN_ORDER'] as $sourceType) {
+            PayableEvent::withoutEvents(fn () => PayableEvent::create([
+                'user_id' => $user->id,
+                'supplier_id' => $supplier->id,
+                'payable_period_id' => $period->id,
+                'store_id' => $store->id,
+                'platform' => 'Tiktokshop',
+                'source_id' => $order->order_sn,
+                'source_type' => $sourceType,
+                'event_date' => now()->subDay(),
+                'amount' => $sourceType === 'CREATE_ORDER' ? 10000 : -10000,
+                'is_manual_moved' => $sourceType === 'RETURN_ORDER',
+                'original_period_id' => $sourceType === 'RETURN_ORDER' ? $period->id : null,
+            ]));
+        }
+
+        app(PayableService::class)->recordCancellationEvent($order->fresh('store'));
+
+        $this->assertDatabaseMissing('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'RETURN_ORDER',
+        ]);
+
+        $failedEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'FAILED_DELIVERY')
+            ->firstOrFail();
+
+        $this->assertSame($period->id, $failedEvent->payable_period_id);
+        $this->assertTrue($failedEvent->is_manual_moved);
+        $this->assertSame($failedAt->format('Y-m-d H:i:s'), $failedEvent->event_date->format('Y-m-d H:i:s'));
+        $this->assertSame(-10000.0, (float) $failedEvent->amount);
+    }
+
     private function createOrder(Store $store, string $orderSn): Order
     {
         return Order::withoutEvents(fn () => Order::create([

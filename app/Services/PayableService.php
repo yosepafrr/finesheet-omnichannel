@@ -430,7 +430,8 @@ class PayableService
     {
         if (strcasecmp((string) $order->platform, 'Shopee') !== 0
             || strtoupper(trim((string) $order->order_status)) !== 'TO_RETURN'
-            || $this->hasActiveReturn($order)) {
+            || $this->hasActiveReturn($order)
+            || $this->hasConfirmedFailedPackage($order)) {
             return;
         }
 
@@ -528,13 +529,14 @@ class PayableService
      */
     public function recordReturnEvent(OrderReturn $return, string $type = 'RETURN_ORDER')
     {
-        $date = $this->returnEventDate($return);
-
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
         if ($type === 'RETURN_ORDER' && $order && $this->hasConfirmedFailedPackage($order)) {
             $type = 'FAILED_DELIVERY';
         }
+        $date = $type === 'FAILED_DELIVERY' && $order
+            ? $this->failedDeliveryEventDate($order)
+            : $this->returnEventDate($return);
 
         $orderReturns = $order
             ? $this->activeReturnsForOrder($order)
@@ -568,10 +570,12 @@ class PayableService
 
         if ($order) {
             $order->loadMissing('orderProducts');
-            $date = $orderReturns
-                ->map(fn (OrderReturn $orderReturn) => $this->returnEventDate($orderReturn))
-                ->sortBy(fn (Carbon $returnDate) => $returnDate->getTimestamp())
-                ->first() ?? $date;
+            if ($type !== 'FAILED_DELIVERY') {
+                $date = $orderReturns
+                    ->map(fn (OrderReturn $orderReturn) => $this->returnEventDate($orderReturn))
+                    ->sortBy(fn (Carbon $returnDate) => $returnDate->getTimestamp())
+                    ->first() ?? $date;
+            }
 
             foreach ($orderReturns as $ret) {
                 foreach ($ret->items as $item) {
@@ -1035,6 +1039,84 @@ class PayableService
     }
 
     /**
+     * Promote legacy return reductions when final logistics proves that the
+     * return journey was caused by a failed delivery.
+     */
+    private function promoteReturnEventsToFailedDelivery(Order $order): int
+    {
+        if (! $this->hasConfirmedFailedPackage($order)) {
+            return 0;
+        }
+
+        $userId = $order->store?->user_id ?? Store::where('id', $order->store_id)->value('user_id');
+        if (! $userId) {
+            return 0;
+        }
+
+        $failedAt = $this->failedDeliveryEventDate($order);
+        $returnEvents = PayableEvent::query()
+            ->where('user_id', $userId)
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->get();
+        $promoted = 0;
+
+        foreach ($returnEvents as $returnEvent) {
+            $failedEvent = PayableEvent::query()
+                ->where('user_id', $userId)
+                ->where('source_id', $order->order_sn)
+                ->where('source_type', 'FAILED_DELIVERY')
+                ->where(function ($query) use ($returnEvent) {
+                    if ($returnEvent->supplier_id) {
+                        $query->where('supplier_id', $returnEvent->supplier_id);
+                    } else {
+                        $query->whereNull('supplier_id');
+                    }
+                })
+                ->first();
+
+            $manualEvent = collect([$returnEvent, $failedEvent])
+                ->first(fn (?PayableEvent $event) => $event?->is_manual_moved);
+            $periodId = $manualEvent?->payable_period_id ?? $returnEvent->payable_period_id;
+
+            if (! $manualEvent && $returnEvent->supplier_id) {
+                $supplier = Supplier::find($returnEvent->supplier_id);
+                $periodId = $supplier
+                    ? ($this->getPeriodForDate($failedAt, $userId, $supplier)?->id ?? $periodId)
+                    : $periodId;
+            }
+
+            if ($failedEvent) {
+                $failedEvent->forceFill([
+                    'payable_period_id' => $periodId,
+                    'store_id' => $returnEvent->store_id ?? $order->store_id,
+                    'platform' => $returnEvent->platform ?? $order->platform,
+                    'event_date' => $failedAt,
+                    'amount' => (float) $returnEvent->amount < 0
+                        ? $returnEvent->amount
+                        : -abs((float) $failedEvent->amount),
+                    'is_manual_moved' => (bool) $manualEvent,
+                    'original_period_id' => $manualEvent?->original_period_id,
+                    'notes' => $returnEvent->notes ?: $failedEvent->notes,
+                ])->save();
+                $returnEvent->delete();
+            } else {
+                $returnEvent->forceFill([
+                    'source_type' => 'FAILED_DELIVERY',
+                    'payable_period_id' => $periodId,
+                    'event_date' => $failedAt,
+                    'is_manual_moved' => (bool) $manualEvent,
+                    'original_period_id' => $manualEvent?->original_period_id,
+                ])->save();
+            }
+
+            $promoted++;
+        }
+
+        return $promoted;
+    }
+
+    /**
      * Record a cancellation event.
      *
      * LOGIC:
@@ -1091,8 +1173,19 @@ class PayableService
             return;
         }
 
-        // If order already has a return, return takes precedence over failed delivery
+        // Final failed-delivery tracking is authoritative. Marketplace return
+        // records are often generated automatically for the return-to-seller
+        // journey, so they must not downgrade this event to a generic return.
         if ($hasReturn) {
+            $activeReturn = $this->activeReturnsForOrder($order)->first();
+            if ($activeReturn) {
+                $this->recordReturnEvent(
+                    $activeReturn->loadMissing(['items', 'order.store']),
+                    'FAILED_DELIVERY'
+                );
+            }
+            $this->promoteReturnEventsToFailedDelivery($order);
+
             return;
         }
 
