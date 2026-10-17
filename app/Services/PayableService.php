@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Log;
 
 class PayableService
 {
+    private const SHOPEE_STATUS_RETURN_FALLBACK_NOTE = 'Shopee return fallback: TO_RETURN';
+
     public function __construct(
         private ProductHppService $hppService,
         private LogisticsStatusNormalizer $logisticsNormalizer,
@@ -415,6 +417,110 @@ class PayableService
             $nonNull = array_filter($recordedSupplierIds);
             $cleanup->whereNotNull('supplier_id')->whereNotIn('supplier_id', $nonNull)->delete();
         }
+
+        $this->recordShopeeStatusReturnEvent($order, $userId);
+    }
+
+    /**
+     * Shopee can retain TO_RETURN on an older order after the return-list API
+     * no longer exposes its request. Keep payable accurate from the order
+     * status, then let a real OrderReturn replace this fallback if it arrives.
+     */
+    private function recordShopeeStatusReturnEvent(Order $order, int $userId): void
+    {
+        if (strcasecmp((string) $order->platform, 'Shopee') !== 0
+            || strtoupper(trim((string) $order->order_status)) !== 'TO_RETURN'
+            || $this->hasActiveReturn($order)) {
+            return;
+        }
+
+        $createEvents = PayableEvent::query()
+            ->where('user_id', $userId)
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'CREATE_ORDER')
+            ->get();
+
+        if ($createEvents->isEmpty()) {
+            return;
+        }
+
+        $recordedSupplierIds = [];
+        foreach ($createEvents as $createEvent) {
+            $supplierId = (int) ($createEvent->supplier_id ?? 0);
+            if ($supplierId <= 0) {
+                continue;
+            }
+
+            $supplier = Supplier::find($supplierId);
+            if (! $supplier) {
+                continue;
+            }
+
+            $existingEvent = PayableEvent::query()
+                ->where('user_id', $userId)
+                ->where('source_id', $order->order_sn)
+                ->where('source_type', 'RETURN_ORDER')
+                ->where('supplier_id', $supplierId)
+                ->first();
+            $date = $this->shopeeStatusReturnEventDate($order, $existingEvent);
+            $period = $this->getPeriodForDate($date, $userId, $supplier);
+            if (! $period) {
+                continue;
+            }
+
+            $recordedSupplierIds[] = $supplierId;
+            $manualEvent = $existingEvent?->is_manual_moved ? $existingEvent : null;
+
+            PayableEvent::updateOrCreate(
+                [
+                    'user_id' => $userId,
+                    'source_id' => $order->order_sn,
+                    'source_type' => 'RETURN_ORDER',
+                    'supplier_id' => $supplierId,
+                ],
+                [
+                    'payable_period_id' => $manualEvent?->payable_period_id ?? $period->id,
+                    'store_id' => $order->store_id,
+                    'platform' => $order->platform,
+                    'event_date' => $date,
+                    'amount' => -abs((float) $createEvent->amount),
+                    'is_manual_moved' => (bool) $manualEvent,
+                    'original_period_id' => $manualEvent?->original_period_id,
+                    'notes' => self::SHOPEE_STATUS_RETURN_FALLBACK_NOTE,
+                ]
+            );
+        }
+
+        $staleFallbackEvents = PayableEvent::query()
+            ->where('user_id', $userId)
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->where('notes', self::SHOPEE_STATUS_RETURN_FALLBACK_NOTE);
+
+        if ($recordedSupplierIds !== []) {
+            $staleFallbackEvents->whereNotIn('supplier_id', $recordedSupplierIds);
+        }
+
+        $staleFallbackEvents->delete();
+    }
+
+    private function shopeeStatusReturnEventDate(Order $order, ?PayableEvent $existingEvent): Carbon
+    {
+        if ($existingEvent?->event_date) {
+            return Carbon::parse($existingEvent->event_date);
+        }
+
+        $timestamp = data_get($order->raw_data, 'update_time');
+        if (is_numeric($timestamp) && (int) $timestamp > 0) {
+            $timestamp = (int) $timestamp;
+            if ($timestamp > 9999999999) {
+                $timestamp = (int) floor($timestamp / 1000);
+            }
+
+            return Carbon::createFromTimestamp($timestamp)->setTimezone(config('app.timezone'));
+        }
+
+        return Carbon::parse($order->updated_at ?? now());
     }
 
     /**
@@ -1068,6 +1174,13 @@ class PayableService
         $return = $this->activeReturnsForOrder($order)->first();
         if ($return) {
             $this->recordReturnEvent($return->loadMissing(['items', 'order.store']));
+
+            return;
+        }
+
+        if (strcasecmp((string) $order->platform, 'Shopee') === 0
+            && strtoupper(trim((string) $order->order_status)) === 'TO_RETURN') {
+            $this->recordOrderEvent($order->loadMissing(['orderProducts', 'store']));
 
             return;
         }

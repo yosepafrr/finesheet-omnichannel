@@ -464,6 +464,63 @@ class ProductHppSourceTest extends TestCase
         ]);
     }
 
+    public function test_shopee_to_return_order_without_return_detail_creates_stable_payable_reduction(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Shopee Status Return Supplier',
+            'period_length_days' => 14,
+            'first_period_start' => now()->subDays(30)->startOfDay(),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+
+        $returnStartedAt = now()->subDay()->startOfMinute();
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Shopee',
+            'order_sn' => 'SHOPEE-TO-RETURN-WITHOUT-DETAIL',
+            'order_status' => 'TO_RETURN',
+            'order_time' => now()->subDays(10),
+            'raw_data' => ['update_time' => $returnStartedAt->timestamp],
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+
+        $event = PayableEvent::query()
+            ->where('source_id', $order->order_sn)
+            ->where('source_type', 'RETURN_ORDER')
+            ->firstOrFail();
+        $this->assertSame(-25000.0, (float) $event->amount);
+        $this->assertSame($returnStartedAt->format('Y-m-d H:i:s'), $event->event_date->format('Y-m-d H:i:s'));
+        $this->assertSame('Shopee return fallback: TO_RETURN', $event->notes);
+
+        $order->updateQuietly(['raw_data' => ['update_time' => now()->timestamp]]);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+
+        $this->assertSame(
+            $returnStartedAt->format('Y-m-d H:i:s'),
+            $event->fresh()->event_date->format('Y-m-d H:i:s'),
+        );
+    }
+
     public function test_tiktok_logistics_return_keeps_first_failure_date_and_manual_period(): void
     {
         [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
