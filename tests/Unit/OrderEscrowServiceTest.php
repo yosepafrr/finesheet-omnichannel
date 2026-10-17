@@ -27,6 +27,30 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertSame(100_000.0, $this->service->amount($order));
     }
 
+    public function test_negative_shopee_escrow_does_not_request_another_finance_sync(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => -16300,
+            'fee_details' => ['return_order_sn_list' => ['261004ONKUV94K5']],
+        ]);
+
+        $this->assertFalse($this->service->needsShopeeFinanceRefresh($order));
+    }
+
+    public function test_zero_shopee_escrow_on_an_active_order_still_requests_a_refresh(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_status' => 'SHIPPED',
+            'escrow_amount' => 0,
+            'fee_details' => ['escrow_amount' => 0],
+        ]);
+
+        $this->assertTrue($this->service->needsShopeeFinanceRefresh($order));
+    }
+
     public function test_adjusted_escrow_is_used_when_the_original_amount_is_missing(): void
     {
         $order = $this->order('READY_TO_SHIP', null, 82_500);

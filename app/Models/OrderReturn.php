@@ -12,9 +12,30 @@ class OrderReturn extends Model
 {
     protected $table = 'order_returns';
 
+    private const RECONCILE_FIELDS = [
+        'order_id',
+        'platform',
+        'external_return_id',
+        'return_status',
+        'platform_status',
+        'normalized_status',
+        'return_type',
+        'refund_amount',
+        'return_reason',
+        'text_reason',
+        'tracking_number',
+        'raw_data',
+        'created_at_platform',
+        'updated_at_platform',
+    ];
+
     protected static function booted()
     {
         static::saved(function ($return) {
+            if (! $return->wasRecentlyCreated && ! $return->wasChanged(self::RECONCILE_FIELDS)) {
+                return;
+            }
+
             if ($return->order) {
                 app(PayableService::class)->reconcileOrderLogistics($return->order);
             }

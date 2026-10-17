@@ -55,6 +55,29 @@ class OrderEscrowService
         return (float) ($amount ?? $adjustedAmount ?? 0);
     }
 
+    public function needsShopeeFinanceRefresh(Order $order): bool
+    {
+        if (strcasecmp((string) $order->platform, 'Shopee') !== 0) {
+            return false;
+        }
+
+        if (empty($order->fee_details)) {
+            return true;
+        }
+
+        // A negative final escrow is valid for refunded orders. Only a zero
+        // balance on an active order can still be a provisional platform value.
+        if ($this->amount($order) !== 0.0) {
+            return false;
+        }
+
+        return in_array(
+            strtoupper(trim((string) $order->order_status)),
+            [...self::NEEDS_SHIPPING_STATUSES, ...self::SHIPPED_STATUSES],
+            true,
+        );
+    }
+
     public function category(Order $order): ?string
     {
         $status = strtoupper(trim((string) $order->order_status));

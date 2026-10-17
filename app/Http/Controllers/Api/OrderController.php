@@ -320,8 +320,7 @@ class OrderController extends Controller
         }
 
         $financeSyncPending = false;
-        if (strtolower((string) $order->platform) === 'shopee'
-            && (empty($order->fee_details) || $escrowService->amount($order) <= 0)) {
+        if ($escrowService->needsShopeeFinanceRefresh($order)) {
             SyncShopeeEscrowJob::dispatch($order->store_id, $order->order_sn)
                 ->onQueue('orders-low');
             $financeSyncPending = true;

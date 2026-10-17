@@ -34,7 +34,18 @@ class ShopeeEscrowReturnService
                 'platform' => 'Shopee',
                 'external_return_id' => $returnSn,
             ]);
+            $isNewReturn = ! $return->exists;
             $rawData = is_array($return->raw_data) ? $return->raw_data : [];
+            $needsDetailSync = $isNewReturn
+                || empty($rawData['detail'])
+                || in_array(strtoupper((string) $return->normalized_status), [
+                    '',
+                    'UNKNOWN',
+                    'PENDING',
+                    'APPROVED',
+                    'PROCESSING',
+                    'DISPUTED',
+                ], true);
             $rawData['escrow_reference'] = [
                 'order_sn' => $order->order_sn,
                 'return_order_sn_list' => $returnSns,
@@ -52,20 +63,24 @@ class ShopeeEscrowReturnService
             if (! $return->created_at_platform) {
                 $return->created_at_platform = $this->orderUpdateTime($order);
             }
-            $return->save();
+            if ($isNewReturn || $return->isDirty()) {
+                $return->save();
+            }
 
-            SyncShopeeReturnJob::dispatch(
-                $order->store_id,
-                null,
-                null,
-                $returnSn,
-                [
-                    'return_sn' => $returnSn,
-                    'order_sn' => $order->order_sn,
-                    'status' => 'PROCESSING',
-                    'create_time' => $return->created_at_platform?->timestamp,
-                ],
-            )->onQueue('orders');
+            if ($needsDetailSync) {
+                SyncShopeeReturnJob::dispatch(
+                    $order->store_id,
+                    null,
+                    null,
+                    $returnSn,
+                    [
+                        'return_sn' => $returnSn,
+                        'order_sn' => $order->order_sn,
+                        'status' => 'PROCESSING',
+                        'create_time' => $return->created_at_platform?->timestamp,
+                    ],
+                )->onQueue('orders');
+            }
 
             $synced++;
         }
