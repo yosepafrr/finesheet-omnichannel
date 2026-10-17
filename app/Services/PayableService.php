@@ -532,6 +532,9 @@ class PayableService
 
         $order = $return->order ?? Order::find($return->order_id);
         $orderSn = $order?->order_sn ?? $return->external_return_id;
+        if ($type === 'RETURN_ORDER' && $order && $this->hasConfirmedFailedPackage($order)) {
+            $type = 'FAILED_DELIVERY';
+        }
 
         $orderReturns = $order
             ? $this->activeReturnsForOrder($order)
@@ -539,7 +542,7 @@ class PayableService
 
         if ($orderReturns->isEmpty()) {
             PayableEvent::whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
-                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
                 ->delete();
 
             return;
@@ -549,7 +552,7 @@ class PayableService
             && in_array(strtoupper(trim($order->order_status ?? '')), ['CANCEL', 'CANCELLED', 'IN_CANCEL'], true)
             && ! $this->hasPostShipmentAdjustment($order)) {
             PayableEvent::where('source_id', $orderSn)
-                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
                 ->delete();
 
             return;
@@ -635,28 +638,30 @@ class PayableService
         if (empty($returnsBySupplier)) {
             PayableEvent::where('user_id', $userId)
                 ->whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
-                ->whereIn('source_type', [$type, 'FAILED_DELIVERY'])
+                ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
                 ->delete();
 
             return;
         }
 
         if ($orderSn && ! empty($returnsBySupplier)) {
-            $failedDeliveryEvents = PayableEvent::where('source_id', (string) $orderSn)
-                ->where('source_type', 'FAILED_DELIVERY')
+            $alternateType = $type === 'FAILED_DELIVERY' ? 'RETURN_ORDER' : 'FAILED_DELIVERY';
+            $alternateEvents = PayableEvent::where('source_id', (string) $orderSn)
+                ->where('source_type', $alternateType)
                 ->get()
                 ->keyBy(fn (PayableEvent $event) => (string) ($event->supplier_id ?? ''));
 
             // Delete legacy event where source_id was external_return_id
             if ($return->external_return_id && $return->external_return_id !== $orderSn) {
                 PayableEvent::where('source_id', (string) $return->external_return_id)
-                    ->where('source_type', $type)
+                    ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
                     ->delete();
             }
 
-            // Also delete duplicate FAILED_DELIVERY
+            // A package can move from a generic return record to a confirmed
+            // failed-delivery record (or vice versa). Keep only one reduction.
             PayableEvent::where('source_id', (string) $orderSn)
-                ->where('source_type', 'FAILED_DELIVERY')
+                ->where('source_type', $alternateType)
                 ->delete();
 
             $recordedSupplierIds = [];
@@ -693,8 +698,8 @@ class PayableService
                     })
                     ->first();
 
-                $failedDeliveryEvent = $failedDeliveryEvents->get((string) $actualSupplierId);
-                $manualEvent = collect([$existingEvent, $failedDeliveryEvent])
+                $alternateEvent = $alternateEvents->get((string) $actualSupplierId);
+                $manualEvent = collect([$existingEvent, $alternateEvent])
                     ->first(fn (?PayableEvent $event) => $event?->is_manual_moved);
 
                 $periodId = $manualEvent

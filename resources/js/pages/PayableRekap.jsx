@@ -593,7 +593,7 @@ export default function PayableRekap() {
         switch (type) {
             case 'CREATE_ORDER': return 'Order';
             case 'RETURN_ORDER': return 'Pengembalian';
-            case 'FAILED_DELIVERY': return 'Gagal Kirim';
+            case 'FAILED_DELIVERY': return 'Pengantaran Gagal';
             case 'BUYER_CANCEL': return 'Batal Pembeli';
             case 'SELLER_LATE_CANCEL': return 'Batal Terlambat Kirim';
             default: return type ? type.replace(/_/g, ' ') : '-';
@@ -821,7 +821,7 @@ export default function PayableRekap() {
     const getReturnLabel = (type) => {
         switch (type) {
             case 'RETURN_ORDER': return 'Pengembalian';
-            case 'FAILED_DELIVERY': return 'Batal';
+            case 'FAILED_DELIVERY': return 'Pengantaran Gagal';
             case 'BUYER_CANCEL': return 'Batal Pembeli';
             case 'SELLER_LATE_CANCEL': return 'Batal Terlambat Kirim';
             default: return type ? type.replace(/_/g, ' ') : '-';

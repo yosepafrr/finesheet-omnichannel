@@ -584,7 +584,7 @@ class ProductHppSourceTest extends TestCase
         });
     }
 
-    public function test_tiktok_logistics_return_keeps_first_failure_date_and_manual_period(): void
+    public function test_tiktok_failed_delivery_return_keeps_its_type_first_failure_date_and_manual_period(): void
     {
         [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
         $product->store->update(['platform' => 'Tiktokshop']);
@@ -683,14 +683,14 @@ class ProductHppSourceTest extends TestCase
         $payable->recordReturnEvent($return->fresh(['items', 'order.store']));
 
         $returnEvent = PayableEvent::where('source_id', $order->order_sn)
-            ->where('source_type', 'RETURN_ORDER')
+            ->where('source_type', 'FAILED_DELIVERY')
             ->firstOrFail();
         $this->assertSame($manualPeriod->id, $returnEvent->payable_period_id);
         $this->assertTrue($returnEvent->is_manual_moved);
         $this->assertSame($failedAt->format('Y-m-d H:i:s'), $returnEvent->event_date->format('Y-m-d H:i:s'));
         $this->assertDatabaseMissing('payable_events', [
             'source_id' => $order->order_sn,
-            'source_type' => 'FAILED_DELIVERY',
+            'source_type' => 'RETURN_ORDER',
         ]);
     }
 
