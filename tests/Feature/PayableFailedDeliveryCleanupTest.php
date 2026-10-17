@@ -197,8 +197,8 @@ class PayableFailedDeliveryCleanupTest extends TestCase
             'order_id' => $order->id,
             'platform' => 'Tiktokshop',
             'external_return_id' => 'CANCELLED-FAILED-DELIVERY-RETURN',
-            'return_status' => 'RETURN_OR_REFUND_CANCEL',
-            'platform_status' => 'RETURN_OR_REFUND_CANCEL',
+            'return_status' => 'RETURN_OR_REFUND_REQUEST_CANCEL',
+            'platform_status' => 'RETURN_OR_REFUND_REQUEST_CANCEL',
             'normalized_status' => 'CANCELLED',
             'created_at_platform' => now()->subDay(),
         ]));
@@ -224,7 +224,7 @@ class PayableFailedDeliveryCleanupTest extends TestCase
     {
         foreach ([
             ['platform' => 'Shopee', 'status' => 'CANCELLED', 'normalized_status' => 'CANCELLED'],
-            ['platform' => 'Tiktokshop', 'status' => 'RETURN_OR_REFUND_CANCEL', 'normalized_status' => 'CANCELLED'],
+            ['platform' => 'Tiktokshop', 'status' => 'RETURN_OR_REFUND_REQUEST_CANCEL', 'normalized_status' => 'UNKNOWN'],
             ['platform' => 'Tiktokshop', 'status' => 'REQUEST_REJECTED', 'normalized_status' => 'REJECTED'],
         ] as $index => $case) {
             [$order, $supplier, $period] = $this->createPayableOrderContext(
