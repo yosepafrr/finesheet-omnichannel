@@ -194,6 +194,111 @@ function StatusBadge({ status, platform }) {
     );
 }
 
+function ReassignPeriodDropdown({ periods, currentPeriodId, value, onChange, buttonId }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef(null);
+    const availablePeriods = periods.filter(period => String(period.id) !== String(currentPeriodId));
+    const selectedPeriod = availablePeriods.find(period => String(period.id) === String(value));
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+
+        const handleClickOutside = event => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isOpen]);
+
+    return (
+        <div ref={dropdownRef} className="relative">
+            <button
+                id={buttonId}
+                type="button"
+                onClick={() => setIsOpen(open => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+                className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3.5 py-2.5 text-left shadow-sm outline-none transition-all cursor-pointer dark:bg-slate-900 ${isOpen
+                    ? 'border-amber-400 ring-2 ring-amber-500/20 dark:border-amber-500'
+                    : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                }`}
+            >
+                <span className="min-w-0 flex-1">
+                    <span className={`block truncate text-sm font-semibold ${selectedPeriod ? 'text-slate-800 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
+                        {selectedPeriod?.name || 'Pilih periode tujuan'}
+                    </span>
+                    {selectedPeriod && (
+                        <span className="mt-0.5 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+                            {formatDateSplit(selectedPeriod.start_date).date} - {formatDateSplit(selectedPeriod.end_date).date}
+                            {selectedPeriod.supplier?.name ? ` | ${selectedPeriod.supplier.name}` : ''}
+                        </span>
+                    )}
+                </span>
+                <ChevronDown className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        className="absolute bottom-full left-0 z-[80] mb-2 w-full origin-bottom overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                        <div className="border-b border-slate-100 px-3.5 py-2.5 dark:border-slate-800">
+                            <p className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">Periode tujuan</p>
+                        </div>
+                        <div role="listbox" className="max-h-60 overflow-y-auto p-1.5">
+                            {availablePeriods.length > 0 ? availablePeriods.map(period => {
+                                const isSelected = String(period.id) === String(value);
+                                return (
+                                    <button
+                                        key={period.id}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={isSelected}
+                                        onClick={() => {
+                                            onChange(String(period.id));
+                                            setIsOpen(false);
+                                        }}
+                                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer ${isSelected
+                                            ? 'bg-amber-50 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200'
+                                            : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${isSelected
+                                            ? 'border-amber-500 bg-amber-500 text-white'
+                                            : 'border-slate-200 text-transparent dark:border-slate-700'
+                                        }`}>
+                                            <Check className="h-3 w-3" />
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-xs font-semibold">{period.name}</span>
+                                            <span className="mt-0.5 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                                {formatDateSplit(period.start_date).date} - {formatDateSplit(period.end_date).date}
+                                                {period.supplier?.name ? ` | ${period.supplier.name}` : ''}
+                                            </span>
+                                        </span>
+                                    </button>
+                                );
+                            }) : (
+                                <div className="px-4 py-6 text-center">
+                                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Belum ada periode tujuan lain</p>
+                                    <p className="mt-1 text-[10px] text-slate-400">Buat periode baru terlebih dahulu.</p>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
 export default function PayableRekap() {
     const tour = useOnboarding("payable", PAYABLE_TOUR_STEPS.length);
     const [periods, setPeriods] = useState([]);
@@ -3053,7 +3158,7 @@ export default function PayableRekap() {
                                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-slate-800 dark:ring-white/10"
+                                className="relative w-full max-w-md overflow-visible rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-slate-800 dark:ring-white/10"
                             >
                                 <div className="flex items-start justify-between border-b border-slate-100 p-5 dark:border-slate-700/50">
                                     <div className="flex items-start gap-3">
@@ -3089,21 +3194,13 @@ export default function PayableRekap() {
                                         <label htmlFor="quick-reassign-period" className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">
                                             Periode tujuan
                                         </label>
-                                        <div className="relative">
-                                            <select
-                                                id="quick-reassign-period"
-                                                value={reassignTargetPeriodId}
-                                                onChange={event => setReassignTargetPeriodId(event.target.value)}
-                                                className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 pr-9 text-sm text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                autoFocus
-                                            >
-                                                <option value="">Pilih periode tujuan</option>
-                                                {periods.filter(period => String(period.id) !== String(selectedPeriodId)).map(period => (
-                                                    <option key={period.id} value={period.id}>{period.name}</option>
-                                                ))}
-                                            </select>
-                                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                                        </div>
+                                        <ReassignPeriodDropdown
+                                            buttonId="quick-reassign-period"
+                                            periods={periods}
+                                            currentPeriodId={selectedPeriodId}
+                                            value={reassignTargetPeriodId}
+                                            onChange={setReassignTargetPeriodId}
+                                        />
                                     </div>
                                 </div>
 
@@ -3242,16 +3339,13 @@ export default function PayableRekap() {
                                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                                             <div className="flex-1">
                                                 <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{selectedEventIds.length} event dipilih &mdash; Pindahkan ke periode:</p>
-                                                <select
+                                                <ReassignPeriodDropdown
+                                                    buttonId="searched-reassign-period"
+                                                    periods={periods}
+                                                    currentPeriodId={selectedPeriodId}
                                                     value={reassignTargetPeriodId}
-                                                    onChange={e => setReassignTargetPeriodId(e.target.value)}
-                                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/40"
-                                                >
-                                                    <option value="">-- Pilih Periode Tujuan --</option>
-                                                    {periods.filter(p => String(p.id) !== String(selectedPeriodId)).map(p => (
-                                                        <option key={p.id} value={p.id}>{p.name}</option>
-                                                    ))}
-                                                </select>
+                                                    onChange={setReassignTargetPeriodId}
+                                                />
                                             </div>
                                             <button
                                                 type="button"
