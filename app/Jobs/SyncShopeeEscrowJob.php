@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Order;
 use App\Models\Store;
 use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeEscrowReturnService;
 use App\Services\ShopeeService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -41,7 +42,8 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         ShopeeService $shopee,
-        ShopeeEscrowAmountResolver $resolver
+        ShopeeEscrowAmountResolver $resolver,
+        ShopeeEscrowReturnService $returnService,
     ): void {
         $store = Store::query()
             ->whereKey($this->storeId)
@@ -63,7 +65,9 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
         }
 
         $response = $shopee->getEscrowDetail($store, $this->orderSn);
-        $income = $response['response']['order_income'] ?? null;
+        $escrow = $response['response'] ?? [];
+        $income = $escrow['order_income'] ?? null;
+        $returnService->sync($order, $escrow);
 
         if (! is_array($income) || $income === []) {
             Log::warning('Shopee escrow detail is not available from the platform', [
@@ -77,6 +81,6 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $order->update($resolver->updates($order, $income));
+        $order->update($resolver->updates($order, $income, $escrow));
     }
 }

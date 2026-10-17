@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderCancellationMapper;
 use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeEscrowReturnService;
 use App\Services\ShopeeService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -50,7 +51,8 @@ class HandleShopeeOrderWebhookJob implements ShouldBeUnique, ShouldQueue
     public function handle(
         ShopeeService $shopee,
         LogisticsStatusNormalizer $logisticsNormalizer,
-        ShopeeEscrowAmountResolver $escrowResolver
+        ShopeeEscrowAmountResolver $escrowResolver,
+        ShopeeEscrowReturnService $returnService,
     ) {
         Log::info("HandleShopeeOrderWebhookJob started for Order: {$this->orderSn}");
 
@@ -193,8 +195,9 @@ class HandleShopeeOrderWebhookJob implements ShouldBeUnique, ShouldQueue
                 $escrow = $escrowResponse['response'] ?? [];
                 $income = $escrow['order_income'] ?? null;
                 if (is_array($income) && $income !== []) {
-                    $orderModel->update($escrowResolver->updates($orderModel, $income));
+                    $orderModel->update($escrowResolver->updates($orderModel, $income, $escrow));
                 }
+                $returnService->sync($orderModel->fresh(), $escrow);
             } catch (\Throwable $escrowException) {
                 Log::warning("Escrow failed for {$this->orderSn}, webhook order detail was still saved", [
                     'error' => $escrowException->getMessage(),

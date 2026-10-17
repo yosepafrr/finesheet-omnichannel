@@ -55,4 +55,23 @@ class ShopeeEscrowAmountResolverTest extends TestCase
 
         $this->assertSame(0, $updates['escrow_amount']);
     }
+
+    public function test_return_order_numbers_are_preserved_with_fee_details(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'fee_details' => [],
+        ]);
+
+        $updates = (new ShopeeEscrowAmountResolver)->updates(
+            $order,
+            ['escrow_amount' => -16300],
+            ['return_order_sn_list' => ['261004ONKUV94K5']],
+        );
+
+        $this->assertSame(
+            ['261004ONKUV94K5'],
+            $updates['fee_details']['return_order_sn_list'],
+        );
+    }
 }

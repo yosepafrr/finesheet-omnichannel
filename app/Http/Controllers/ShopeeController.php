@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Models\VariantProduct;
 use App\Services\InitialOrderSyncDispatcher;
 use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeEscrowReturnService;
 use App\Services\ShopeeService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -317,7 +318,8 @@ class ShopeeController extends Controller
     public function getShopeeOrders(
         Request $request,
         ShopeeService $shopee,
-        ShopeeEscrowAmountResolver $escrowResolver
+        ShopeeEscrowAmountResolver $escrowResolver,
+        ShopeeEscrowReturnService $returnService,
     ) {
         $store = Auth::user()->stores()
             ->where('platform', 'Shopee')
@@ -380,7 +382,8 @@ class ShopeeController extends Controller
                     if (isset($detailsResponse['response']['order_list'])) {
                         foreach ($detailsResponse['response']['order_list'] as $detail) {
                             $escrowResponse = $shopee->getEscrowDetail($store, $detail['order_sn']);
-                            $income = $escrowResponse['response']['order_income'] ?? null;
+                            $escrow = $escrowResponse['response'] ?? [];
+                            $income = $escrow['order_income'] ?? null;
 
                             $itemQuery = Product::query();
 
@@ -402,8 +405,9 @@ class ShopeeController extends Controller
                             );
 
                             if (is_array($income) && $income !== []) {
-                                $orderModel->update($escrowResolver->updates($orderModel, $income));
+                                $orderModel->update($escrowResolver->updates($orderModel, $income, $escrow));
                             }
+                            $returnService->sync($orderModel->fresh(), $escrow);
 
                             if (! empty($detail['item_list'])) {
                                 foreach ($detail['item_list'] as $shopeeItem) {

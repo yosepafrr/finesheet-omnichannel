@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderCancellationMapper;
 use App\Services\ShopeeEscrowAmountResolver;
+use App\Services\ShopeeEscrowReturnService;
 use App\Services\ShopeeService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -86,7 +87,8 @@ class SyncShopeeOrderJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         LogisticsStatusNormalizer $logisticsNormalizer,
-        ShopeeEscrowAmountResolver $escrowResolver
+        ShopeeEscrowAmountResolver $escrowResolver,
+        ShopeeEscrowReturnService $returnService,
     ) {
         Log::info('SyncShopeeOrderJob started', ['time' => now(), 'daysToSync' => $this->daysToSync]);
 
@@ -344,8 +346,9 @@ class SyncShopeeOrderJob implements ShouldBeUnique, ShouldQueue
                             $escrow = $escrowResponse['response'] ?? [];
                             $income = $escrow['order_income'] ?? null;
                             if (is_array($income) && $income !== []) {
-                                $orderModel->update($escrowResolver->updates($orderModel, $income));
+                                $orderModel->update($escrowResolver->updates($orderModel, $income, $escrow));
                             }
+                            $returnService->sync($orderModel->fresh(), $escrow);
                         } catch (\Throwable $escrowEx) {
                             Log::warning("Escrow failed for {$orderSn}, order detail was still saved", [
                                 'error' => $escrowEx->getMessage(),

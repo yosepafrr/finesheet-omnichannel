@@ -23,13 +23,23 @@ class ShopeeEscrowAmountResolver
      *
      * @return array<string, mixed>
      */
-    public function updates(Order $order, array $income): array
+    public function updates(Order $order, array $income, array $escrow = []): array
     {
         $preservePositive = in_array(
             strtoupper((string) $order->order_status),
             self::ACTIVE_STATUSES,
             true
         );
+        $feeDetails = $income;
+        $returnOrderSns = $this->returnOrderSns($escrow);
+        if ($returnOrderSns === []) {
+            $returnOrderSns = $this->returnOrderSns(
+                is_array($order->fee_details) ? $order->fee_details : []
+            );
+        }
+        if ($returnOrderSns !== []) {
+            $feeDetails['return_order_sn_list'] = $returnOrderSns;
+        }
 
         return [
             'order_selling_price' => $this->resolveAmount(
@@ -47,8 +57,34 @@ class ShopeeEscrowAmountResolver
                 $order->escrow_amount_after_adjustment,
                 $preservePositive
             ),
-            'fee_details' => $income,
+            'fee_details' => $feeDetails,
         ];
+    }
+
+    /** @return array<int, string> */
+    public function returnOrderSns(array $escrow): array
+    {
+        $value = $escrow['return_order_sn_list'] ?? [];
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : preg_split('/\s*,\s*/', $value);
+        } elseif (! is_array($value)) {
+            $value = [$value];
+        }
+
+        return collect($value)
+            ->map(function ($return) {
+                if (is_array($return)) {
+                    return $return['return_sn'] ?? $return['return_order_sn'] ?? null;
+                }
+
+                return $return;
+            })
+            ->filter(fn ($returnSn) => is_scalar($returnSn) && trim((string) $returnSn) !== '')
+            ->map(fn ($returnSn) => trim((string) $returnSn))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function resolveAmount($incoming, $existing, bool $preservePositive): mixed

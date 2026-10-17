@@ -241,11 +241,11 @@ class SyncShopeeReturnJob implements ShouldQueue
                 ?? $detail['return_type']
                 ?? $this->returnSolutionLabel($detail['return_solution'] ?? null)
                 ?? $orderReturn->return_type,
-            'raw_data' => [
+            'raw_data' => array_replace($existingRawData, [
                 'list' => $returnItem,
                 'detail' => $detailPayload ?: ($existingRawData['detail'] ?? []),
                 'reverse_tracking' => $effectiveReverseTracking,
-            ],
+            ]),
         ];
         foreach ([
             'refund_amount' => 'refund_amount',
