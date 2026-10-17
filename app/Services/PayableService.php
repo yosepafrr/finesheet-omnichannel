@@ -543,9 +543,14 @@ class PayableService
             : collect([$return])->filter(fn (OrderReturn $item) => $this->isActiveReturn($item));
 
         if ($orderReturns->isEmpty()) {
-            PayableEvent::whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
-                ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY'])
-                ->delete();
+            if ($order) {
+                $this->reconcileOrderLogistics($order);
+            } else {
+                PayableEvent::whereIn('source_id', array_filter([$orderSn, $return->external_return_id]))
+                    ->where('source_type', 'RETURN_ORDER')
+                    ->get()
+                    ->each->delete();
+            }
 
             return;
         }
@@ -1276,6 +1281,8 @@ class PayableService
             return;
         }
 
+        $this->removeInactiveReturnEvents($order);
+
         if (strcasecmp((string) $order->platform, 'Shopee') === 0
             && strtoupper(trim((string) $order->order_status)) === 'TO_RETURN') {
             $this->recordOrderEvent($order->loadMissing(['orderProducts', 'store']));
@@ -1284,6 +1291,39 @@ class PayableService
         }
 
         $this->recordCancellationEvent($order);
+    }
+
+    private function removeInactiveReturnEvents(Order $order): void
+    {
+        // A final delivery failure remains financially relevant even when the
+        // marketplace-generated return request is later closed or cancelled.
+        if ($this->hasConfirmedFailedPackage($order)) {
+            return;
+        }
+
+        $sourceIds = $order->returns()
+            ->pluck('external_return_id')
+            ->push($order->order_sn)
+            ->filter(fn ($sourceId) => filled($sourceId))
+            ->map(fn ($sourceId) => (string) $sourceId)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($sourceIds)) {
+            return;
+        }
+
+        $userId = $order->store?->user_id
+            ?? Store::whereKey($order->store_id)->value('user_id');
+
+        PayableEvent::query()
+            ->when($userId, fn ($query) => $query->where('user_id', $userId))
+            ->where('platform', $order->platform)
+            ->whereIn('source_id', $sourceIds)
+            ->where('source_type', 'RETURN_ORDER')
+            ->get()
+            ->each->delete();
     }
 
     private function hasPostShipmentAdjustment(Order $order): bool

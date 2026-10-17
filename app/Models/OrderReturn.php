@@ -49,6 +49,10 @@ class OrderReturn extends Model
         });
 
         static::deleted(function ($return) {
+            if ($return->order) {
+                app(PayableService::class)->reconcileOrderLogistics($return->order);
+            }
+
             try {
                 if ($return->order) {
                     broadcast(new OrderUpdated($return->order));

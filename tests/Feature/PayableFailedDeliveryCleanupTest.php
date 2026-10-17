@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\OrderPackage;
+use App\Models\OrderReturn;
 use App\Models\PayableEvent;
 use App\Models\PayablePeriod;
 use App\Models\Store;
@@ -192,7 +193,17 @@ class PayableFailedDeliveryCleanupTest extends TestCase
             ]));
         }
 
-        app(PayableService::class)->recordCancellationEvent($order->fresh('store'));
+        $cancelledReturn = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'external_return_id' => 'CANCELLED-FAILED-DELIVERY-RETURN',
+            'return_status' => 'RETURN_OR_REFUND_CANCEL',
+            'platform_status' => 'RETURN_OR_REFUND_CANCEL',
+            'normalized_status' => 'CANCELLED',
+            'created_at_platform' => now()->subDay(),
+        ]));
+
+        app(PayableService::class)->recordReturnEvent($cancelledReturn);
 
         $this->assertDatabaseMissing('payable_events', [
             'source_id' => $order->order_sn,
@@ -207,6 +218,184 @@ class PayableFailedDeliveryCleanupTest extends TestCase
         $this->assertTrue($failedEvent->is_manual_moved);
         $this->assertSame($failedAt->format('Y-m-d H:i:s'), $failedEvent->event_date->format('Y-m-d H:i:s'));
         $this->assertSame(-10000.0, (float) $failedEvent->amount);
+    }
+
+    public function test_cancelled_and_rejected_return_requests_remove_stale_return_events(): void
+    {
+        foreach ([
+            ['platform' => 'Shopee', 'status' => 'CANCELLED', 'normalized_status' => 'CANCELLED'],
+            ['platform' => 'Tiktokshop', 'status' => 'RETURN_OR_REFUND_CANCEL', 'normalized_status' => 'CANCELLED'],
+            ['platform' => 'Tiktokshop', 'status' => 'REQUEST_REJECTED', 'normalized_status' => 'REJECTED'],
+        ] as $index => $case) {
+            [$order, $supplier, $period] = $this->createPayableOrderContext(
+                $case['platform'],
+                'CANCELLED-RETURN-'.$index,
+            );
+            $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+                'order_id' => $order->id,
+                'platform' => $case['platform'],
+                'external_return_id' => 'RETURN-'.$index,
+                'return_status' => 'REQUESTED',
+                'platform_status' => 'REQUESTED',
+                'normalized_status' => 'PENDING',
+                'created_at_platform' => now()->subHour(),
+            ]));
+
+            $this->createPayableEvent($order, $supplier, $period, 'CREATE_ORDER', 10000);
+            $this->createPayableEvent($order, $supplier, $period, 'RETURN_ORDER', -10000);
+
+            $return->update([
+                'return_status' => $case['status'],
+                'platform_status' => $case['status'],
+                'normalized_status' => $case['normalized_status'],
+            ]);
+
+            $this->assertDatabaseHas('payable_events', [
+                'source_id' => $order->order_sn,
+                'source_type' => 'CREATE_ORDER',
+            ]);
+            $this->assertDatabaseMissing('payable_events', [
+                'source_id' => $order->order_sn,
+                'source_type' => 'RETURN_ORDER',
+            ]);
+        }
+    }
+
+    public function test_completed_return_request_remains_in_payable_history(): void
+    {
+        [$order, $supplier, $period] = $this->createPayableOrderContext('Shopee', 'COMPLETED-RETURN');
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'COMPLETED-RETURN-1',
+            'return_status' => 'REFUND_PAID',
+            'platform_status' => 'REFUND_PAID',
+            'normalized_status' => 'COMPLETED',
+            'refund_amount' => 10000,
+            'created_at_platform' => now()->subHour(),
+        ]));
+        $this->createPayableEvent($order, $supplier, $period, 'CREATE_ORDER', 10000);
+        $this->createPayableEvent($order, $supplier, $period, 'RETURN_ORDER', -10000);
+
+        app(PayableService::class)->reconcileOrderLogistics($order);
+
+        $this->assertDatabaseHas('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'RETURN_ORDER',
+            'amount' => -10000,
+        ]);
+    }
+
+    public function test_cancelling_one_request_keeps_another_completed_return(): void
+    {
+        [$order, $supplier, $period] = $this->createPayableOrderContext('Shopee', 'MULTIPLE-RETURNS');
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'COMPLETED-RETURN-2',
+            'return_status' => 'REFUND_PAID',
+            'platform_status' => 'REFUND_PAID',
+            'normalized_status' => 'COMPLETED',
+            'refund_amount' => 10000,
+            'created_at_platform' => now()->subHours(2),
+        ]));
+        $cancelledReturn = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'CANCELLED-RETURN-2',
+            'return_status' => 'REQUESTED',
+            'platform_status' => 'REQUESTED',
+            'normalized_status' => 'PENDING',
+            'created_at_platform' => now()->subHour(),
+        ]));
+        $this->createPayableEvent($order, $supplier, $period, 'CREATE_ORDER', 10000);
+        $this->createPayableEvent($order, $supplier, $period, 'RETURN_ORDER', -10000);
+
+        $cancelledReturn->update([
+            'return_status' => 'CANCELLED',
+            'platform_status' => 'CANCELLED',
+            'normalized_status' => 'CANCELLED',
+        ]);
+
+        $this->assertDatabaseHas('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'RETURN_ORDER',
+            'amount' => -10000,
+        ]);
+    }
+
+    public function test_deleting_the_last_return_record_removes_its_payable_event(): void
+    {
+        [$order, $supplier, $period] = $this->createPayableOrderContext('Shopee', 'DELETED-RETURN');
+        $return = OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'DELETED-RETURN-1',
+            'return_status' => 'REQUESTED',
+            'normalized_status' => 'PENDING',
+            'created_at_platform' => now()->subHour(),
+        ]));
+        $this->createPayableEvent($order, $supplier, $period, 'CREATE_ORDER', 10000);
+        $this->createPayableEvent($order, $supplier, $period, 'RETURN_ORDER', -10000);
+
+        $return->delete();
+
+        $this->assertDatabaseMissing('payable_events', [
+            'source_id' => $order->order_sn,
+            'source_type' => 'RETURN_ORDER',
+        ]);
+    }
+
+    private function createPayableOrderContext(string $platform, string $orderSn): array
+    {
+        $user = User::factory()->create();
+        $store = Store::create([
+            'user_id' => $user->id,
+            'platform' => $platform,
+            'store_name' => $platform.' Store',
+            'platform_shop_id' => $platform.'-'.$orderSn,
+        ]);
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => $platform.' Supplier',
+            'first_period_start' => now()->subDay(),
+        ]);
+        $period = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'name' => $platform.' Period',
+            'start_date' => now()->subDay(),
+            'end_date' => now()->addDay(),
+        ]));
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $store->id,
+            'platform' => $platform,
+            'order_sn' => $orderSn,
+            'order_status' => 'COMPLETED',
+            'order_time' => now()->subDay(),
+        ]));
+
+        return [$order, $supplier, $period];
+    }
+
+    private function createPayableEvent(
+        Order $order,
+        Supplier $supplier,
+        PayablePeriod $period,
+        string $sourceType,
+        int $amount,
+    ): void {
+        PayableEvent::withoutEvents(fn () => PayableEvent::create([
+            'user_id' => $supplier->user_id,
+            'supplier_id' => $supplier->id,
+            'payable_period_id' => $period->id,
+            'store_id' => $order->store_id,
+            'platform' => $order->platform,
+            'source_id' => $order->order_sn,
+            'source_type' => $sourceType,
+            'event_date' => now(),
+            'amount' => $amount,
+        ]));
     }
 
     private function createOrder(Store $store, string $orderSn): Order
