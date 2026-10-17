@@ -242,6 +242,8 @@ export default function PayableRekap() {
     const [reassignTargetPeriodId, setReassignTargetPeriodId] = useState('');
     const [reassignConfirmOpen, setReassignConfirmOpen] = useState(false);
     const [isReassigning, setIsReassigning] = useState(false);
+    const [isBulkSelectionMode, setIsBulkSelectionMode] = useState(false);
+    const [isQuickReassignOpen, setIsQuickReassignOpen] = useState(false);
     const reassignSearchTimeout = useRef(null);
 
     // Suppliers State
@@ -296,6 +298,14 @@ export default function PayableRekap() {
     useEffect(() => {
         selectedPeriodIdRef.current = selectedPeriodId;
     }, [selectedPeriodId]);
+
+    useEffect(() => {
+        setIsBulkSelectionMode(false);
+        setIsQuickReassignOpen(false);
+        setReassignConfirmOpen(false);
+        setSelectedEventIds([]);
+        setReassignTargetPeriodId('');
+    }, [selectedPeriodId, selectedSupplierIds.join(',')]);
 
     useEffect(() => {
         selectedSupplierIdsRef.current = selectedSupplierIds;
@@ -562,6 +572,41 @@ export default function PayableRekap() {
         );
     };
 
+    const toggleVisibleEventSelection = (events, checked) => {
+        const visibleIds = events.map(event => event.id);
+        setSelectedEventIds(prev => {
+            const visibleIdSet = new Set(visibleIds);
+            const untouchedIds = prev.filter(id => !visibleIdSet.has(id));
+            return checked ? [...untouchedIds, ...visibleIds] : untouchedIds;
+        });
+    };
+
+    const startBulkSelection = () => {
+        setSelectedEventIds([]);
+        setReassignTargetPeriodId('');
+        setIsBulkSelectionMode(true);
+    };
+
+    const cancelBulkSelection = () => {
+        setSelectedEventIds([]);
+        setReassignTargetPeriodId('');
+        setIsBulkSelectionMode(false);
+    };
+
+    const openQuickReassign = (eventIds) => {
+        setSelectedEventIds(eventIds);
+        setReassignTargetPeriodId('');
+        setIsQuickReassignOpen(true);
+    };
+
+    const closeQuickReassign = () => {
+        setIsQuickReassignOpen(false);
+        setReassignTargetPeriodId('');
+        if (!isBulkSelectionMode) {
+            setSelectedEventIds([]);
+        }
+    };
+
     const handleConfirmReassign = async () => {
         if (!reassignTargetPeriodId || selectedEventIds.length === 0) return;
         setIsReassigning(true);
@@ -576,6 +621,8 @@ export default function PayableRekap() {
             }
             setReassignConfirmOpen(false);
             setIsReassignModalOpen(false);
+            setIsQuickReassignOpen(false);
+            setIsBulkSelectionMode(false);
             setSelectedEventIds([]);
             setReassignSearch('');
             setReassignResults([]);
@@ -925,6 +972,66 @@ export default function PayableRekap() {
     const getPeriodName = () => {
         const p = periods.find(x => x.id == selectedPeriodId);
         return p ? p.name.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Periode';
+    };
+
+    const buildOrderTableRows = () => [
+        ['Tanggal', 'Order ID', 'Status', 'Supplier', 'Produk', 'Varian', 'Jumlah Produk', 'Platform', 'HPP'],
+        ...filteredOrderEvents.map(ev => [
+            formatDate(ev.event_date),
+            ev.source_id || '-',
+            getOrderStatusLabel(ev.order_status, ev.platform),
+            ev.supplier_info?.name || '-',
+            ev.first_product?.product_name || '-',
+            ev.first_product?.model_name || '-',
+            ev.product_count || 1,
+            ev.platform || '-',
+            parseFloat(ev.amount || 0),
+        ]),
+    ];
+
+    const buildReturnTableRows = () => [
+        ['Tanggal', 'Tipe', 'Order ID', 'Supplier', 'Produk', 'Varian', 'Jumlah Produk', 'Platform', 'Pengurangan HPP'],
+        ...filteredReturnEvents.map(ev => [
+            formatDate(ev.event_date),
+            getReturnLabel(ev.source_type),
+            ev.source_id || '-',
+            ev.supplier_info?.name || '-',
+            ev.first_product?.product_name || '-',
+            ev.first_product?.model_name || '-',
+            ev.product_count || 1,
+            ev.platform || '-',
+            Math.abs(parseFloat(ev.amount || 0)),
+        ]),
+    ];
+
+    const downloadTableExcel = (tableType) => {
+        const isOrderTable = tableType === 'order';
+        const events = isOrderTable ? filteredOrderEvents : filteredReturnEvents;
+        if (events.length === 0) {
+            toast.error('Tidak ada data pada tabel yang dapat diunduh');
+            return;
+        }
+
+        try {
+            const rows = isOrderTable ? buildOrderTableRows() : buildReturnTableRows();
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            worksheet['!cols'] = [
+                { wch: 22 }, { wch: 28 }, { wch: 24 }, { wch: 24 }, { wch: 42 },
+                { wch: 24 }, { wch: 15 }, { wch: 14 }, { wch: 20 },
+            ];
+            worksheet['!autofilter'] = { ref: `A1:I${rows.length}` };
+
+            const workbook = XLSX.utils.book_new();
+            const sheetName = isOrderTable ? 'Riwayat Order' : 'Pembatalan Pengembalian';
+            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+            const filePrefix = isOrderTable ? 'Riwayat_Order' : 'Riwayat_Pembatalan_Pengembalian';
+            XLSX.writeFile(workbook, `${filePrefix}_${getPeriodName()}.xlsx`);
+            toast.success(`Data ${isOrderTable ? 'order' : 'pembatalan dan pengembalian'} berhasil diunduh`);
+        } catch (error) {
+            console.error('Table Excel export error', error);
+            toast.error('Gagal mengunduh data tabel');
+        }
     };
 
     // Calculate dynamic totals based on active filters
@@ -1424,7 +1531,7 @@ export default function PayableRekap() {
         }
     };
 
-    const isAnyModalOpen = isConfigModalOpen || isPaymentModalOpen || isDeleteModalOpen || isSettingsModalOpen || isManualPeriodOpen || isReassignModalOpen || reassignConfirmOpen || isSupplierOnboardingOpen || isManageSupplierOpen || isPaymentStatusModalOpen || !!paymentToDelete;
+    const isAnyModalOpen = isConfigModalOpen || isPaymentModalOpen || isDeleteModalOpen || isSettingsModalOpen || isManualPeriodOpen || isReassignModalOpen || isQuickReassignOpen || reassignConfirmOpen || isSupplierOnboardingOpen || isManageSupplierOpen || isPaymentStatusModalOpen || !!paymentToDelete;
 
     return (
         <AppLayout isBlurred={isAnyModalOpen}>
@@ -2165,7 +2272,52 @@ export default function PayableRekap() {
                         </div>
 
                         {/* Bottom Section: Riwayat Order & Riwayat Pengembalian */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+                        <div>
+                            <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-sm font-bold text-slate-800 dark:text-white">Riwayat transaksi</h2>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Kelola order, pembatalan, dan pengembalian dalam periode ini.
+                                    </p>
+                                </div>
+
+                                {!isBulkSelectionMode ? (
+                                    <button
+                                        type="button"
+                                        onClick={startBulkSelection}
+                                        disabled={orderEvents.length + returnEvents.length === 0}
+                                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-amber-300 hover:text-amber-700 dark:hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                    >
+                                        <ArrowLeftRight className="w-3.5 h-3.5" />
+                                        Pindah massal
+                                    </button>
+                                ) : (
+                                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-1.5">
+                                        <span className="px-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                                            {selectedEventIds.length} event dipilih
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => openQuickReassign(selectedEventIds)}
+                                            disabled={selectedEventIds.length === 0}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors cursor-pointer"
+                                        >
+                                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                                            Pindahkan
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={cancelBulkSelection}
+                                            className="p-1.5 rounded-lg text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors cursor-pointer"
+                                            title="Batalkan seleksi massal"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
 
                             {/* Left: Riwayat Order (with Search Bar) */}
                             <motion.div
@@ -2296,12 +2448,32 @@ export default function PayableRekap() {
                                                 </button>
                                             )}
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadTableExcel('order')}
+                                            disabled={filteredOrderEvents.length === 0}
+                                            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                            title="Unduh tabel order sebagai Excel"
+                                        >
+                                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </div>
                                 <div className="overflow-x-auto flex-1 max-h-[440px] overflow-y-auto rounded-b-3xl">
                                     <table className="w-full text-left text-sm whitespace-nowrap">
                                         <thead className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/70 sticky top-0 backdrop-blur-sm z-10">
                                             <tr>
+                                                {isBulkSelectionMode && (
+                                                    <th className="w-11 px-3 py-3 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={filteredOrderEvents.length > 0 && filteredOrderEvents.every(event => selectedEventIds.includes(event.id))}
+                                                            onChange={event => toggleVisibleEventSelection(filteredOrderEvents, event.target.checked)}
+                                                            className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                                                            aria-label="Pilih semua order yang tampil"
+                                                        />
+                                                    </th>
+                                                )}
                                                 <th className="px-5 py-3 font-semibold">
                                                     <div className="relative inline-flex items-center gap-1 group/th cursor-help">
                                                         <span className="border-b border-dotted border-slate-400/60 dark:border-slate-500 pb-0.5">TANGGAL</span>
@@ -2314,16 +2486,32 @@ export default function PayableRekap() {
                                                 <th className="px-5 py-3 font-semibold">ORDER ID</th>
                                                 <th className="px-5 py-3 font-semibold">ITEM SUMMARY</th>
                                                 <th className="px-5 py-3 font-semibold text-right">HPP</th>
+                                                <th className="w-12 px-3 py-3 text-center font-semibold" aria-label="Aksi"></th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                                             {filteredOrderEvents.map(ev => (
                                                 <tr
                                                     key={ev.id}
-                                                    onClick={() => handleNavigateToDetail(ev.order_id)}
-                                                    className="hover:bg-indigo-50/40 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
-                                                    title={ev.order_id ? "Klik untuk melihat detail pesanan (tab baru)" : ""}
+                                                    onClick={() => isBulkSelectionMode ? toggleEventSelection(ev.id) : handleNavigateToDetail(ev.order_id)}
+                                                    className={`transition-colors group cursor-pointer ${selectedEventIds.includes(ev.id)
+                                                        ? 'bg-amber-50/80 dark:bg-amber-500/10'
+                                                        : 'hover:bg-indigo-50/40 dark:hover:bg-slate-700/30'
+                                                    }`}
+                                                    title={isBulkSelectionMode ? "Pilih event" : (ev.order_id ? "Klik untuk melihat detail pesanan (tab baru)" : "")}
                                                 >
+                                                    {isBulkSelectionMode && (
+                                                        <td className="w-11 px-3 py-3.5 text-center align-middle">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedEventIds.includes(ev.id)}
+                                                                onChange={() => toggleEventSelection(ev.id)}
+                                                                onClick={event => event.stopPropagation()}
+                                                                className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                                                                aria-label={`Pilih event ${ev.source_id || ev.id}`}
+                                                            />
+                                                        </td>
+                                                    )}
                                                     <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-300 align-middle" title="">
                                                         <div className="relative inline-flex flex-col group/date cursor-help">
                                                             {(() => { const { date, time } = formatDateSplit(ev.event_date); return (<><span className="block text-slate-400 dark:text-slate-500 mt-0.5">{time}</span><span className="block font-medium text-slate-700 dark:text-slate-200">{date}</span></>); })()}
@@ -2409,11 +2597,24 @@ export default function PayableRekap() {
                                                     <td className="px-5 py-3.5 font-bold text-xs text-right text-slate-800 dark:text-white align-middle">
                                                         +{formatCurrency(ev.amount)}
                                                     </td>
+                                                    <td className="w-12 px-3 py-3.5 text-center align-middle">
+                                                        <button
+                                                            type="button"
+                                                            onClick={event => {
+                                                                event.stopPropagation();
+                                                                openQuickReassign([ev.id]);
+                                                            }}
+                                                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-500/10 dark:hover:text-amber-400 transition-colors cursor-pointer"
+                                                            title="Pindahkan event ke periode lain"
+                                                        >
+                                                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             ))}
                                             {filteredOrderEvents.length === 0 && (
                                                 <tr>
-                                                    <td colSpan="4" className="px-6 py-10 text-center text-slate-400 text-xs">
+                                                    <td colSpan={isBulkSelectionMode ? 6 : 5} className="px-6 py-10 text-center text-slate-400 text-xs">
                                                         {orderSearch ? "Tidak ada pesanan yang sesuai dengan kata kunci" : "Tidak ada data order di periode ini"}
                                                     </td>
                                                 </tr>
@@ -2444,30 +2645,52 @@ export default function PayableRekap() {
                                     </div>
 
                                     {/* Search Return Input */}
-                                    <div className="relative w-full sm:w-60">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5 pointer-events-none" />
-                                        <input
-                                            type="text"
-                                            placeholder="Cari return, order ID, produk..."
-                                            value={returnSearch}
-                                            onChange={e => setReturnSearch(e.target.value)}
-                                            className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-1.5 pl-8 pr-7 rounded-xl focus:ring-1 focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 text-xs transition-all outline-none"
-                                        />
-                                        {returnSearch && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setReturnSearch('')}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
-                                            >
-                                                <X className="w-3.5 h-3.5" />
-                                            </button>
-                                        )}
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <div className="relative flex-1 sm:w-60">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                placeholder="Cari return, order ID, produk..."
+                                                value={returnSearch}
+                                                onChange={e => setReturnSearch(e.target.value)}
+                                                className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-1.5 pl-8 pr-7 rounded-xl focus:ring-1 focus:ring-[#304674] dark:focus:ring-blue-500 focus:border-[#304674] dark:focus:border-blue-500 text-xs transition-all outline-none"
+                                            />
+                                            {returnSearch && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setReturnSearch('')}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadTableExcel('return')}
+                                            disabled={filteredReturnEvents.length === 0}
+                                            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                            title="Unduh tabel pembatalan dan pengembalian sebagai Excel"
+                                        >
+                                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </div>
                                 <div className="overflow-x-auto flex-1 max-h-[440px] overflow-y-auto">
                                     <table className="w-full text-left text-sm whitespace-nowrap">
                                         <thead className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/70 sticky top-0 backdrop-blur-sm z-10">
                                             <tr>
+                                                {isBulkSelectionMode && (
+                                                    <th className="w-11 px-3 py-3 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={filteredReturnEvents.length > 0 && filteredReturnEvents.every(event => selectedEventIds.includes(event.id))}
+                                                            onChange={event => toggleVisibleEventSelection(filteredReturnEvents, event.target.checked)}
+                                                            className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                                                            aria-label="Pilih semua pembatalan dan pengembalian yang tampil"
+                                                        />
+                                                    </th>
+                                                )}
                                                 <th className="px-5 py-3 font-semibold">
                                                     <div className="relative inline-flex items-center gap-1 group/th cursor-help">
                                                         <span className="border-b border-dotted border-slate-400/60 dark:border-slate-500 pb-0.5">TANGGAL</span>
@@ -2481,16 +2704,32 @@ export default function PayableRekap() {
                                                 <th className="px-5 py-3 font-semibold">ORDER ID</th>
                                                 <th className="px-5 py-3 font-semibold">ITEM SUMMARY</th>
                                                 <th className="px-5 py-3 font-semibold text-right">HPP</th>
+                                                <th className="w-12 px-3 py-3 text-center font-semibold" aria-label="Aksi"></th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                                             {filteredReturnEvents.map(ev => (
                                                 <tr
                                                     key={ev.id}
-                                                    onClick={() => handleNavigateToDetail(ev.order_id)}
-                                                    className="hover:bg-rose-50/30 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
-                                                    title={ev.order_id ? "Klik untuk melihat detail pesanan (tab baru)" : ""}
+                                                    onClick={() => isBulkSelectionMode ? toggleEventSelection(ev.id) : handleNavigateToDetail(ev.order_id)}
+                                                    className={`transition-colors group cursor-pointer ${selectedEventIds.includes(ev.id)
+                                                        ? 'bg-amber-50/80 dark:bg-amber-500/10'
+                                                        : 'hover:bg-rose-50/30 dark:hover:bg-slate-700/30'
+                                                    }`}
+                                                    title={isBulkSelectionMode ? "Pilih event" : (ev.order_id ? "Klik untuk melihat detail pesanan (tab baru)" : "")}
                                                 >
+                                                    {isBulkSelectionMode && (
+                                                        <td className="w-11 px-3 py-3.5 text-center align-middle">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedEventIds.includes(ev.id)}
+                                                                onChange={() => toggleEventSelection(ev.id)}
+                                                                onClick={event => event.stopPropagation()}
+                                                                className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                                                                aria-label={`Pilih event ${ev.source_id || ev.id}`}
+                                                            />
+                                                        </td>
+                                                    )}
                                                     <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-300 align-middle" title="">
                                                         <div className="relative inline-flex flex-col group/date cursor-help">
                                                             {(() => { const { date, time } = formatDateSplit(ev.event_date); return (<><span className="block text-slate-400 dark:text-slate-500 mt-0.5">{time}</span><span className="block font-medium text-slate-700 dark:text-slate-200">{date}</span></>); })()}
@@ -2583,11 +2822,24 @@ export default function PayableRekap() {
                                                     <td className="px-5 py-3.5 font-bold text-xs text-right text-rose-500 align-middle">
                                                         -{formatCurrency(Math.abs(ev.amount))}
                                                     </td>
+                                                    <td className="w-12 px-3 py-3.5 text-center align-middle">
+                                                        <button
+                                                            type="button"
+                                                            onClick={event => {
+                                                                event.stopPropagation();
+                                                                openQuickReassign([ev.id]);
+                                                            }}
+                                                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-500/10 dark:hover:text-amber-400 transition-colors cursor-pointer"
+                                                            title="Pindahkan event ke periode lain"
+                                                        >
+                                                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             ))}
                                             {filteredReturnEvents.length === 0 && (
                                                 <tr>
-                                                    <td colSpan="5" className="px-6 py-10 text-center text-slate-400 text-xs">
+                                                    <td colSpan={isBulkSelectionMode ? 7 : 6} className="px-6 py-10 text-center text-slate-400 text-xs">
                                                         {returnSearch ? "Tidak ada pengembalian yang sesuai dengan kata kunci" : "Tidak ada data pengembalian di periode ini"}
                                                     </td>
                                                 </tr>
@@ -2597,6 +2849,7 @@ export default function PayableRekap() {
                                 </div>
                             </motion.div>
 
+                            </div>
                         </div>
                     </div>
                 )}
@@ -2786,6 +3039,101 @@ export default function PayableRekap() {
                         </div>
                     )}
 
+                    {/* Quick reassignment from table rows and bulk selection */}
+                    {isQuickReassignOpen && !reassignConfirmOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+                                onClick={closeQuickReassign}
+                            />
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-slate-800 dark:ring-white/10"
+                            >
+                                <div className="flex items-start justify-between border-b border-slate-100 p-5 dark:border-slate-700/50">
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-500/20">
+                                            <ArrowLeftRight className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-base font-bold text-slate-800 dark:text-white">
+                                                {selectedEventIds.length > 1 ? 'Pindahkan Event Massal' : 'Pindahkan Event'}
+                                            </h2>
+                                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                {selectedEventIds.length} event akan dipindahkan ke periode pilihan.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={closeQuickReassign}
+                                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                                        title="Tutup"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4 p-5">
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+                                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                                            Data transaksi tidak berubah. Hanya penempatan periodenya yang dipindahkan.
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="quick-reassign-period" className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                            Periode tujuan
+                                        </label>
+                                        <div className="relative">
+                                            <select
+                                                id="quick-reassign-period"
+                                                value={reassignTargetPeriodId}
+                                                onChange={event => setReassignTargetPeriodId(event.target.value)}
+                                                className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 pr-9 text-sm text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                autoFocus
+                                            >
+                                                <option value="">Pilih periode tujuan</option>
+                                                {periods.filter(period => String(period.id) !== String(selectedPeriodId)).map(period => (
+                                                    <option key={period.id} value={period.id}>{period.name}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 border-t border-slate-100 bg-slate-50/70 p-4 dark:border-slate-700/50 dark:bg-slate-800/60">
+                                    <button
+                                        type="button"
+                                        onClick={closeQuickReassign}
+                                        className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!reassignTargetPeriodId) {
+                                                toast.error('Pilih periode tujuan terlebih dahulu');
+                                                return;
+                                            }
+                                            setReassignConfirmOpen(true);
+                                        }}
+                                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-amber-500/20 hover:bg-amber-600 transition-colors cursor-pointer"
+                                    >
+                                        <ArrowLeftRight className="h-4 w-4" />
+                                        Lanjutkan
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+
                     {/* Event Reassignment Modal */}
                     {isReassignModalOpen && !reassignConfirmOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2900,7 +3248,7 @@ export default function PayableRekap() {
                                                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/40"
                                                 >
                                                     <option value="">-- Pilih Periode Tujuan --</option>
-                                                    {periods.map(p => (
+                                                    {periods.filter(p => String(p.id) !== String(selectedPeriodId)).map(p => (
                                                         <option key={p.id} value={p.id}>{p.name}</option>
                                                     ))}
                                                 </select>
