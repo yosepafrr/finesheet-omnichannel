@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\MarketplaceAdSpend;
 use App\Models\Order;
 use App\Services\OrderEscrowService;
 use App\Services\OrderProfitService;
@@ -47,6 +48,18 @@ class ProfitController extends Controller
                 ->whereIn('order_status', $escrowService->profitAnalyticsStatuses())
                 ->whereBetween('order_time', [$analyticsPeriod['start'], $analyticsPeriod['end']])
                 ->orderBy('order_time')
+                ->get()
+            : collect();
+        $analyticsAdSpends = $includeAnalytics
+            ? MarketplaceAdSpend::query()
+                ->where('user_id', $user->id)
+                ->whereIn('store_id', $storeIds)
+                ->whereRaw('LOWER(platform) = ?', ['shopee'])
+                ->whereBetween('spend_date', [
+                    $analyticsPeriod['start']->toDateString(),
+                    $analyticsPeriod['end']->toDateString(),
+                ])
+                ->orderBy('spend_date')
                 ->get()
             : collect();
 
@@ -129,6 +142,8 @@ class ProfitController extends Controller
                 $financialSummaries,
                 $escrowService,
                 $analyticsPeriod,
+                $analyticsAdSpends,
+                $stores->filter(fn ($store) => strtolower((string) $store->platform) === 'shopee')->count(),
             );
         }
 
@@ -226,6 +241,7 @@ class ProfitController extends Controller
     /**
      * @param  Collection<int, Order>  $orders
      * @param  Collection<int, array{hpp_amount: float, escrow_amount: float, profit_amount: float, has_missing_hpp: bool}>  $financialSummaries
+     * @param  Collection<int, MarketplaceAdSpend>  $adSpends
      * @param  array{key: string, start: Carbon, end: Carbon, granularity: string}  $period
      */
     private function buildAnalytics(
@@ -233,6 +249,8 @@ class ProfitController extends Controller
         Collection $financialSummaries,
         OrderEscrowService $escrowService,
         array $period,
+        Collection $adSpends,
+        int $shopeeStoreCount,
     ): array {
         $eligibleOrders = $orders->filter(
             fn (Order $order) => $escrowService->isProfitAnalyticsEligible($order),
@@ -243,6 +261,11 @@ class ProfitController extends Controller
             return $period['granularity'] === 'month'
                 ? $date->format('Y-m')
                 : $date->format('Y-m-d');
+        });
+        $groupedAdSpends = $adSpends->groupBy(function (MarketplaceAdSpend $spend) use ($period) {
+            return $period['granularity'] === 'month'
+                ? $spend->spend_date->format('Y-m')
+                : $spend->spend_date->format('Y-m-d');
         });
 
         $points = collect();
@@ -257,13 +280,38 @@ class ProfitController extends Controller
             $bucketFinance = $bucketOrders->map(
                 fn (Order $order) => $financialSummaries->get($order->id),
             )->filter();
+            $bucketAdSpends = $groupedAdSpends->get($bucketKey, collect());
+            $grossProfit = (float) $bucketFinance->sum('profit_amount');
+            $adSpendAmount = (float) $bucketAdSpends->sum('amount');
+
+            $bucketStart = $period['granularity'] === 'month'
+                ? $cursor->copy()->startOfMonth()
+                : $cursor->copy()->startOfDay();
+            $bucketEnd = $period['granularity'] === 'month'
+                ? $cursor->copy()->endOfMonth()
+                : $cursor->copy()->endOfDay();
+            if ($bucketStart->lessThan($period['start'])) {
+                $bucketStart = $period['start']->copy();
+            }
+            if ($bucketEnd->greaterThan($period['end'])) {
+                $bucketEnd = $period['end']->copy();
+            }
+            $bucketDayCount = (int) floor(
+                $bucketStart->copy()->startOfDay()->diffInDays($bucketEnd->copy()->startOfDay()),
+            ) + 1;
+            $expectedAdSpendRecords = $shopeeStoreCount * $bucketDayCount;
 
             $points->push([
                 'key' => $bucketKey,
                 'order_count' => $bucketOrders->count(),
                 'hpp_amount' => (float) $bucketFinance->sum('hpp_amount'),
                 'escrow_amount' => (float) $bucketFinance->sum('escrow_amount'),
-                'profit_amount' => (float) $bucketFinance->sum('profit_amount'),
+                'gross_profit_amount' => $grossProfit,
+                'ad_spend_amount' => $adSpendAmount,
+                'profit_amount' => $grossProfit - $adSpendAmount,
+                'ad_spend_synced' => $bucketAdSpends->isNotEmpty(),
+                'ad_spend_complete' => $expectedAdSpendRecords > 0
+                    && $bucketAdSpends->count() >= $expectedAdSpendRecords,
             ]);
 
             $period['granularity'] === 'month'
@@ -280,12 +328,27 @@ class ProfitController extends Controller
                 'order_count' => (int) $points->sum('order_count'),
                 'hpp_amount' => (float) $points->sum('hpp_amount'),
                 'escrow_amount' => (float) $points->sum('escrow_amount'),
+                'gross_profit_amount' => (float) $points->sum('gross_profit_amount'),
+                'ad_spend_amount' => (float) $points->sum('ad_spend_amount'),
                 'profit_amount' => (float) $points->sum('profit_amount'),
             ],
             'points' => $points,
             'ad_spend' => [
-                'available' => false,
-                'amount' => null,
+                'available' => $adSpends->isNotEmpty(),
+                'amount' => (float) $points->sum('ad_spend_amount'),
+                'platforms_included' => ['Shopee'],
+                'platforms_pending' => ['Tiktokshop'],
+                'is_partial' => true,
+                'coverage_complete' => $shopeeStoreCount > 0
+                    && $adSpends->count() >= ($shopeeStoreCount * (
+                        (int) floor(
+                            $period['start']->copy()->startOfDay()->diffInDays(
+                                $period['end']->copy()->startOfDay(),
+                            ),
+                        ) + 1
+                    )),
+                'synced_records' => $adSpends->count(),
+                'last_synced_at' => $adSpends->max('synced_at')?->toIso8601String(),
             ],
         ];
     }

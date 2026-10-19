@@ -78,3 +78,8 @@ Schedule::command('sync:shopee-returns --days=180')
     ->dailyAt('02:20')
     ->name('dispatch-shopee-return-backfill')
     ->withoutOverlapping(180);
+
+Schedule::command('sync:shopee-ads --days=2 --queue=orders-low')
+    ->hourlyAt(35)
+    ->name('dispatch-shopee-ads-spend-sync')
+    ->withoutOverlapping(55);

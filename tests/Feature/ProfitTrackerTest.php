@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\MarketplaceAdSpend;
 use App\Models\Order;
 use App\Models\OrderProduct;
 use App\Models\OrderReturn;
@@ -123,6 +124,37 @@ class ProfitTrackerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 2)
             ->assertJsonPath('analytics.totals.escrow_amount', 200_000);
+    }
+
+    public function test_shopee_ads_spend_reduces_daily_profit_but_not_realtime_profit(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Ads', 'shop-ads');
+        $this->createOrder($store, 'SHOPEE-ADS-ORDER', 'COMPLETED', 150_000);
+
+        MarketplaceAdSpend::create([
+            'user_id' => $user->id,
+            'store_id' => $store->id,
+            'platform' => 'Shopee',
+            'spend_date' => now('Asia/Jakarta')->toDateString(),
+            'amount' => 35_000,
+            'currency' => 'IDR',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($user)->getJson('/api/profit-tracker?analytics_period=today');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total_profit_amount', 0)
+            ->assertJsonPath('analytics.totals.gross_profit_amount', 150_000)
+            ->assertJsonPath('analytics.totals.ad_spend_amount', 35_000)
+            ->assertJsonPath('analytics.totals.profit_amount', 115_000)
+            ->assertJsonPath('analytics.points.0.ad_spend_amount', 35_000)
+            ->assertJsonPath('analytics.points.0.profit_amount', 115_000)
+            ->assertJsonPath('analytics.ad_spend.available', true)
+            ->assertJsonPath('analytics.ad_spend.platforms_included.0', 'Shopee')
+            ->assertJsonPath('analytics.ad_spend.platforms_pending.0', 'Tiktokshop');
     }
 
     public function test_return_cancel_is_limited_to_the_order_list_shipped_scope(): void

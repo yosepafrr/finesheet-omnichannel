@@ -18,7 +18,8 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(filterPerluDikirim).toBeVisible();
     await expect(filterDikirim).toBeVisible();
     await expect(filterReturn).toBeVisible();
-    await expect(page.getByText('Coming Soon', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Iklan Shopee', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Pengeluaran iklan TikTok Shop belum termasuk dalam perhitungan profit.')).toBeVisible();
 
     // Verify initial states (assuming default is Perlu Dikirim = ON, Dikirim = ON, Return = OFF)
     await expect(filterPerluDikirim).toHaveClass(/text-white/);
@@ -56,6 +57,22 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await page.evaluate(() => {
       window.dispatchEvent(new CustomEvent('order-updated', {
         detail: { id: 1, order_status: 'COMPLETED' },
+      }));
+    });
+
+    await refreshRequest;
+  });
+
+  test('Analytics refreshes after a Shopee ads spend event', async ({ page }) => {
+    const refreshRequest = page.waitForRequest((request) => (
+      request.method() === 'GET'
+      && request.url().includes('/api/profit-tracker')
+      && request.url().includes('include_analytics=1')
+    ));
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('profit-analytics-updated', {
+        detail: { spend_date: '2026-10-19', platform: 'Shopee' },
       }));
     });
 

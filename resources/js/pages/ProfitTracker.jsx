@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -268,6 +268,7 @@ export default function ProfitTracker() {
 
         window.addEventListener("order-created", handleOrderEvent);
         window.addEventListener("order-updated", handleOrderEvent);
+        window.addEventListener("profit-analytics-updated", handleOrderEvent);
 
         return () => {
             if (realtimeRefreshTimeoutRef.current) {
@@ -275,6 +276,7 @@ export default function ProfitTracker() {
             }
             window.removeEventListener("order-created", handleOrderEvent);
             window.removeEventListener("order-updated", handleOrderEvent);
+            window.removeEventListener("profit-analytics-updated", handleOrderEvent);
         };
     }, []);
 
@@ -471,9 +473,9 @@ export default function ProfitTracker() {
                                     <div>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
-                                            <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-700 dark:text-slate-300">Iklan: Coming Soon</span>
+                                            <span className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold uppercase text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">Iklan Shopee</span>
                                         </div>
-                                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Ringkasan berdasarkan waktu pesanan masuk.</p>
+                                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia.</p>
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
@@ -544,12 +546,26 @@ export default function ProfitTracker() {
 
                                 {analytics && (
                                     <>
+                                        <div className="flex items-start gap-3 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500 dark:bg-amber-500/10 dark:text-amber-200" role="status">
+                                            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                            <div className="min-w-0 text-xs leading-relaxed">
+                                                <p className="font-bold">Cakupan biaya iklan belum lengkap</p>
+                                                <p>Data iklan saat ini hanya mengambil spend dari Shopee. Pengeluaran iklan TikTok Shop belum termasuk dalam perhitungan profit.</p>
+                                                {!analytics.ad_spend?.available && (
+                                                    <p className="mt-1 font-semibold">Data Shopee Ads belum tersinkronisasi untuk periode ini.</p>
+                                                )}
+                                                {analytics.ad_spend?.available && !analytics.ad_spend?.coverage_complete && (
+                                                    <p className="mt-1 font-semibold">Sebagian tanggal atau toko Shopee pada periode ini belum tersinkronisasi.</p>
+                                                )}
+                                            </div>
+                                        </div>
+
                                         <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 lg:grid-cols-4">
                                             {[
                                                 ["Total HPP", formatRp(analytics.totals.hpp_amount), "text-gray-800 dark:text-white"],
                                                 ["Total Escrow", formatRp(analytics.totals.escrow_amount), "text-[#304674] dark:text-blue-400"],
-                                                ["Total Profit", formatRp(analytics.totals.profit_amount), Number(analytics.totals.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"],
-                                                ["Pengeluaran Iklan", "Coming Soon", "text-slate-400 dark:text-slate-500"],
+                                                ["Iklan Shopee", formatRp(analytics.totals.ad_spend_amount), "text-orange-600 dark:text-orange-400"],
+                                                ["Profit Setelah Iklan", formatRp(analytics.totals.profit_amount), Number(analytics.totals.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"],
                                             ].map(([label, value, tone], index) => (
                                                 <div key={label} className={`min-w-0 px-4 py-4 ${index % 2 !== 0 ? "border-l" : ""} ${index >= 2 ? "border-t lg:border-t-0" : ""} lg:border-l lg:first:border-l-0 border-slate-100 dark:border-slate-700`}>
                                                     <p className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">{label}</p>
@@ -567,8 +583,8 @@ export default function ProfitTracker() {
                                                             <th className="px-5 py-3 text-right font-semibold">Pesanan</th>
                                                             <th className="px-5 py-3 text-right font-semibold">HPP</th>
                                                             <th className="px-5 py-3 text-right font-semibold">Escrow</th>
-                                                            <th className="px-5 py-3 text-right font-semibold">Profit</th>
-                                                            <th className="px-5 py-3 text-right font-semibold">Iklan</th>
+                                                            <th className="px-5 py-3 text-right font-semibold">Iklan Shopee</th>
+                                                            <th className="px-5 py-3 text-right font-semibold">Profit Bersih</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/70">
@@ -578,8 +594,8 @@ export default function ProfitTracker() {
                                                                 <td className="px-5 py-3 text-right text-slate-600 dark:text-slate-300">{point.order_count.toLocaleString("id-ID")}</td>
                                                                 <td className="px-5 py-3 text-right font-medium text-slate-700 dark:text-slate-200">{formatRp(point.hpp_amount)}</td>
                                                                 <td className="px-5 py-3 text-right font-medium text-[#304674] dark:text-blue-400">{formatRp(point.escrow_amount)}</td>
+                                                                <td className="px-5 py-3 text-right font-medium text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</td>
                                                                 <td className={`px-5 py-3 text-right font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</td>
-                                                                <td className="px-5 py-3 text-right text-xs font-semibold text-slate-400 dark:text-slate-500">Coming Soon</td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -589,8 +605,8 @@ export default function ProfitTracker() {
                                                             <td className="px-5 py-3 text-right text-slate-700 dark:text-slate-200">{analytics.totals.order_count.toLocaleString("id-ID")}</td>
                                                             <td className="px-5 py-3 text-right text-slate-800 dark:text-white">{formatRp(analytics.totals.hpp_amount)}</td>
                                                             <td className="px-5 py-3 text-right text-[#304674] dark:text-blue-400">{formatRp(analytics.totals.escrow_amount)}</td>
+                                                            <td className="px-5 py-3 text-right text-orange-600 dark:text-orange-400">{formatRp(analytics.totals.ad_spend_amount)}</td>
                                                             <td className={`px-5 py-3 text-right ${Number(analytics.totals.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(analytics.totals.profit_amount)}</td>
-                                                            <td className="px-5 py-3 text-right text-slate-400 dark:text-slate-500">-</td>
                                                         </tr>
                                                     </tfoot>
                                                 </table>
@@ -604,10 +620,11 @@ export default function ProfitTracker() {
                                                         <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPeriodLabel(point.key, analytics.granularity)}</p>
                                                         <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{point.order_count} pesanan</span>
                                                     </div>
-                                                    <div className="mt-3 grid grid-cols-3 gap-2">
+                                                    <div className="mt-3 grid grid-cols-2 gap-3">
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">HPP</p><p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{formatRp(point.hpp_amount)}</p></div>
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Escrow</p><p className="truncate text-xs font-bold text-[#304674] dark:text-blue-400">{formatRp(point.escrow_amount)}</p></div>
-                                                        <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Profit</p><p className={`truncate text-xs font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</p></div>
+                                                        <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Iklan Shopee</p><p className="truncate text-xs font-bold text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</p></div>
+                                                        <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Profit Bersih</p><p className={`truncate text-xs font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</p></div>
                                                     </div>
                                                 </div>
                                             ))}

@@ -224,6 +224,11 @@ export function initEchoForUser(userId) {
             if (e.user_id && Number(e.user_id) !== Number(userId)) return;
             console.log('OrderUpdated event received for user:', e);
             window.dispatchEvent(new CustomEvent('order-updated', { detail: e }));
+        })
+        .listen('.ProfitAnalyticsUpdated', (e) => {
+            if (e.user_id && Number(e.user_id) !== Number(userId)) return;
+            console.log('ProfitAnalyticsUpdated event received for user:', e);
+            window.dispatchEvent(new CustomEvent('profit-analytics-updated', { detail: e }));
         });
 
     window.Echo.private(`payables.${userId}`)
