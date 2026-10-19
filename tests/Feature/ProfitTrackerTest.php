@@ -102,11 +102,12 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.profit_amount', 115_000);
     }
 
-    public function test_profit_analytics_supports_seven_and_fourteen_day_presets(): void
+    public function test_profit_analytics_defaults_to_three_days_and_supports_other_presets(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Preset', 'shop-preset');
 
+        $this->createOrder($store, 'TODAY-ORDER', 'COMPLETED', 50_000);
         $recentOrder = $this->createOrder($store, 'RECENT-ORDER', 'COMPLETED', 80_000);
         $recentOrder->forceFill(['order_time' => now()->subDays(6)])->saveQuietly();
 
@@ -114,16 +115,62 @@ class ProfitTrackerTest extends TestCase
         $olderOrder->forceFill(['order_time' => now()->subDays(10)])->saveQuietly();
 
         $this->actingAs($user)
+            ->getJson('/api/profit-tracker')
+            ->assertOk()
+            ->assertJsonPath('analytics.period', 'last_3_days')
+            ->assertJsonPath('analytics.totals.order_count', 1)
+            ->assertJsonPath('analytics.totals.escrow_amount', 50_000);
+
+        $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=last_7_days')
             ->assertOk()
-            ->assertJsonPath('analytics.totals.order_count', 1)
-            ->assertJsonPath('analytics.totals.escrow_amount', 80_000);
+            ->assertJsonPath('analytics.totals.order_count', 2)
+            ->assertJsonPath('analytics.totals.escrow_amount', 130_000);
 
         $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=last_14_days')
             ->assertOk()
-            ->assertJsonPath('analytics.totals.order_count', 2)
-            ->assertJsonPath('analytics.totals.escrow_amount', 200_000);
+            ->assertJsonPath('analytics.totals.order_count', 3)
+            ->assertJsonPath('analytics.totals.escrow_amount', 250_000);
+    }
+
+    public function test_store_filter_applies_to_realtime_analytics_and_ads_while_preserving_options(): void
+    {
+        $user = User::factory()->create();
+        $selectedStore = $this->createStore($user, 'Shopee', 'Shopee Terpilih', 'shop-selected');
+        $otherStore = $this->createStore($user, 'Shopee', 'Shopee Lain', 'shop-other');
+
+        $this->createOrder($selectedStore, 'SELECTED-ACTIVE', 'SHIPPED', 100_000);
+        $this->createOrder($selectedStore, 'SELECTED-COMPLETED', 'COMPLETED', 200_000);
+        $this->createOrder($otherStore, 'OTHER-ACTIVE', 'SHIPPED', 300_000);
+        $this->createOrder($otherStore, 'OTHER-COMPLETED', 'COMPLETED', 400_000);
+
+        foreach ([[$selectedStore, 20_000], [$otherStore, 50_000]] as [$store, $amount]) {
+            MarketplaceAdSpend::create([
+                'user_id' => $user->id,
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'spend_date' => now('Asia/Jakarta')->toDateString(),
+                'amount' => $amount,
+                'currency' => 'IDR',
+                'synced_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($user)->getJson(
+            "/api/profit-tracker?store_id={$selectedStore->id}&analytics_period=today",
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('selected_store_id', $selectedStore->id)
+            ->assertJsonPath('total_escrow_amount', 100_000)
+            ->assertJsonCount(1, 'stores')
+            ->assertJsonPath('stores.0.id', $selectedStore->id)
+            ->assertJsonCount(2, 'store_options')
+            ->assertJsonPath('analytics.totals.escrow_amount', 200_000)
+            ->assertJsonPath('analytics.totals.ad_spend_amount', 20_000)
+            ->assertJsonPath('analytics.totals.profit_amount', 180_000);
     }
 
     public function test_shopee_ads_spend_reduces_daily_profit_but_not_realtime_profit(): void

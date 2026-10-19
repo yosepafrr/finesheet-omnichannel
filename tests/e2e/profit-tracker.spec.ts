@@ -38,13 +38,24 @@ test.describe('Profit Tracker & Escrow Filters', () => {
   });
 
   test('Analytics presets and styled date picker are available', async ({ page }) => {
-    await expect(page.getByRole('button', { name: '7 Hari', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '14 Hari', exact: true })).toBeVisible();
+    const periodFilter = page.getByRole('button', { name: 'Rentang Analisis: 3 Hari' });
+    await expect(periodFilter).toBeVisible();
+    await periodFilter.click();
+    await expect(page.getByRole('option', { name: '7 Hari' })).toBeVisible();
+    await expect(page.getByRole('option', { name: '14 Hari' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Pilih Hari', exact: true }).click();
+    await page.getByRole('option', { name: 'Pilih Hari' }).click();
 
     await expect(page.getByLabel('Tanggal analisis')).toBeVisible();
     await expect(page.locator('#analytics-date').locator('..').locator('..')).toHaveClass(/focus-within:ring/);
+  });
+
+  test('Store filter uses the same dropdown pattern as order management', async ({ page }) => {
+    const storeFilter = page.getByRole('button', { name: 'Toko: Semua Toko' });
+
+    await expect(storeFilter).toBeVisible();
+    await storeFilter.click();
+    await expect(page.getByRole('option', { name: 'Semua Toko' })).toBeVisible();
   });
 
   test('Analytics refreshes after a real-time order event', async ({ page }) => {

@@ -21,17 +21,29 @@ class ProfitController extends Controller
         OrderProfitService $profitService,
     ) {
         $request->validate([
-            'analytics_period' => 'nullable|in:today,date,range,last_7_days,last_14_days,last_30_days,last_60_days,last_90_days,month,year',
+            'analytics_period' => 'nullable|in:today,date,range,last_3_days,last_7_days,last_14_days,last_30_days,last_60_days,last_90_days,month,year',
             'analytics_date' => 'nullable|date_format:Y-m-d',
             'analytics_start' => 'nullable|date_format:Y-m-d',
             'analytics_end' => 'nullable|date_format:Y-m-d',
             'analytics_month' => 'nullable|date_format:Y-m',
             'analytics_year' => 'nullable|integer|min:2000|max:2100',
             'include_analytics' => 'nullable|boolean',
+            'store_id' => 'nullable|integer',
         ]);
 
         $user = Auth::user();
-        $stores = $user->stores()->get();
+        $allStores = $user->stores()->orderBy('store_name')->get();
+        $selectedStoreId = $request->filled('store_id') ? (int) $request->query('store_id') : null;
+
+        if ($selectedStoreId !== null && ! $allStores->contains('id', $selectedStoreId)) {
+            throw ValidationException::withMessages([
+                'store_id' => 'Toko yang dipilih tidak tersedia.',
+            ]);
+        }
+
+        $stores = $selectedStoreId === null
+            ? $allStores
+            : $allStores->where('id', $selectedStoreId)->values();
         $storeIds = $stores->pluck('id');
         $analyticsPeriod = $this->resolveAnalyticsPeriod($request);
         $includeAnalytics = filter_var($request->query('include_analytics', true), FILTER_VALIDATE_BOOLEAN);
@@ -134,6 +146,12 @@ class ProfitController extends Controller
             'total_order_count' => $totalOrderCount,
             'missing_hpp_order_count' => (int) $storeSummaries->sum('missing_hpp_order_count'),
             'stores' => $storeSummaries,
+            'store_options' => $allStores->map(fn ($store) => [
+                'id' => $store->id,
+                'store_name' => $store->store_name,
+                'platform' => $store->platform,
+            ])->values(),
+            'selected_store_id' => $selectedStoreId,
         ];
 
         if ($includeAnalytics) {
@@ -157,7 +175,7 @@ class ProfitController extends Controller
     {
         $timezone = 'Asia/Jakarta';
         $today = now($timezone)->startOfDay();
-        $key = (string) $request->query('analytics_period', 'last_30_days');
+        $key = (string) $request->query('analytics_period', 'last_3_days');
 
         [$start, $end, $granularity] = match ($key) {
             'today' => [$today->copy(), $today->copy()->endOfDay(), 'day'],
@@ -166,6 +184,7 @@ class ProfitController extends Controller
                 $timezone,
             ),
             'range' => $this->customRangePeriod($request, $timezone),
+            'last_3_days' => [$today->copy()->subDays(2), $today->copy()->endOfDay(), 'day'],
             'last_7_days' => [$today->copy()->subDays(6), $today->copy()->endOfDay(), 'day'],
             'last_14_days' => [$today->copy()->subDays(13), $today->copy()->endOfDay(), 'day'],
             'last_60_days' => [$today->copy()->subDays(59), $today->copy()->endOfDay(), 'day'],
@@ -178,7 +197,7 @@ class ProfitController extends Controller
                 (int) ($request->query('analytics_year') ?: $today->year),
                 $timezone,
             ),
-            default => [$today->copy()->subDays(29), $today->copy()->endOfDay(), 'day'],
+            default => [$today->copy()->subDays(2), $today->copy()->endOfDay(), 'day'],
         };
 
         return compact('key', 'start', 'end', 'granularity');

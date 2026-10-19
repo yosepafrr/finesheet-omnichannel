@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { CalendarDays, TriangleAlert } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Store, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -38,6 +38,7 @@ const ANALYTICS_PERIODS = [
     { id: "today", label: "Hari Ini" },
     { id: "date", label: "Pilih Hari" },
     { id: "range", label: "Rentang" },
+    { id: "last_3_days", label: "3 Hari" },
     { id: "last_7_days", label: "7 Hari" },
     { id: "last_14_days", label: "14 Hari" },
     { id: "last_30_days", label: "30 Hari" },
@@ -106,6 +107,87 @@ function DatePickerField({ id, label, value, onChange, min, max }) {
                 </span>
             </span>
         </label>
+    );
+}
+
+function FilterDropdown({ id, value, onChange, options, label, icon: Icon, className = "" }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+    const selectedOption = options.find((option) => String(option.value) === String(value)) || options[0];
+
+    useEffect(() => {
+        const closeDropdown = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        const closeOnEscape = (event) => {
+            if (event.key === "Escape") setIsOpen(false);
+        };
+
+        document.addEventListener("mousedown", closeDropdown);
+        document.addEventListener("keydown", closeOnEscape);
+
+        return () => {
+            document.removeEventListener("mousedown", closeDropdown);
+            document.removeEventListener("keydown", closeOnEscape);
+        };
+    }, []);
+
+    return (
+        <div ref={containerRef} className={`relative ${className}`}>
+            <button
+                id={id}
+                type="button"
+                aria-label={`${label}: ${selectedOption?.label || "Pilih"}`}
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+                onClick={() => setIsOpen((open) => !open)}
+                className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#304674]/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:focus:ring-blue-500/30"
+            >
+                <Icon className="h-4 w-4 shrink-0 text-[#304674] dark:text-blue-400" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">{label}</span>
+                    <span className="block truncate font-semibold">{selectedOption?.label || "Pilih"}</span>
+                </span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+
+            {isOpen && (
+                <div className="absolute right-0 z-50 mt-2 w-full min-w-56 origin-top overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <div role="listbox" aria-labelledby={id} className="max-h-72 overflow-y-auto p-2">
+                        {options.map((option) => {
+                            const isSelected = String(option.value) === String(value);
+
+                            return (
+                                <button
+                                    key={String(option.value)}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={isSelected}
+                                    onClick={() => {
+                                        onChange(option.value);
+                                        setIsOpen(false);
+                                    }}
+                                    className={`mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors first:mt-0 ${isSelected
+                                        ? "bg-[#304674] text-white dark:bg-blue-600"
+                                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    }`}
+                                >
+                                    <span className="min-w-0 flex-1 truncate font-medium">{option.label}</span>
+                                    {option.meta && (
+                                        <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase ${isSelected ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400"}`}>
+                                            {option.meta}
+                                        </span>
+                                    )}
+                                    <Check className={`h-4 w-4 shrink-0 ${isSelected ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -183,7 +265,7 @@ function MetricCard({ label, value, orders, icon, tone }) {
 export default function ProfitTracker() {
     const tour = useOnboarding("profit", PROFIT_TOUR_STEPS.length);
     const today = localDateString();
-    const thirtyDaysAgo = localDateString(new Date(Date.now() - (29 * 24 * 60 * 60 * 1000)));
+    const threeDaysAgo = localDateString(new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)));
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -191,15 +273,16 @@ export default function ProfitTracker() {
     const fetchDataRef = useRef(null);
     const realtimeRefreshTimeoutRef = useRef(null);
     const requestSequenceRef = useRef(0);
+    const [selectedStore, setSelectedStore] = useState("");
     const [escrowFilters, setEscrowFilters] = useState({
         include_perlu_dikirim: 1,
         include_dikirim: 1,
         include_return: 0,
     });
     const [analyticsFilter, setAnalyticsFilter] = useState({
-        period: "last_30_days",
+        period: "last_3_days",
         date: today,
-        start: thirtyDaysAgo,
+        start: threeDaysAgo,
         end: today,
         month: today.slice(0, 7),
         year: today.slice(0, 4),
@@ -226,6 +309,7 @@ export default function ProfitTracker() {
             }
             if (analyticsFilter.period === "month") params.analytics_month = analyticsFilter.month;
             if (analyticsFilter.period === "year") params.analytics_year = analyticsFilter.year;
+            if (selectedStore) params.store_id = selectedStore;
 
             const response = await axios.get("/api/profit-tracker", { params });
 
@@ -244,7 +328,7 @@ export default function ProfitTracker() {
                 setRefreshing(false);
             }
         }
-    }, [analyticsFilter, escrowFilters]);
+    }, [analyticsFilter, escrowFilters, selectedStore]);
 
     useEffect(() => {
         fetchData();
@@ -311,6 +395,18 @@ export default function ProfitTracker() {
     };
 
     const analytics = data?.analytics;
+    const storeOptions = [
+        { value: "", label: "Semua Toko" },
+        ...(data?.store_options || []).map((store) => ({
+            value: String(store.id),
+            label: store.store_name,
+            meta: store.platform,
+        })),
+    ];
+    const periodOptions = ANALYTICS_PERIODS.map((period) => ({
+        value: period.id,
+        label: period.label,
+    }));
 
     return (
         <AppLayout>
@@ -322,14 +418,25 @@ export default function ProfitTracker() {
                             <p className="text-sm text-gray-500 dark:text-slate-400">Pantau escrow, HPP, dan profit seluruh toko dalam satu tampilan.</p>
                         </div>
 
-                        <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                            <span className="relative flex h-2.5 w-2.5">
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                            </span>
-                            <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
-                                {refreshing ? "Memperbarui data..." : "Real-time aktif"}
-                            </span>
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <FilterDropdown
+                                id="profit-store-filter"
+                                label="Toko"
+                                value={selectedStore}
+                                onChange={setSelectedStore}
+                                options={storeOptions}
+                                icon={Store}
+                                className="w-full sm:w-64"
+                            />
+                            <div className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                                <span className="relative flex h-2.5 w-2.5">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                                </span>
+                                <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
+                                    {refreshing ? "Memperbarui data..." : "Real-time aktif"}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -478,21 +585,15 @@ export default function ProfitTracker() {
                                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia.</p>
                                     </div>
 
-                                    <div className="flex flex-wrap gap-2">
-                                        {ANALYTICS_PERIODS.map((period) => (
-                                            <button
-                                                key={period.id}
-                                                type="button"
-                                                onClick={() => updateAnalyticsFilter("period", period.id)}
-                                                className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${analyticsFilter.period === period.id
-                                                    ? "border-[#304674] bg-[#304674] text-white dark:border-blue-600 dark:bg-blue-600"
-                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600"
-                                                }`}
-                                            >
-                                                {period.label}
-                                            </button>
-                                        ))}
-                                    </div>
+                                    <FilterDropdown
+                                        id="profit-period-filter"
+                                        label="Rentang Analisis"
+                                        value={analyticsFilter.period}
+                                        onChange={(value) => updateAnalyticsFilter("period", value)}
+                                        options={periodOptions}
+                                        icon={CalendarDays}
+                                        className="w-full sm:w-56"
+                                    />
                                 </div>
 
                                 {analyticsFilter.period === "date" && (
