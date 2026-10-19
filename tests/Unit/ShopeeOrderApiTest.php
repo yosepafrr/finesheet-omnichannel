@@ -137,6 +137,34 @@ class ShopeeOrderApiTest extends TestCase
         });
     }
 
+    public function test_ads_hourly_performance_uses_the_shopee_date_format_and_signed_shop_request(): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'error' => '',
+                'response' => [
+                    ['hour' => 10, 'expense' => 12500.5],
+                    ['hour' => 11, 'expense' => 7500],
+                ],
+            ]),
+        ]);
+
+        $result = app(ShopeeService::class)->getAdsHourlyPerformance(
+            $this->store(),
+            now('Asia/Jakarta')->setDate(2026, 10, 18),
+        );
+
+        $this->assertSame(12500.5, $result['response'][0]['expense']);
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_contains($request->url(), '/api/v2/ads/get_all_cpc_ads_hourly_performance')
+                && ($query['shop_id'] ?? null) === '987654'
+                && ($query['performance_date'] ?? null) === '18-10-2026'
+                && ! empty($query['sign']);
+        });
+    }
+
     private function store(): Store
     {
         return new Store([

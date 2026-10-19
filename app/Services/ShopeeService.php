@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Store;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -140,6 +141,44 @@ class ShopeeService
         $response = $this->httpClient()->get($url, $params);
 
         return $response->json();
+    }
+
+    /**
+     * Get shop-level Shopee CPC ads performance for each hour of one day.
+     */
+    public function getAdsHourlyPerformance(Store $store, CarbonInterface $date): array
+    {
+        $shopId = (string) $store->shopee_shop_id;
+        $accessToken = $this->ensureValidToken($store);
+        $path = '/api/v2/ads/get_all_cpc_ads_hourly_performance';
+        $timestamp = time();
+
+        $response = $this->httpClient()->get("{$this->baseUrl}{$path}", [
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $this->generateSign($path, $timestamp, $accessToken, $shopId),
+            'access_token' => $accessToken,
+            'shop_id' => $shopId,
+            'performance_date' => $date->format('d-m-Y'),
+        ]);
+
+        $result = $response->json();
+        if (! is_array($result)) {
+            throw new RuntimeException('Shopee mengembalikan respons laporan iklan yang tidak valid.');
+        }
+
+        Log::info('Shopee - Ads hourly performance', [
+            'store_id' => $store->id,
+            'shop_id' => $shopId,
+            'performance_date' => $date->toDateString(),
+            'status' => $response->status(),
+            'records' => count($result['response'] ?? []),
+            'error' => $result['error'] ?? null,
+            'message' => $result['message'] ?? null,
+            'request_id' => $result['request_id'] ?? null,
+        ]);
+
+        return $result;
     }
 
     // FUNGSI REFRESH ACCESS TOKEN
