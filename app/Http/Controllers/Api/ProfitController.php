@@ -41,22 +41,22 @@ class ProfitController extends Controller
             ]);
         }
 
-        $stores = $selectedStoreId === null
+        $analyticsStores = $selectedStoreId === null
             ? $allStores
             : $allStores->where('id', $selectedStoreId)->values();
-        $storeIds = $stores->pluck('id');
+        $allStoreIds = $allStores->pluck('id');
+        $analyticsStoreIds = $analyticsStores->pluck('id');
         $analyticsPeriod = $this->resolveAnalyticsPeriod($request);
         $includeAnalytics = filter_var($request->query('include_analytics', true), FILTER_VALIDATE_BOOLEAN);
 
-        $baseQuery = Order::with(['returns', 'packages', 'orderProducts', 'store'])
-            ->whereIn('store_id', $storeIds);
-
-        $realtimeOrders = (clone $baseQuery)
+        $realtimeOrders = Order::with(['returns', 'packages', 'orderProducts', 'store'])
+            ->whereIn('store_id', $allStoreIds)
             ->whereIn('order_status', $escrowService->realtimeStatuses())
             ->orderByDesc('order_time')
             ->get();
         $analyticsOrders = $includeAnalytics
-            ? (clone $baseQuery)
+            ? Order::with(['returns', 'packages', 'orderProducts', 'store'])
+                ->whereIn('store_id', $analyticsStoreIds)
                 ->whereIn('order_status', $escrowService->profitAnalyticsStatuses())
                 ->whereBetween('order_time', [$analyticsPeriod['start'], $analyticsPeriod['end']])
                 ->orderBy('order_time')
@@ -65,7 +65,7 @@ class ProfitController extends Controller
         $analyticsAdSpends = $includeAnalytics
             ? MarketplaceAdSpend::query()
                 ->where('user_id', $user->id)
-                ->whereIn('store_id', $storeIds)
+                ->whereIn('store_id', $analyticsStoreIds)
                 ->whereRaw('LOWER(platform) = ?', ['shopee'])
                 ->whereBetween('spend_date', [
                     $analyticsPeriod['start']->toDateString(),
@@ -92,7 +92,7 @@ class ProfitController extends Controller
             OrderEscrowService::CATEGORY_RETURN_CANCEL => $includeReturn,
         ]));
 
-        $storeSummaries = $stores->map(function ($store) use (
+        $storeSummaries = $allStores->map(function ($store) use (
             $ordersByStore,
             $escrowService,
             $financialSummaries,
@@ -161,7 +161,7 @@ class ProfitController extends Controller
                 $escrowService,
                 $analyticsPeriod,
                 $analyticsAdSpends,
-                $stores->filter(fn ($store) => strtolower((string) $store->platform) === 'shopee')->count(),
+                $analyticsStores->filter(fn ($store) => strtolower((string) $store->platform) === 'shopee')->count(),
             );
         }
 

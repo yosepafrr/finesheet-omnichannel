@@ -143,19 +143,19 @@ function FilterDropdown({ id, value, onChange, options, label, icon: Icon, class
                 aria-haspopup="listbox"
                 aria-expanded={isOpen}
                 onClick={() => setIsOpen((open) => !open)}
-                className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#304674]/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:focus:ring-blue-500/30"
+                className="flex h-9 w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-xs text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#304674]/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:focus:ring-blue-500/30"
             >
                 <Icon className="h-4 w-4 shrink-0 text-[#304674] dark:text-blue-400" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                    <span className="block text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">{label}</span>
-                    <span className="block truncate font-semibold">{selectedOption?.label || "Pilih"}</span>
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span className="shrink-0 font-medium text-slate-400 dark:text-slate-500">{label}:</span>
+                    <span className="truncate font-semibold">{selectedOption?.label || "Pilih"}</span>
                 </span>
                 <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-full min-w-56 origin-top overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
-                    <div role="listbox" aria-labelledby={id} className="max-h-72 overflow-y-auto p-2">
+                <div className="absolute right-0 z-50 mt-1.5 w-full min-w-56 origin-top overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <div role="listbox" aria-labelledby={id} className="max-h-64 overflow-y-auto p-1.5">
                         {options.map((option) => {
                             const isSelected = String(option.value) === String(value);
 
@@ -169,7 +169,7 @@ function FilterDropdown({ id, value, onChange, options, label, icon: Icon, class
                                         onChange(option.value);
                                         setIsOpen(false);
                                     }}
-                                    className={`mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors first:mt-0 ${isSelected
+                                    className={`mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors first:mt-0 ${isSelected
                                         ? "bg-[#304674] text-white dark:bg-blue-600"
                                         : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                                     }`}
@@ -419,15 +419,6 @@ export default function ProfitTracker() {
                         </div>
 
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                            <FilterDropdown
-                                id="profit-store-filter"
-                                label="Toko"
-                                value={selectedStore}
-                                onChange={setSelectedStore}
-                                options={storeOptions}
-                                icon={Store}
-                                className="w-full sm:w-64"
-                            />
                             <div className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                                 <span className="relative flex h-2.5 w-2.5">
                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
@@ -585,15 +576,26 @@ export default function ProfitTracker() {
                                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia.</p>
                                     </div>
 
-                                    <FilterDropdown
-                                        id="profit-period-filter"
-                                        label="Rentang Analisis"
-                                        value={analyticsFilter.period}
-                                        onChange={(value) => updateAnalyticsFilter("period", value)}
-                                        options={periodOptions}
-                                        icon={CalendarDays}
-                                        className="w-full sm:w-56"
-                                    />
+                                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                                        <FilterDropdown
+                                            id="profit-store-filter"
+                                            label="Toko"
+                                            value={selectedStore}
+                                            onChange={setSelectedStore}
+                                            options={storeOptions}
+                                            icon={Store}
+                                            className="w-full sm:w-56"
+                                        />
+                                        <FilterDropdown
+                                            id="profit-period-filter"
+                                            label="Rentang"
+                                            value={analyticsFilter.period}
+                                            onChange={(value) => updateAnalyticsFilter("period", value)}
+                                            options={periodOptions}
+                                            icon={CalendarDays}
+                                            className="w-full sm:w-48"
+                                        />
+                                    </div>
                                 </div>
 
                                 {analyticsFilter.period === "date" && (

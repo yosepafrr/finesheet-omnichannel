@@ -38,7 +38,7 @@ test.describe('Profit Tracker & Escrow Filters', () => {
   });
 
   test('Analytics presets and styled date picker are available', async ({ page }) => {
-    const periodFilter = page.getByRole('button', { name: 'Rentang Analisis: 3 Hari' });
+    const periodFilter = page.getByRole('button', { name: 'Rentang: 3 Hari' });
     await expect(periodFilter).toBeVisible();
     await periodFilter.click();
     await expect(page.getByRole('option', { name: '7 Hari' })).toBeVisible();
@@ -50,10 +50,12 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(page.locator('#analytics-date').locator('..').locator('..')).toHaveClass(/focus-within:ring/);
   });
 
-  test('Store filter uses the same dropdown pattern as order management', async ({ page }) => {
-    const storeFilter = page.getByRole('button', { name: 'Toko: Semua Toko' });
+  test('Store filter is scoped to the analytics section', async ({ page }) => {
+    const analyticsSection = page.locator('#tour-profit-analytics');
+    const storeFilter = analyticsSection.getByRole('button', { name: 'Toko: Semua Toko' });
 
     await expect(storeFilter).toBeVisible();
+    await expect(page.locator('body > *').getByRole('button', { name: 'Toko: Semua Toko' })).toHaveCount(1);
     await storeFilter.click();
     await expect(page.getByRole('option', { name: 'Semua Toko' })).toBeVisible();
   });

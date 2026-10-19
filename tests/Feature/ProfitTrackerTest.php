@@ -134,7 +134,7 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.escrow_amount', 250_000);
     }
 
-    public function test_store_filter_applies_to_realtime_analytics_and_ads_while_preserving_options(): void
+    public function test_store_filter_only_applies_to_analytics_and_ads_while_realtime_keeps_all_stores(): void
     {
         $user = User::factory()->create();
         $selectedStore = $this->createStore($user, 'Shopee', 'Shopee Terpilih', 'shop-selected');
@@ -164,9 +164,9 @@ class ProfitTrackerTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('selected_store_id', $selectedStore->id)
-            ->assertJsonPath('total_escrow_amount', 100_000)
-            ->assertJsonCount(1, 'stores')
-            ->assertJsonPath('stores.0.id', $selectedStore->id)
+            ->assertJsonPath('total_escrow_amount', 400_000)
+            ->assertJsonPath('total_order_count', 2)
+            ->assertJsonCount(2, 'stores')
             ->assertJsonCount(2, 'store_options')
             ->assertJsonPath('analytics.totals.escrow_amount', 200_000)
             ->assertJsonPath('analytics.totals.ad_spend_amount', 20_000)
