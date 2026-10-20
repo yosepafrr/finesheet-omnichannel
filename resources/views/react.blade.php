@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 
 <head>
 
@@ -10,7 +10,35 @@
     {{-- CSRF Token untuk axios --}}
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>Finesheet</title>
+    <title>Finesheet | Platform Operasional E-commerce</title>
+    <meta name="description" content="Finesheet membantu seller mengelola toko, produk, pesanan, stok, HPP, escrow, supplier, iklan, dan profit dalam satu sistem.">
+    <meta name="robots" content="index, follow">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Finesheet">
+    <meta property="og:title" content="Finesheet | Platform Operasional E-commerce">
+    <meta property="og:description" content="Kelola operasi dan profit toko Shopee serta TikTok Shop dalam satu sistem.">
+    <meta property="og:url" content="https://finesheet.id">
+    <link rel="canonical" href="https://finesheet.id">
+    <script type="application/ld+json">
+        {
+            "@@context": "https://schema.org",
+            "@@type": "SoftwareApplication",
+            "name": "Finesheet",
+            "url": "https://finesheet.id",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "description": "Platform operasional dan analisis e-commerce untuk seller di Indonesia.",
+            "author": {
+                "@@type": "Person",
+                "name": "Yosep Adriana Fauzi R",
+                "email": "developer@finesheet.id",
+                "address": {
+                    "@@type": "PostalAddress",
+                    "addressCountry": "ID"
+                }
+            }
+        }
+    </script>
 
     {{-- MATERIAL SYMBOLS --}}
     <link

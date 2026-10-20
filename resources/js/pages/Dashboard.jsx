@@ -20,7 +20,7 @@ const DASHBOARD_TOUR_STEPS = [
     {
         selector: "#tour-metrics > :first-child",
         title: "Metrik Bisnis",
-        description: "Pantau estimasi profit bersih, pesanan aktif, hutang supplier, dan jumlah toko yang terhubung dalam satu tampilan.",
+        description: "Pantau pesanan yang perlu dikirim, GMV dan profit hari ini, serta status toko dalam satu tampilan.",
         position: "bottom",
     },
     {
@@ -64,9 +64,8 @@ export default function Dashboard() {
     }, []);
     const [stats, setStats] = useState({
         perlu_dikirim_count: 0,
-        total_supplier_debt: 0,
-        net_estimation: 0,
-        recent_orders: [],
+        gmv_today: 0,
+        profit_today: 0,
         order_trend: [],
         profit_trend: [],
         platform_distribution: [],
@@ -162,26 +161,12 @@ export default function Dashboard() {
 
                 {/* Metrics */}
                 <div id="tour-metrics" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <a href="#/profit-tracker" target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 group hover:shadow-md transition-all cursor-pointer">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Estimasi Profit Bersih</p>
-                                <h3 className="text-2xl font-bold text-gray-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                                    {formatRupiah(stats.net_estimation)}
-                                </h3>
-                            </div>
-                            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                                <TrendingUp className="w-6 h-6" />
-                            </div>
-                        </div>
-                    </a>
-
                     <a href="#/orders" target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 group hover:shadow-md transition-all cursor-pointer">
                         <div className="flex justify-between items-start mb-4">
                             <div>
-                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Jumlah Pesanan</p>
+                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Pesanan Perlu Dikirim</p>
                                 <h3 className="text-2xl font-bold text-gray-800 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                                    {stats.perlu_dikirim_count.toLocaleString("id-ID")} <span className="text-sm font-normal text-gray-500">perlu dikirim</span>
+                                    {stats.perlu_dikirim_count.toLocaleString("id-ID")}
                                 </h3>
                             </div>
                             <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform">
@@ -190,16 +175,30 @@ export default function Dashboard() {
                         </div>
                     </a>
 
-                    <a href="#/payable" target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 group hover:shadow-md transition-all cursor-pointer">
+                    <a href="#/orders" target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 group hover:shadow-md transition-all cursor-pointer">
                         <div className="flex justify-between items-start mb-4">
                             <div>
-                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Total Tagihan ke Supplier</p>
+                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">GMV Hari Ini</p>
                                 <h3 className="text-2xl font-bold text-gray-800 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">
-                                    {formatRupiah(stats.total_supplier_debt)}
+                                    {formatRupiah(stats.gmv_today)}
                                 </h3>
                             </div>
                             <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center text-rose-500 group-hover:scale-110 transition-transform">
                                 <Wallet className="w-6 h-6" />
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="#/profit-tracker" target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-slate-700 group hover:shadow-md transition-all cursor-pointer">
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <p className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-1">Profit Hari Ini</p>
+                                <h3 className={`text-2xl font-bold transition-colors ${Number(stats.profit_today || 0) < 0 ? 'text-red-600 group-hover:text-red-700 dark:text-red-400 dark:group-hover:text-red-300' : 'text-gray-800 group-hover:text-blue-600 dark:text-white dark:group-hover:text-blue-400'}`}>
+                                    {formatRupiah(stats.profit_today)}
+                                </h3>
+                            </div>
+                            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
+                                <TrendingUp className="w-6 h-6" />
                             </div>
                         </div>
                     </a>
@@ -279,13 +278,13 @@ export default function Dashboard() {
                     <div className="col-span-1 lg:col-span-2 bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-700 relative z-0">
                         <div className="mb-4">
                             <h3 className="text-gray-800 dark:text-white font-bold text-lg">Pertumbuhan Profit Bersih</h3>
-                            <p className="text-gray-500 dark:text-slate-400 text-sm">Estimasi profit kotor dikurangi biaya per hari dalam {days} hari terakhir.</p>
+                            <p className="text-gray-500 dark:text-slate-400 text-sm">Profit harian dari escrow dikurangi HPP dan pengeluaran iklan dalam {days} hari terakhir.</p>
                         </div>
                         <div className="h-72 mt-4">
                             <ReactApexChart 
                                 type="area"
                                 height="100%"
-                                series={[{ name: 'Estimasi Profit', data: stats.profit_trend?.map(item => item['Estimasi Profit']) || [] }]}
+                                series={[{ name: 'Profit Bersih', data: stats.profit_trend?.map(item => item.profit_amount) || [] }]}
                                 options={{
                                     chart: { toolbar: { show: false }, fontFamily: 'Inter, sans-serif', background: 'transparent' },
                                     dataLabels: { enabled: false },

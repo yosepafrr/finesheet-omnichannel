@@ -4,14 +4,14 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Models\Store; // pastikan import model Store
+
 /**
  * @property \Illuminate\Database\Eloquent\Collection|\App\Models\Store[] $stores
  */
-
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
@@ -54,6 +54,16 @@ class User extends Authenticatable
     public function stores(): HasMany
     {
         return $this->hasMany(Store::class, 'user_id');
+    }
+
+    public function tiktokAdsConnection(): HasOne
+    {
+        return $this->hasOne(TiktokAdsConnection::class, 'user_id');
+    }
+
+    public function tiktokAdAccounts(): HasMany
+    {
+        return $this->hasMany(TiktokAdAccount::class, 'user_id');
     }
 
     public function payablePeriods(): HasMany

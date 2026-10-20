@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axios from "axios";
 import { BellRing, Store, Trash2, X } from "lucide-react";
+import { PUBLIC_DOCUMENT_ROUTES, PUBLIC_ROUTES } from "./publicSite";
 
 // Global axios config for handling 401 Unauthorized
 axios.interceptors.response.use(
@@ -12,8 +13,7 @@ axios.interceptors.response.use(
     (error) => {
         if (error.response && error.response.status === 401) {
             const currentRoute = (window.location.hash.slice(1) || '/').split('?')[0];
-            const publicRoutes = ['/', '', '/login', '/register', '/meet-the-creators'];
-            if (!publicRoutes.includes(currentRoute)) {
+            if (!PUBLIC_ROUTES.includes(currentRoute)) {
                 window.location.hash = '#/login';
             }
         }
@@ -36,6 +36,9 @@ const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const MasterProductDetail = lazy(() => import('./pages/MasterProductDetail'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
+const TiktokAdsIntegration = lazy(() => import('./pages/TiktokAdsIntegration'));
 
 // Route config
 const routes = {
@@ -51,6 +54,9 @@ const routes = {
     '/profile': Profile,
     '/login': Login,
     '/register': Register,
+    '/privacy-policy': PrivacyPolicy,
+    '/terms-of-service': TermsOfService,
+    '/tiktok-ads-integration': TiktokAdsIntegration,
 };
 
 function GlobalBanner() {
@@ -126,33 +132,46 @@ function PageLoader() {
 
 // Simple hash router hook
 function useHashRouter() {
-    const routeFromHash = () => {
+    const routeFromLocation = () => {
         const rawHash = window.location.hash.slice(1);
-        return (rawHash || '/').split('?')[0] || '/';
+        if (rawHash) {
+            return rawHash.split('?')[0] || '/';
+        }
+
+        const pathname = window.location.pathname || '/';
+        return pathname.split('?')[0] || '/';
     };
 
     const [hash, setHash] = useState(() => {
         let currentHash = window.location.hash.slice(1);
         if (!currentHash && window.location.pathname && window.location.pathname !== '/') {
             currentHash = window.location.pathname + window.location.search;
-            // Normalize path to hash routing
-            window.history.replaceState(null, '', '/#' + currentHash);
+            const currentPath = currentHash.split('?')[0];
+
+            // Keep review-facing public documents on clean, shareable URLs.
+            if (!PUBLIC_DOCUMENT_ROUTES.includes(currentPath)) {
+                window.history.replaceState(null, '', '/#' + currentHash);
+            }
         }
         return (currentHash || '/').split('?')[0] || '/';
     });
 
     useEffect(() => {
         const handleHashChange = () => {
-            setHash(routeFromHash());
+            setHash(routeFromLocation());
         };
         window.addEventListener('hashchange', handleHashChange);
+        window.addEventListener('popstate', handleHashChange);
 
         // Set initial hash to root if none
         if (!window.location.hash && window.location.pathname === '/') {
             window.location.replace('#/');
         }
 
-        return () => window.removeEventListener('hashchange', handleHashChange);
+        return () => {
+            window.removeEventListener('hashchange', handleHashChange);
+            window.removeEventListener('popstate', handleHashChange);
+        };
     }, []);
 
     return hash;
@@ -162,9 +181,6 @@ function useHashRouter() {
 export function navigate(path) {
     window.location.hash = '#' + path;
 }
-
-// Auth pages don't use AppLayout
-const authRoutes = ['/login', '/register'];
 
 import { Toaster, toast } from 'react-hot-toast';
 
@@ -439,7 +455,7 @@ class ErrorBoundary extends React.Component {
 
 function App() {
     const currentRoute = useHashRouter();
-    const isAuth = authRoutes.includes(currentRoute);
+    const isPublicRoute = PUBLIC_ROUTES.includes(currentRoute);
 
     let PageComponent = routes[currentRoute];
     let routeParams = {};
@@ -480,8 +496,8 @@ function App() {
 
     return (
         <ErrorBoundary>
-            <GlobalBanner />
-            <OrderNotificationCenter />
+            {!isPublicRoute && <GlobalBanner />}
+            {!isPublicRoute && <OrderNotificationCenter />}
             <Toaster />
             <Suspense fallback={<PageLoader />}>
                 <PageComponent routeParams={routeParams} />

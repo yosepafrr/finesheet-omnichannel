@@ -38,12 +38,12 @@ return [
         'partner_id' => env('SHOPEE_PARTNER_ID'),
         'partner_key' => env('SHOPEE_PARTNER_KEY'),
     ],
-    
+
     'tiktok' => [
         'app_key' => env('TIKTOK_APP_KEY'),
         'app_secret' => env('TIKTOK_APP_SECRET'),
         'redirect_uri' => env('TIKTOK_REDIRECT_URI'),
-        'open_url' => env('APP_ENV') === 'production' 
+        'open_url' => env('APP_ENV') === 'production'
             ? env('TIKTOK_OPEN_URL_PRODUCTION', 'https://services.tiktokshop.com/open/authorize')
             : env('TIKTOK_OPEN_URL_SANDBOX', 'https://services.tiktokshop.com/open/authorize'),
         'api_url' => env('APP_ENV') === 'production'
@@ -52,6 +52,18 @@ return [
         'auth_url' => env('APP_ENV') === 'production'
             ? env('TIKTOK_AUTH_URL_PRODUCTION', 'https://auth.tiktok-shops.com')
             : env('TIKTOK_AUTH_URL_SANDBOX', 'https://auth.tiktok-shops.com'),
+    ],
+
+    'tiktok_ads' => [
+        'app_id' => env('TIKTOK_ADS_APP_ID'),
+        'app_secret' => env('TIKTOK_ADS_APP_SECRET'),
+        'authorization_url' => env('TIKTOK_ADS_AUTHORIZATION_URL'),
+        'redirect_uri' => env(
+            'TIKTOK_ADS_REDIRECT_URI',
+            rtrim((string) env('APP_URL'), '/').'/tiktok-ads/callback',
+        ),
+        'api_url' => env('TIKTOK_ADS_API_URL', 'https://business-api.tiktok.com/open_api'),
+        'api_version' => env('TIKTOK_ADS_API_VERSION', 'v2.0'),
     ],
 
 ];

@@ -2,181 +2,129 @@
 
 namespace App\Services;
 
+use App\Models\MarketplaceAdSpend;
 use App\Models\Order;
-use App\Models\PayableEvent;
-use App\Models\PayablePayment;
 use App\Models\Store;
 use Carbon\Carbon;
 
 class DashboardService
 {
-    public function __construct(private readonly OrderEscrowService $escrowService) {}
+    private const ALLOWED_TREND_DAYS = [7, 14, 30];
 
-    public function getStats()
+    public function __construct(
+        private readonly OrderEscrowService $escrowService,
+        private readonly OrderProfitService $profitService,
+        private readonly ProfitAnalyticsService $profitAnalyticsService,
+    ) {}
+
+    public function getStats(int $days = 7): array
     {
+        $days = in_array($days, self::ALLOWED_TREND_DAYS, true) ? $days : 7;
+        $timezone = 'Asia/Jakarta';
+        $today = now($timezone)->startOfDay();
+        $start = $today->copy()->subDays($days - 1);
+        $end = $today->copy()->endOfDay();
+
         $user = auth()->user();
         $stores = Store::where('user_id', $user->id)->get();
         $storeIds = $stores->pluck('id');
-        $activeStoreCount = $stores->filter(function ($store) {
+        $activeStoreCount = $stores->filter(function (Store $store) {
             return $store->shop_expired_at
                 && Carbon::parse($store->shop_expired_at)->isFuture()
                 && ! empty($store->refresh_token);
         })->count();
 
-        // Fetch all orders to match Profit Tracker all-time logic
-        $orders = Order::with('returns')->whereIn('store_id', $storeIds)->get();
+        $perluDikirimCount = Order::query()
+            ->whereIn('store_id', $storeIds)
+            ->whereIn('order_status', $this->escrowService->needsShippingStatuses())
+            ->count();
 
-        $escrowOrders = $orders->filter(function ($order) {
-            $status = strtoupper(trim($order->order_status ?? ''));
-
-            if (in_array($status, ['CANCELLED', 'RETURNED'])) {
-                return false;
-            }
-
-            $hasActiveReturn = false;
-            if ($order->returns && $order->returns->count() > 0) {
-                $returnStatus = strtoupper(trim($order->returns->first()->normalized_status ?? ''));
-                if (in_array($returnStatus, ['REFUND_COMPLETED', 'COMPLETED', 'UNSUPPORTED'])) {
-                    return false;
-                }
-                if (in_array($returnStatus, ['REJECTED', 'CANCELLED'])) {
-                    $hasActiveReturn = false;
-                } else {
-                    $hasActiveReturn = true;
-                }
-            }
-
-            // Dashboard always includes all categories for the total escrow calculation, same as Profit Tracker when all filters are true
-            $category = 'OTHER';
-            if ($hasActiveReturn || in_array($status, ['IN_CANCEL', 'TO_RETURN'])) {
-                $category = 'RETURN';
-            } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'TO_CONFIRM_RECEIVE'])) {
-                $category = 'DIKIRIM';
-            } elseif (in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'])) {
-                $category = 'PERLU_DIKIRIM';
-            }
-
-            if (in_array($category, ['DIKIRIM', 'PERLU_DIKIRIM'])) {
-                return true;
-            }
-
-            return false;
-        });
-
-        // Hitung Jumlah Pesanan (Perlu Dikirim)
-        $perluDikirimCount = $orders->filter(function ($order) {
-            $status = strtoupper(trim($order->order_status ?? ''));
-
-            return in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']);
-        })->count();
-
-        // Hitung total hutang supplier
-        $totalDebt = PayableEvent::where('user_id', $user->id)
-            ->whereHas('period', function ($q) {
-                $q->where('payment_status', '!=', 'PAID');
-            })
-            ->where('amount', '>', 0)->sum('amount');
-
-        $totalReduction = PayableEvent::where('user_id', $user->id)
-            ->whereHas('period', function ($q) {
-                $q->where('payment_status', '!=', 'PAID');
-            })
-            ->where('amount', '<', 0)->sum('amount');
-
-        $totalPaid = PayablePayment::where('user_id', $user->id)
-            ->whereHas('period', function ($q) {
-                $q->where('payment_status', '!=', 'PAID');
-            })
-            ->sum('amount');
-
-        $totalSupplierDebt = ($totalDebt + $totalReduction) - $totalPaid;
-        if ($totalSupplierDebt < 0) {
-            $totalSupplierDebt = 0;
-        }
-
-        $totalEscrowAmount = $escrowOrders->sum(
-            fn ($order) => $this->escrowService->amount($order)
+        $rangeOrders = Order::query()
+            ->whereIn('store_id', $storeIds)
+            ->whereBetween('order_time', [$start, $end])
+            ->orderBy('order_time')
+            ->get();
+        $analyticsOrders = Order::with(['returns', 'packages', 'orderProducts', 'store'])
+            ->whereIn('store_id', $storeIds)
+            ->whereIn('order_status', $this->escrowService->profitAnalyticsStatuses())
+            ->whereBetween('order_time', [$start, $end])
+            ->orderBy('order_time')
+            ->get();
+        $financialSummaries = $this->profitService->summaries($analyticsOrders);
+        $adSpends = MarketplaceAdSpend::query()
+            ->where('user_id', $user->id)
+            ->whereIn('store_id', $storeIds)
+            ->whereRaw('LOWER(platform) = ?', ['shopee'])
+            ->whereDate('spend_date', '>=', $start->toDateString())
+            ->whereDate('spend_date', '<=', $end->toDateString())
+            ->orderBy('spend_date')
+            ->get();
+        $period = [
+            'key' => "last_{$days}_days",
+            'start' => $start,
+            'end' => $end,
+            'granularity' => 'day',
+        ];
+        $analytics = $this->profitAnalyticsService->build(
+            $analyticsOrders,
+            $financialSummaries,
+            $period,
+            $adSpends,
+            $stores->filter(fn (Store $store) => strtolower((string) $store->platform) === 'shopee')->count(),
         );
-        $netEstimation = $totalEscrowAmount - $totalSupplierDebt;
 
-        // Chart Data (Dynamic Range)
-        $days = (int) request()->get('days', 7);
-        $startDate = Carbon::now()->subDays($days)->startOfDay();
+        $todayKey = $today->toDateString();
+        $todayOrders = $analyticsOrders->filter(function (Order $order) use ($todayKey) {
+            return $this->escrowService->isProfitAnalyticsEligible($order)
+                && $order->order_time?->copy()->setTimezone('Asia/Jakarta')->toDateString() === $todayKey;
+        });
+        $todayPoint = collect($analytics['points'])->firstWhere('key', $todayKey);
 
-        $filteredOrders = $orders->where('order_time', '>=', $startDate);
-
-        $orderTrend = [];
-        $profitTrend = [];
-
-        $groupedByDate = $filteredOrders->groupBy(function ($order) {
-            return $order->order_time ? $order->order_time->format('Y-m-d') : null;
-        })->filter(function ($val, $key) {
-            return $key !== null;
-        })->sortKeys();
-
-        foreach ($groupedByDate as $date => $dayOrders) {
-            $orderTrend[] = [
-                'date' => Carbon::parse($date)->format('d M'),
-                'Total Pesanan' => $dayOrders->count(),
-            ];
-
-            $dayEscrow = $dayOrders->filter(function ($order) {
-                $status = strtoupper(trim($order->order_status ?? ''));
-                if (in_array($status, ['CANCELLED', 'RETURNED'])) {
-                    return false;
-                }
-
-                $hasActiveReturn = false;
-                if ($order->returns && $order->returns->count() > 0) {
-                    $returnStatus = strtoupper(trim($order->returns->first()->normalized_status ?? ''));
-                    if (in_array($returnStatus, ['REFUND_COMPLETED', 'COMPLETED', 'UNSUPPORTED'])) {
-                        return false;
-                    }
-                    if (in_array($returnStatus, ['REJECTED', 'CANCELLED'])) {
-                        $hasActiveReturn = false;
-                    } else {
-                        $hasActiveReturn = true;
-                    }
-                }
-
-                $category = 'OTHER';
-                if ($hasActiveReturn || in_array($status, ['IN_CANCEL', 'TO_RETURN'])) {
-                    $category = 'RETURN';
-                } elseif (in_array($status, ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'TO_CONFIRM_RECEIVE'])) {
-                    $category = 'DIKIRIM';
-                } elseif (in_array($status, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION'])) {
-                    $category = 'PERLU_DIKIRIM';
-                }
-
-                if (in_array($category, ['DIKIRIM', 'PERLU_DIKIRIM'])) {
-                    return true;
-                }
-
-                return false;
-            })->sum(fn ($order) => $this->escrowService->amount($order));
-
-            $profitTrend[] = [
-                'date' => Carbon::parse($date)->format('d M'),
-                'Estimasi Profit' => $dayEscrow,
-            ];
-        }
-
-        $platformDistribution = $filteredOrders->groupBy('platform')->map(function ($platformOrders, $platform) {
+        $ordersByDate = $rangeOrders->groupBy(
+            fn (Order $order) => $order->order_time?->copy()->setTimezone($timezone)->toDateString(),
+        );
+        $orderTrend = collect($analytics['points'])->map(function (array $point) use ($ordersByDate, $timezone) {
             return [
-                'name' => ucfirst($platform),
-                'value' => $platformOrders->count(),
+                'date' => Carbon::createFromFormat('Y-m-d', $point['key'], $timezone)->format('d M'),
+                'Total Pesanan' => $ordersByDate->get($point['key'], collect())->count(),
             ];
-        })->values()->toArray();
+        })->values();
+        $profitTrend = collect($analytics['points'])->map(function (array $point) use ($timezone) {
+            return [
+                'date' => Carbon::createFromFormat('Y-m-d', $point['key'], $timezone)->format('d M'),
+                'profit_amount' => (float) $point['profit_amount'],
+            ];
+        })->values();
+        $platformDistribution = $rangeOrders
+            ->groupBy('platform')
+            ->map(fn ($platformOrders, $platform) => [
+                'name' => ucfirst((string) $platform),
+                'value' => $platformOrders->count(),
+            ])
+            ->values();
 
         return [
             'perlu_dikirim_count' => $perluDikirimCount,
-            'total_supplier_debt' => $totalSupplierDebt,
-            'net_estimation' => $netEstimation,
+            'gmv_today' => (float) $todayOrders->sum(fn (Order $order) => $this->grossOrderValue($order)),
+            'profit_today' => (float) ($todayPoint['profit_amount'] ?? 0),
             'order_trend' => $orderTrend,
             'profit_trend' => $profitTrend,
             'platform_distribution' => $platformDistribution,
             'store_count' => $stores->count(),
             'active_store_count' => $activeStoreCount,
         ];
+    }
+
+    private function grossOrderValue(Order $order): float
+    {
+        $grossAmount = (float) ($order->order_selling_price ?? 0);
+
+        if ($grossAmount > 0) {
+            return $grossAmount;
+        }
+
+        return (float) $order->orderProducts->sum(
+            fn ($item) => (float) ($item->price ?? 0) * (int) ($item->quantity_purchased ?? 0),
+        );
     }
 }

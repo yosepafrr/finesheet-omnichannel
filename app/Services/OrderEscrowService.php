@@ -113,6 +113,12 @@ class OrderEscrowService
     }
 
     /** @return array<int, string> */
+    public function needsShippingStatuses(): array
+    {
+        return self::NEEDS_SHIPPING_STATUSES;
+    }
+
+    /** @return array<int, string> */
     public function profitAnalyticsStatuses(): array
     {
         return self::PROFIT_ANALYTICS_STATUSES;

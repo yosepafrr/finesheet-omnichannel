@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ShopeeController;
 use App\Http\Controllers\ShopeeWebhookController;
 use App\Http\Controllers\TikTokController;
+use App\Http\Controllers\TiktokAdsController;
 use App\Http\Controllers\DashboardController;
 
 use App\Http\Controllers\Api\ProductController;
@@ -82,6 +83,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/sync/orders/status', [OrderSyncController::class, 'status']);
         Route::post('/sync/orders', [OrderSyncController::class, 'store']);
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
+        Route::get('/tiktok-ads/status', [TiktokAdsController::class, 'status']);
+        Route::put('/tiktok-ads/accounts/{accountId}/store', [TiktokAdsController::class, 'updateStore']);
 
         // Payable Routes
         Route::get('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'getConfig']);
@@ -133,6 +136,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/tiktok/callback', [TikTokController::class, 'handleTiktokCallback'])->name('tiktok.callback');
     Route::get('/connect/tiktok', [TikTokController::class, 'redirectToTiktok'])->name('tiktok.connect');
+    Route::get('/connect/tiktok-ads', [TiktokAdsController::class, 'redirectToTiktokAds'])->name('tiktok-ads.connect');
+    Route::get('/tiktok-ads/callback', [TiktokAdsController::class, 'handleTiktokAdsCallback'])->name('tiktok-ads.callback');
 });
 
 // WEBHOOK ROUTE

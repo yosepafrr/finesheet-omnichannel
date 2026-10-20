@@ -12,12 +12,18 @@ import {
     Activity,
     TrendingUp,
     ShieldCheck,
-    Zap,
     BarChart3,
     Package,
     Store,
+    Mail,
+    MapPin,
+    UserRound,
+    ExternalLink,
+    Megaphone,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
+import { usePublicPageMetadata } from "../components/public/PublicSiteLayout";
+import { PUBLIC_SITE } from "../publicSite";
 
 const navigate = (path) => {
     window.location.hash = "#" + path;
@@ -59,10 +65,10 @@ const FEATURES = [
     },
 ];
 
-const STATS = [
-    { value: "99.9%", label: "Uptime" },
-    { value: "2 Menit", label: "Setup Awal" },
-    { value: "Real-time", label: "Data Update" },
+const PUBLIC_FACTS = [
+    { value: PUBLIC_SITE.country, label: "Negara operasi" },
+    { value: "Shopee + TikTok Shop", label: "Integrasi e-commerce" },
+    { value: PUBLIC_SITE.email, label: "Email resmi" },
 ];
 
 // ----- Glassmorphism card web approximation (see SKILL.md Appendix C)
@@ -120,22 +126,24 @@ function MagneticButton({ children, onClick, className, ...rest }) {
 
 export default function LandingPage() {
     const [scrolled, setScrolled] = useState(false);
-    const [authUser, setAuthUser] = useState(null);
-    const [authLoading, setAuthLoading] = useState(true);
+    const [authUser] = useState(() => window.authUser || false);
+    const authLoading = false;
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+
+    usePublicPageMetadata({
+        title: "Platform Operasional E-commerce",
+        description: PUBLIC_SITE.description,
+        path: "/",
+    });
+
+    const scrollToSection = (sectionId) => {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
 
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 24);
         window.addEventListener("scroll", handleScroll, { passive: true });
         return () => window.removeEventListener("scroll", handleScroll);
-    }, []);
-
-    useEffect(() => {
-        axios
-            .get("/api/user")
-            .then((res) => setAuthUser(res.data))
-            .catch(() => setAuthUser(false))
-            .finally(() => setAuthLoading(false));
     }, []);
 
     const handleLogout = async () => {
@@ -152,43 +160,12 @@ export default function LandingPage() {
 
     return (
         <div
-            className="min-h-screen font-sans overflow-x-hidden"
+            className="min-h-[100dvh] font-sans overflow-x-hidden"
             style={{
-                background: "linear-gradient(145deg, #eef0fa 0%, #e8eaf6 40%, #f0f4ff 70%, #eef2ff 100%)",
+                background: "#f7f8fb",
                 color: "#1a1d3a",
             }}
         >
-            {/* â”€â”€ Background Orbs â”€â”€ */}
-            <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-                <div
-                    className="absolute animate-blob"
-                    style={{
-                        top: "-8%", left: "-6%",
-                        width: "36rem", height: "36rem",
-                        background: "radial-gradient(circle, rgba(99,102,241,0.35) 0%, transparent 70%)",
-                        borderRadius: "50%", filter: "blur(48px)",
-                    }}
-                />
-                <div
-                    className="absolute animate-blob animation-delay-2000"
-                    style={{
-                        top: "30%", right: "-8%",
-                        width: "28rem", height: "28rem",
-                        background: "radial-gradient(circle, rgba(139,92,246,0.25) 0%, transparent 70%)",
-                        borderRadius: "50%", filter: "blur(56px)",
-                    }}
-                />
-                <div
-                    className="absolute animate-blob animation-delay-4000"
-                    style={{
-                        bottom: "0%", left: "20%",
-                        width: "40rem", height: "40rem",
-                        background: "radial-gradient(circle, rgba(59,130,246,0.20) 0%, transparent 70%)",
-                        borderRadius: "50%", filter: "blur(64px)",
-                    }}
-                />
-            </div>
-
             {/* â”€â”€ Navbar â”€â”€ */}
             <nav
                 className="fixed w-full z-50 transition-all duration-500"
@@ -209,6 +186,36 @@ export default function LandingPage() {
                         <span className="text-xl font-bold tracking-tight" style={{ color: "#1a1d3a" }}>
                             Fine<span style={{ color: "#3a54b0" }}>sheet</span> <span className="text-xs bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">beta test</span>
                         </span>
+                    </div>
+
+                    <div className="hidden items-center gap-6 lg:flex">
+                        <button
+                            type="button"
+                            onClick={() => scrollToSection("about")}
+                            className="text-sm font-semibold text-slate-600 transition hover:text-[#304674]"
+                        >
+                            Tentang
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => scrollToSection("features")}
+                            className="text-sm font-semibold text-slate-600 transition hover:text-[#304674]"
+                        >
+                            Fitur
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => scrollToSection("integrations")}
+                            className="text-sm font-semibold text-slate-600 transition hover:text-[#304674]"
+                        >
+                            Integrasi
+                        </button>
+                        <a
+                            href="/privacy-policy"
+                            className="text-sm font-semibold text-slate-600 transition hover:text-[#304674]"
+                        >
+                            Privasi
+                        </a>
                     </div>
 
                     {/* Nav Actions */}
@@ -273,33 +280,21 @@ export default function LandingPage() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
                     >
-                        {/* <div
-                            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold mb-6"
-                            style={{ background: "rgba(58,84,176,0.10)", color: "#3a54b0", border: "1px solid rgba(58,84,176,0.18)" }}
-                        >
-                            <Zap className="w-3 h-3" />
-                            Platform Manajemen Bisnis Online
-                        </div> */}
-
                         <h1
                             className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6"
                             style={{ color: "#1a1d3a", lineHeight: "1.08" }}
                         >
-                            Otomatiskan.{" "}
-                            <span
-                                className="relative"
-                                style={{ color: "#3a54b0" }}
-                            >
-                                Optimalkan.
-                            </span>{" "}
-                            Tumbuh Pesat.
+                            Finesheet untuk operasi e-commerce yang lebih{" "}
+                            <span className="relative" style={{ color: "#3a54b0" }}>
+                                terukur.
+                            </span>
                         </h1>
 
                         <p
                             className="text-lg leading-relaxed mb-10 max-w-[480px]"
                             style={{ color: "#4b5563", fontWeight: 500 }}
                         >
-                            Finesheet menyederhanakan alur kerja seller e-commerce, dari sync pesanan hingga pelacakan profit dan manajemen hutang supplier.
+                            Kelola toko, produk, pesanan, stok, HPP, escrow, supplier, iklan, dan profit dalam satu sistem.
                         </p>
 
                         <div className="flex flex-col sm:flex-row items-start gap-4 mb-10">
@@ -336,15 +331,15 @@ export default function LandingPage() {
                         <div className="flex items-center gap-6 text-sm font-medium" style={{ color: "#64748b" }}>
                             <div className="flex items-center gap-1.5">
                                 <CheckCircle2 className="w-4 h-4" style={{ color: "#0ea87b" }} />
-                                Tanpa Kartu Kredit
+                                Shopee dan TikTok Shop
                             </div>
                             <div className="flex items-center gap-1.5">
                                 <CheckCircle2 className="w-4 h-4" style={{ color: "#0ea87b" }} />
-                                Setup 2 Menit
+                                Beroperasi di Indonesia
                             </div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="hidden items-center gap-1.5 sm:flex">
                                 <ShieldCheck className="w-4 h-4" style={{ color: "#0ea87b" }} />
-                                Data Aman
+                                Akses berbasis otorisasi
                             </div>
                         </div>
                     </motion.div>
@@ -475,23 +470,71 @@ export default function LandingPage() {
                 </div>
             </main>
 
-            {/* â”€â”€ Stats Bar â”€â”€ */}
-            <section className="relative z-10 py-2 max-w-5xl mx-auto px-6 lg:px-10">
+            {/* Public facts */}
+            <section className="relative z-10 mx-auto max-w-5xl px-6 py-2 lg:px-10">
                 <div
-                    className="rounded-2xl px-8 py-6 grid grid-cols-3 gap-6"
+                    className="grid grid-cols-1 gap-5 rounded-2xl px-6 py-6 sm:grid-cols-3 sm:px-8"
                     style={glassStyle}
                 >
-                    {STATS.map((stat, i) => (
-                        <div key={i} className={`text-center ${i < STATS.length - 1 ? "border-r" : ""}`} style={{ borderColor: "rgba(255,255,255,0.50)" }}>
-                            <div className="text-md md:text-3xl font-black mb-1" style={{ color: "#3a54b0" }}>{stat.value}</div>
-                            <div className="text-sm font-medium" style={{ color: "#64748b" }}>{stat.label}</div>
+                    {PUBLIC_FACTS.map((fact, i) => (
+                        <div key={fact.label} className={`min-w-0 text-center ${i < PUBLIC_FACTS.length - 1 ? "sm:border-r" : ""}`} style={{ borderColor: "rgba(58,84,176,0.12)" }}>
+                            <div className="truncate text-base font-black sm:px-3 md:text-xl" style={{ color: "#3a54b0" }} title={fact.value}>{fact.value}</div>
+                            <div className="mt-1 text-sm font-medium" style={{ color: "#64748b" }}>{fact.label}</div>
                         </div>
                     ))}
                 </div>
             </section>
 
+            {/* About and public identity */}
+            <section id="about" className="relative z-10 mt-20 border-y border-slate-200 bg-white scroll-mt-20">
+                <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-[1.15fr_0.85fr] lg:px-10">
+                    <div>
+                        <p className="mb-3 text-sm font-bold" style={{ color: "#3a54b0" }}>Tentang Finesheet</p>
+                        <h2 className="max-w-2xl text-3xl font-extrabold leading-tight tracking-tight md:text-4xl" style={{ color: "#1a1d3a" }}>
+                            Sistem kerja terpadu untuk seller multi-marketplace.
+                        </h2>
+                        <p className="mt-5 max-w-2xl text-base font-medium leading-7 text-slate-600">
+                            {PUBLIC_SITE.description} Finesheet membantu pengguna melihat hubungan antara penjualan,
+                            biaya barang, pembayaran marketplace, biaya iklan, dan kewajiban kepada supplier.
+                        </p>
+                        <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-600">
+                            Produk ini aktif sebagai layanan web dan terus dikembangkan berdasarkan alur operasional
+                            bisnis e-commerce yang nyata.
+                        </p>
+                    </div>
+
+                    <dl className="divide-y divide-slate-200 border-y border-slate-200">
+                        <div className="flex items-start gap-4 py-5">
+                            <UserRound className="mt-0.5 h-5 w-5 shrink-0 text-[#3a54b0]" aria-hidden="true" />
+                            <div>
+                                <dt className="text-xs font-bold text-slate-500">Pengelola</dt>
+                                <dd className="mt-1 font-bold text-slate-950">{PUBLIC_SITE.operatorName}</dd>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-4 py-5">
+                            <Mail className="mt-0.5 h-5 w-5 shrink-0 text-[#3a54b0]" aria-hidden="true" />
+                            <div>
+                                <dt className="text-xs font-bold text-slate-500">Email resmi</dt>
+                                <dd className="mt-1">
+                                    <a className="font-bold text-slate-950 hover:text-[#3a54b0] hover:underline" href={`mailto:${PUBLIC_SITE.email}`}>
+                                        {PUBLIC_SITE.email}
+                                    </a>
+                                </dd>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-4 py-5">
+                            <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-[#3a54b0]" aria-hidden="true" />
+                            <div>
+                                <dt className="text-xs font-bold text-slate-500">Negara operasi</dt>
+                                <dd className="mt-1 font-bold text-slate-950">{PUBLIC_SITE.country}</dd>
+                            </div>
+                        </div>
+                    </dl>
+                </div>
+            </section>
+
             {/* â”€â”€ Features â”€â”€ */}
-            <section id="features" className="relative z-10 py-24 max-w-7xl mx-auto px-6 lg:px-10">
+            <section id="features" className="relative z-10 mx-auto max-w-7xl scroll-mt-20 px-6 py-24 lg:px-10">
                 <div className="mb-14 max-w-2xl">
                     <h2 className="text-3xl md:text-4xl font-extrabold mb-4 tracking-tight" style={{ color: "#1a1d3a" }}>
                         Semua yang Anda butuhkan untuk{" "}
@@ -508,7 +551,7 @@ export default function LandingPage() {
                         return (
                             <motion.div
                                 key={idx}
-                                initial={{ opacity: 0, y: 24 }}
+                                initial={false}
                                 whileInView={{ opacity: 1, y: 0 }}
                                 viewport={{ once: true, amount: 0.25 }}
                                 transition={{ duration: 0.55, delay: idx * 0.09, ease: [0.16, 1, 0.3, 1] }}
@@ -554,7 +597,7 @@ export default function LandingPage() {
                             return (
                                 <motion.div
                                     key={i}
-                                    initial={{ opacity: 0, x: -20 }}
+                                    initial={false}
                                     whileInView={{ opacity: 1, x: 0 }}
                                     viewport={{ once: true, amount: 0.4 }}
                                     transition={{ duration: 0.5, delay: i * 0.12, ease: [0.16, 1, 0.3, 1] }}
@@ -578,7 +621,7 @@ export default function LandingPage() {
 
                     {/* Right: Visual metric card */}
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.96 }}
+                        initial={false}
                         whileInView={{ opacity: 1, scale: 1 }}
                         viewport={{ once: true, amount: 0.3 }}
                         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
@@ -630,29 +673,77 @@ export default function LandingPage() {
                 </div>
             </section>
 
+            {/* Marketplace and ads integrations */}
+            <section id="integrations" className="relative z-10 scroll-mt-20 border-y border-slate-200 bg-white">
+                <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10">
+                    <div className="max-w-3xl">
+                        <p className="mb-3 text-sm font-bold text-[#3a54b0]">Integrasi platform</p>
+                        <h2 className="text-3xl font-extrabold leading-tight tracking-tight text-slate-950 md:text-4xl">
+                            Akses hanya setelah pemilik akun memberikan izin.
+                        </h2>
+                        <p className="mt-5 text-base font-medium leading-7 text-slate-600">
+                            Setiap koneksi dimulai oleh pengguna melalui alur otorisasi resmi platform. Finesheet
+                            menggunakan data yang diizinkan untuk menjalankan sinkronisasi dan analisis yang dipilih pengguna.
+                        </p>
+                    </div>
+
+                    <div className="mt-10 divide-y divide-slate-200 border-y border-slate-200">
+                        <div className="grid gap-4 py-6 sm:grid-cols-[180px_1fr_auto] sm:items-center">
+                            <div className="flex items-center gap-3">
+                                <img src="/Marketplace-logo/shopee.png" alt="Logo Shopee" className="h-9 w-9 object-contain" />
+                                <span className="font-bold text-slate-950">Shopee</span>
+                            </div>
+                            <p className="text-sm leading-6 text-slate-600">
+                                Produk, stok, pesanan, retur, logistik, escrow, dan biaya iklan sesuai izin akun.
+                            </p>
+                            <span className="text-sm font-semibold text-emerald-700">Aktif</span>
+                        </div>
+                        <div className="grid gap-4 py-6 sm:grid-cols-[180px_1fr_auto] sm:items-center">
+                            <div className="flex items-center gap-3">
+                                <img src="/Marketplace-logo/tts.png" alt="Logo TikTok Shop" className="h-9 w-9 object-contain" />
+                                <span className="font-bold text-slate-950">TikTok Shop</span>
+                            </div>
+                            <p className="text-sm leading-6 text-slate-600">
+                                Produk, stok, pesanan, retur, riwayat logistik, dan data escrow sesuai izin akun.
+                            </p>
+                            <span className="text-sm font-semibold text-emerald-700">Aktif</span>
+                        </div>
+                        <div className="grid gap-4 py-6 sm:grid-cols-[180px_1fr_auto] sm:items-center">
+                            <div className="flex items-center gap-3">
+                                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#eef2fa] text-[#304674]">
+                                    <Megaphone className="h-5 w-5" aria-hidden="true" />
+                                </span>
+                                <span className="font-bold text-slate-950">TikTok Ads</span>
+                            </div>
+                            <p className="text-sm leading-6 text-slate-600">
+                                Akses analitik untuk biaya dan performa iklan. Finesheet tidak membuat atau mengubah kampanye.
+                            </p>
+                            <a
+                                href="/tiktok-ads-integration"
+                                className="inline-flex items-center gap-1.5 text-sm font-bold text-[#304674] hover:underline"
+                            >
+                                Detail integrasi
+                                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             {/* â”€â”€ CTA Section â”€â”€ */}
             {!authUser && (
                 <section className="relative z-10 py-16 max-w-5xl mx-auto px-6 mb-20">
                     <motion.div
-                        initial={{ opacity: 0, y: 24 }}
+                        initial={false}
                         whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: true, amount: 0.4 }}
                         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                        className="rounded-[32px] p-12 text-center relative overflow-hidden"
+                        className="relative overflow-hidden rounded-lg p-12 text-center"
                         style={{
-                            background: "linear-gradient(135deg, #3a54b0 0%, #5b21b6 100%)",
+                            background: "#304674",
                             boxShadow: "0 24px 80px rgba(58,84,176,0.35)",
                         }}
                     >
-                        <div
-                            className="absolute top-0 right-0 w-64 h-64 rounded-full pointer-events-none"
-                            style={{ background: "radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 70%)", transform: "translate(30%, -30%)" }}
-                        />
-                        <div
-                            className="absolute bottom-0 left-0 w-48 h-48 rounded-full pointer-events-none"
-                            style={{ background: "radial-gradient(circle, rgba(255,255,255,0.10) 0%, transparent 70%)", transform: "translate(-30%, 30%)" }}
-                        />
-
                         <div className="relative z-10">
                             <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-4 tracking-tight">
                                 Lihat Finesheet beraksi
@@ -682,46 +773,36 @@ export default function LandingPage() {
                 className="relative z-10 py-10 border-t"
                 style={{ borderColor: "rgba(58,84,176,0.10)", background: "rgba(255,255,255,0.25)" }}
             >
-                <div className="max-w-7xl mx-auto px-6 lg:px-10 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center gap-2">
-                        <div
-                            className="w-7 h-7 rounded-lg flex items-center justify-center"
-                            style={{ background: "#3a54b0" }}
-                        >
-                            <BarChart3 className="w-3.5 h-3.5 text-white" />
+                <div className="mx-auto grid max-w-7xl gap-8 px-6 lg:grid-cols-[1fr_auto] lg:px-10">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <div
+                                className="flex h-7 w-7 items-center justify-center rounded-lg"
+                                style={{ background: "#3a54b0" }}
+                            >
+                                <BarChart3 className="h-3.5 w-3.5 text-white" />
+                            </div>
+                            <span className="font-bold" style={{ color: "#1a1d3a" }}>
+                                Fine<span style={{ color: "#3a54b0" }}>sheet</span>
+                            </span>
                         </div>
-                        <span className="font-bold" style={{ color: "#1a1d3a" }}>
-                            Fine<span style={{ color: "#3a54b0" }}>sheet</span>
-                        </span>
+                        <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
+                            Dikelola oleh {PUBLIC_SITE.operatorName} di {PUBLIC_SITE.country}. Kontak resmi:{" "}
+                            <a className="font-semibold text-[#304674] hover:underline" href={`mailto:${PUBLIC_SITE.email}`}>
+                                {PUBLIC_SITE.email}
+                            </a>
+                        </p>
                     </div>
-                    <p className="text-sm font-medium" style={{ color: "#94a3b8" }}>
-                        &copy; {new Date().getFullYear()} Finesheet. Hak Cipta Dilindungi.
-                    </p>
-                    <div className="flex gap-5 text-sm font-semibold" style={{ color: "#64748b" }}>
-                        <a href="#" className="hover:underline" style={{ textDecorationColor: "#3a54b0" }}>Privasi</a>
-                        <a href="#" className="hover:underline" style={{ textDecorationColor: "#3a54b0" }}>Syarat Layanan</a>
+                    <div className="flex flex-wrap items-start gap-x-5 gap-y-3 text-sm font-semibold text-slate-600 lg:justify-end">
+                        <a href="/tiktok-ads-integration" className="hover:text-[#304674] hover:underline">Integrasi TikTok Ads</a>
+                        <a href="/privacy-policy" className="hover:text-[#304674] hover:underline">Privacy Policy</a>
+                        <a href="/terms-of-service" className="hover:text-[#304674] hover:underline">Terms of Service</a>
                     </div>
                 </div>
+                <div className="mx-auto mt-8 max-w-7xl border-t border-slate-200 px-6 pt-5 text-xs font-medium text-slate-500 lg:px-10">
+                    &copy; {new Date().getFullYear()} Finesheet. Hak cipta dilindungi.
+                </div>
             </footer>
-
-            {/* â”€â”€ Keyframe Styles â”€â”€ */}
-            <style>{`
-                @keyframes blob {
-                    0%   { transform: translate(0px, 0px) scale(1); }
-                    33%  { transform: translate(40px, -60px) scale(1.08); }
-                    66%  { transform: translate(-30px, 30px) scale(0.94); }
-                    100% { transform: translate(0px, 0px) scale(1); }
-                }
-                .animate-blob {
-                    animation: blob 18s infinite alternate ease-in-out;
-                }
-                .animation-delay-2000 { animation-delay: 3s; }
-                .animation-delay-4000 { animation-delay: 6s; }
-
-                @media (prefers-reduced-motion: reduce) {
-                    .animate-blob { animation: none; }
-                }
-            `}</style>
 
             {/* â”€â”€ Logout Modal â”€â”€ */}
             {typeof document !== "undefined" &&
@@ -786,5 +867,3 @@ export default function LandingPage() {
         </div>
     );
 }
-
-

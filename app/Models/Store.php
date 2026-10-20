@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 class Store extends Model
@@ -16,7 +15,7 @@ class Store extends Model
         'token_expired_at',
         'shopee_shop_id',
         'platform_shop_id',
-        'user_id'
+        'user_id',
     ];
 
     public function user()
@@ -24,7 +23,13 @@ class Store extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function orders() {
+    public function orders()
+    {
         return $this->hasMany(Order::class, 'store_id', 'id')->orderBy('order_time', 'desc');
+    }
+
+    public function tiktokAdAccounts()
+    {
+        return $this->hasMany(TiktokAdAccount::class, 'store_id');
     }
 }

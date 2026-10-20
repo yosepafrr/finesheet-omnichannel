@@ -12,13 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('items', function (Blueprint $table) {
-            $table->unsignedBigInteger('hpp', 15, 2)->nullable()->change();
+            $table->unsignedBigInteger('hpp')->nullable()->change();
         });
 
-
         Schema::table('variant_items', function (Blueprint $table) {
-            $table->unsignedBigInteger('hpp', 15, 2)->nullable()->change();
-            $table->unsignedBigInteger('price', 15, 2)->nullable()->change();
+            $table->unsignedBigInteger('hpp')->nullable()->change();
+            $table->unsignedBigInteger('price')->nullable()->change();
         });
     }
 

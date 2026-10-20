@@ -114,6 +114,9 @@ class ProfitTrackerTest extends TestCase
         $olderOrder = $this->createOrder($store, 'OLDER-ORDER', 'COMPLETED', 120_000);
         $olderOrder->forceFill(['order_time' => now()->subDays(10)])->saveQuietly();
 
+        $thirtyDayOrder = $this->createOrder($store, 'THIRTY-DAY-ORDER', 'COMPLETED', 160_000);
+        $thirtyDayOrder->forceFill(['order_time' => now()->subDays(20)])->saveQuietly();
+
         $this->actingAs($user)
             ->getJson('/api/profit-tracker')
             ->assertOk()
@@ -132,6 +135,14 @@ class ProfitTrackerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 3)
             ->assertJsonPath('analytics.totals.escrow_amount', 250_000);
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=last_30_days')
+            ->assertOk()
+            ->assertJsonPath('analytics.period', 'last_30_days')
+            ->assertJsonCount(30, 'analytics.points')
+            ->assertJsonPath('analytics.totals.order_count', 4)
+            ->assertJsonPath('analytics.totals.escrow_amount', 410_000);
     }
 
     public function test_store_filter_only_applies_to_analytics_and_ads_while_realtime_keeps_all_stores(): void
@@ -168,9 +179,9 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('total_order_count', 2)
             ->assertJsonCount(2, 'stores')
             ->assertJsonCount(2, 'store_options')
-            ->assertJsonPath('analytics.totals.escrow_amount', 200_000)
+            ->assertJsonPath('analytics.totals.escrow_amount', 300_000)
             ->assertJsonPath('analytics.totals.ad_spend_amount', 20_000)
-            ->assertJsonPath('analytics.totals.profit_amount', 180_000);
+            ->assertJsonPath('analytics.totals.profit_amount', 280_000);
     }
 
     public function test_shopee_ads_spend_reduces_daily_profit_but_not_realtime_profit(): void
