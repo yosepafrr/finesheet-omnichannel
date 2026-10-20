@@ -694,7 +694,7 @@ class ProductHppSourceTest extends TestCase
         ]);
     }
 
-    public function test_paid_seller_late_cancellation_is_deducted_in_the_cancellation_period(): void
+    public function test_paid_seller_late_cancellation_is_deducted_in_the_immediately_following_period(): void
     {
         [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
         $supplier = Supplier::create([
@@ -761,6 +761,10 @@ class ProductHppSourceTest extends TestCase
         $this->assertSame($originPeriod->id, $restoredCreateEvent->payable_period_id);
         $this->assertNotSame($originPeriod->id, $cancelEvent->payable_period_id);
         $this->assertSame($originPeriod->id, $cancelEvent->original_period_id);
+        $this->assertSame(
+            $originPeriod->end_date->copy()->addSecond()->format('Y-m-d H:i:s'),
+            $cancelEvent->period->start_date->format('Y-m-d H:i:s')
+        );
         $this->assertSame('UNPAID', $cancelEvent->period->payment_status);
         $this->assertSame('-25000.00', $cancelEvent->amount);
         $this->assertSame($cancelledAt->format('Y-m-d H:i:s'), $cancelEvent->event_date->format('Y-m-d H:i:s'));
@@ -771,6 +775,102 @@ class ProductHppSourceTest extends TestCase
             $cancelledAt->format('Y-m-d H:i:s'),
             $cancelEvent->fresh()->event_date->format('Y-m-d H:i:s')
         );
+    }
+
+    public function test_seller_late_backfill_is_limited_to_the_period_after_its_paid_order(): void
+    {
+        [$product, $variant, , $user] = $this->createLinkedVariant(25000, 25000);
+        $anchor = now()->startOfDay();
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Historical Late Cancellation Supplier',
+            'period_length_days' => 10,
+            'first_period_start' => $anchor->copy()->subDays(40),
+        ]);
+        SupplierProductMapping::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => $variant->model_sku,
+            'product_id' => $product->id,
+            'platform_product_id' => (string) $product->product_id,
+        ]);
+
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Tiktokshop',
+            'order_sn' => 'SELLER-LATE-HISTORICAL-BACKFILL',
+            'order_status' => 'AWAITING_SHIPMENT',
+            'order_time' => $anchor->copy()->subDays(38),
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 1,
+            'price' => 50000,
+        ]));
+
+        $payable = app(PayableService::class);
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $createEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'CREATE_ORDER')
+            ->firstOrFail();
+
+        $payable->ensureAllPeriods($supplier->first_period_start, $user->id, $supplier);
+        $periods = PayablePeriod::query()
+            ->where('supplier_id', $supplier->id)
+            ->orderBy('start_date')
+            ->get();
+        $this->assertCount(5, $periods);
+
+        $periods->take(4)->each->update(['payment_status' => 'PAID']);
+        $cancelledAt = $anchor->copy()->addHour();
+        $order->updateQuietly([
+            'order_status' => 'CANCELLED',
+            'cancel_source' => 'SYSTEM',
+            'cancel_reason' => 'Late dispatch: seller did not ship in time',
+            'normalized_cancel_category' => 'SELLER_LATE_SHIPMENT',
+            'raw_data' => ['update_time' => $cancelledAt->timestamp],
+        ]);
+
+        // Reproduce the old behavior: a historical correction was assigned to
+        // the current open period during the first backfill.
+        PayableEvent::withoutEvents(fn () => PayableEvent::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'payable_period_id' => $periods[4]->id,
+            'store_id' => $order->store_id,
+            'platform' => $order->platform,
+            'source_id' => $order->order_sn,
+            'source_type' => 'SELLER_LATE_CANCEL',
+            'event_date' => $cancelledAt,
+            'amount' => -25000,
+            'original_period_id' => $createEvent->payable_period_id,
+        ]));
+
+        $payable->recordOrderEvent($order->fresh(['orderProducts', 'store']));
+        $payable->recordCancellationEvent($order->fresh(['orderProducts', 'store']));
+
+        $cancelEvent = PayableEvent::where('source_id', $order->order_sn)
+            ->where('source_type', 'SELLER_LATE_CANCEL')
+            ->firstOrFail();
+
+        $this->assertSame($periods[0]->id, $cancelEvent->original_period_id);
+        $this->assertSame($periods[1]->id, $cancelEvent->payable_period_id);
+        $this->assertSame('-25000.00', $cancelEvent->amount);
+        $this->assertSame($cancelledAt->format('Y-m-d H:i:s'), $cancelEvent->event_date->format('Y-m-d H:i:s'));
+
+        $cancelEvent->update([
+            'payable_period_id' => $periods[4]->id,
+            'is_manual_moved' => true,
+        ]);
+        $payable->recordCancellationEvent($order->fresh(['orderProducts', 'store']));
+
+        $this->assertSame($periods[4]->id, $cancelEvent->fresh()->payable_period_id);
+        $this->assertTrue($cancelEvent->fresh()->is_manual_moved);
     }
 
     public function test_unpaid_seller_late_cancellation_does_not_create_payable_events(): void

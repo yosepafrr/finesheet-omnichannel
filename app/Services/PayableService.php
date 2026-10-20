@@ -925,41 +925,18 @@ class PayableService
     }
 
     private function resolveSellerLateAdjustmentPeriod(
-        Carbon $date,
         int $userId,
         Supplier $supplier,
         PayablePeriod $originPeriod,
     ): ?PayablePeriod {
-        $naturalPeriod = $this->getPeriodForDate($date, $userId, $supplier);
-        if ($naturalPeriod && ! $this->isSettledPeriod($naturalPeriod)) {
-            return $naturalPeriod;
-        }
-
-        $this->ensureAllPeriods($supplier->first_period_start ?? $date, $userId, $supplier);
-        $after = $naturalPeriod?->end_date ?? $originPeriod->end_date;
-
-        $openPeriod = PayablePeriod::query()
-            ->where('user_id', $userId)
-            ->where('supplier_id', $supplier->id)
-            ->where('start_date', '>', $after)
-            ->where('payment_status', '!=', 'PAID')
-            ->where('is_closed', false)
-            ->orderBy('start_date')
-            ->first();
-
-        if ($openPeriod) {
-            return $openPeriod;
-        }
-
-        $latestPeriod = PayablePeriod::query()
-            ->where('user_id', $userId)
-            ->where('supplier_id', $supplier->id)
-            ->orderByDesc('end_date')
-            ->first();
-
-        return $latestPeriod
-            ? $this->getPeriodForDate($latestPeriod->end_date->copy()->addSecond(), $userId, $supplier)
-            : null;
+        // A seller-late cancellation corrects the period in which its order was
+        // paid. Always place it in the immediately following period so a late
+        // backfill cannot push every historical correction into today's period.
+        return $this->getPeriodForDate(
+            $originPeriod->end_date->copy()->addSecond(),
+            $userId,
+            $supplier,
+        );
     }
 
     private function recordSettledSellerLateCancellation(Order $order): bool
@@ -1003,10 +980,10 @@ class PayableService
                 ->where('source_type', 'SELLER_LATE_CANCEL')
                 ->where('supplier_id', $supplier->id)
                 ->first();
-            $targetPeriod = $existingEvent
+            $targetPeriod = ($existingEvent?->is_manual_moved)
                 ? PayablePeriod::find($existingEvent->payable_period_id)
                 : null;
-            $targetPeriod ??= $this->resolveSellerLateAdjustmentPeriod($date, $userId, $supplier, $createEvent->period);
+            $targetPeriod ??= $this->resolveSellerLateAdjustmentPeriod($userId, $supplier, $createEvent->period);
             if (! $targetPeriod) {
                 continue;
             }
