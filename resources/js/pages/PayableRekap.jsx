@@ -1206,7 +1206,7 @@ export default function PayableRekap() {
                     </div>
                     <h1 style="font-size:24px;font-weight:800;margin:0 0 4px;letter-spacing:-0.5px;">${p.name}</h1>
                     <p style="font-size:13px;margin:0;opacity:.85;">
-                        ${p.is_virtual ? 'Menampilkan periode terbaru untuk masing-masing supplier yang difilter.' : `Periode Transaksi: <strong>${formatDate(p.start_date)}</strong> s/d <strong>${formatDate(p.end_date)}</strong>`}
+                        ${p.is_virtual ? 'Menampilkan semua transaksi dari periode yang belum lunas untuk supplier yang difilter.' : `Periode Transaksi: <strong>${formatDate(p.start_date)}</strong> s/d <strong>${formatDate(p.end_date)}</strong>`}
                     </p>
                 </div>
                 <div style="text-align:right;">
@@ -1478,7 +1478,7 @@ export default function PayableRekap() {
                 ['REKAPITULASI TRANSAKSI DENGAN SUPPLIER'],
                 [''],
                 ['Nama Periode', p.name],
-                ['Rentang', p.is_virtual ? 'Periode berjalan' : `${formatDate(p.start_date)} s/d ${formatDate(p.end_date)}`],
+                ['Rentang', p.is_virtual ? 'Semua periode belum lunas' : `${formatDate(p.start_date)} s/d ${formatDate(p.end_date)}`],
                 ['Supplier Terkait', badgeText],
                 [''],
                 ['Ringkasan Keuangan (Berdasarkan Filter)', ''],

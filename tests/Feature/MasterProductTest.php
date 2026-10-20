@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\VariantProduct;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Tests\TestCase;
@@ -662,6 +663,153 @@ class MasterProductTest extends TestCase
 
         $this->assertDatabaseMissing('master_products', ['id' => $masterProduct->id]);
         $this->assertDatabaseHas('products', ['id' => $marketplaceProduct->id]);
+    }
+
+    public function test_marketplace_product_with_variants_can_be_converted_to_master_product(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Toko Konversi', 'SHOP-CONVERT');
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Konversi',
+            'period_length_days' => 14,
+            'first_period_start' => now()->subMonth(),
+        ]);
+        $product = Product::create([
+            'store_id' => $store->id,
+            'supplier_id' => $supplier->id,
+            'platform' => 'Shopee',
+            'product_id' => 81001,
+            'product_name' => 'Kemeja Marketplace',
+            'product_sku' => 'PARENT-SKU',
+            'stock' => 15,
+            'price' => 120000,
+            'category' => 'Fashion Pria',
+            'image' => 'https://example.com/product.jpg',
+        ]);
+        VariantProduct::create([
+            'product_id' => $product->id,
+            'model_id' => 810011,
+            'model_name' => 'Hitam, M',
+            'model_sku' => 'KEMEJA-HTM-M',
+            'stock' => 8,
+            'price' => 120000,
+            'hpp' => 65000,
+        ]);
+        VariantProduct::create([
+            'product_id' => $product->id,
+            'model_id' => 810012,
+            'model_name' => 'Putih, L',
+            'model_sku' => 'KEMEJA-PTH-L',
+            'stock' => 7,
+            'price' => 125000,
+            'hpp' => 67500,
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/api/master-products/convert-marketplace', [
+            'product_ids' => [$product->id],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('requested_count', 1)
+            ->assertJsonPath('created_product_count', 1)
+            ->assertJsonPath('created_variant_count', 2)
+            ->assertJsonPath('converted_product_count', 1)
+            ->assertJsonPath('skipped_product_count', 0)
+            ->assertJsonPath('sync_queued', true);
+        $this->assertDatabaseHas('master_products', [
+            'user_id' => $user->id,
+            'name' => 'Kemeja Marketplace',
+            'category' => 'Fashion Pria',
+            'image' => 'https://example.com/product.jpg',
+            'source' => 'manual',
+        ]);
+        $this->assertDatabaseHas('master_product_variants', [
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => 'KEMEJA-HTM-M',
+            'variant_name' => 'Hitam, M',
+            'stock' => 8,
+            'hpp' => 65000,
+        ]);
+        $this->assertDatabaseHas('master_product_variants', [
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => 'KEMEJA-PTH-L',
+            'stock' => 7,
+            'hpp' => 67500,
+        ]);
+        Bus::assertDispatched(SyncMasterProductVariantsJob::class, fn ($job) => count($job->variantIds) === 2);
+        Bus::assertDispatched(SyncPayableHistoryJob::class);
+    }
+
+    public function test_marketplace_conversion_is_idempotent_and_reuses_existing_master_sku(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $firstStore = $this->createStore($user, 'Shopee', 'Toko Pertama', 'SHOP-CONVERT-A');
+        $secondStore = $this->createStore($user, 'Tiktokshop', 'Toko Kedua', 'SHOP-CONVERT-B');
+        $firstProduct = Product::create([
+            'store_id' => $firstStore->id,
+            'platform' => 'Shopee',
+            'product_id' => 82001,
+            'product_name' => 'Produk Pertama',
+            'product_sku' => 'SKU-KONVERSI-SAMA',
+            'stock' => 10,
+            'price' => 90000,
+        ]);
+        $secondProduct = Product::create([
+            'store_id' => $secondStore->id,
+            'platform' => 'Tiktokshop',
+            'product_id' => 82002,
+            'product_name' => 'Produk Kedua',
+            'product_sku' => 'sku-konversi-sama',
+            'stock' => 12,
+            'price' => 95000,
+        ]);
+
+        $this->actingAs($user)->postJson('/api/master-products/convert-marketplace', [
+            'product_ids' => [$firstProduct->id, $secondProduct->id],
+        ])->assertCreated()
+            ->assertJsonPath('created_product_count', 1)
+            ->assertJsonPath('created_variant_count', 1)
+            ->assertJsonPath('linked_existing_sku_count', 0);
+
+        $this->actingAs($user)->postJson('/api/master-products/convert-marketplace', [
+            'product_ids' => [$firstProduct->id, $secondProduct->id],
+        ])->assertOk()
+            ->assertJsonPath('created_product_count', 0)
+            ->assertJsonPath('created_variant_count', 0)
+            ->assertJsonPath('already_converted_product_count', 2)
+            ->assertJsonPath('linked_existing_sku_count', 1)
+            ->assertJsonPath('sync_queued', true);
+
+        $this->assertDatabaseCount('master_products', 1);
+        $this->assertDatabaseCount('master_product_variants', 1);
+    }
+
+    public function test_marketplace_conversion_rejects_products_owned_by_another_user(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $otherStore = $this->createStore($otherUser, 'Shopee', 'Toko Lain', 'SHOP-CONVERT-OTHER');
+        $otherProduct = Product::create([
+            'store_id' => $otherStore->id,
+            'platform' => 'Shopee',
+            'product_id' => 83001,
+            'product_name' => 'Produk Milik Orang Lain',
+            'product_sku' => 'SKU-OTHER',
+            'stock' => 3,
+            'price' => 50000,
+        ]);
+
+        $this->actingAs($user)->postJson('/api/master-products/convert-marketplace', [
+            'product_ids' => [$otherProduct->id],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('product_ids');
+
+        $this->assertDatabaseCount('master_products', 0);
     }
 
     private function payload(): array

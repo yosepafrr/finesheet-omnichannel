@@ -7,6 +7,7 @@ use App\Jobs\SyncMasterProductStocksJob;
 use App\Jobs\SyncMasterProductVariantsJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
+use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Services\BundleInventoryService;
@@ -330,6 +331,186 @@ class MasterProductController extends Controller
             'sync_queued' => $createdCount > 0,
             'payable_sync_queued' => (bool) $payableStart,
         ], $createdCount > 0 ? 201 : 200);
+    }
+
+    public function convertMarketplace(Request $request)
+    {
+        $data = $request->validate([
+            'product_ids' => ['required', 'array', 'min:1', 'max:2000'],
+            'product_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+        $user = $request->user();
+        $productIds = collect($data['product_ids'])->map(fn ($id) => (int) $id)->values();
+        $storeIds = $user->stores()->pluck('id');
+        $productsById = Product::query()
+            ->whereIn('store_id', $storeIds)
+            ->whereIn('id', $productIds)
+            ->with(['variantProducts', 'supplierMappings'])
+            ->get()
+            ->keyBy('id');
+
+        if ($productsById->count() !== $productIds->count()) {
+            throw ValidationException::withMessages([
+                'product_ids' => 'Sebagian produk marketplace tidak ditemukan atau tidak dapat diakses.',
+            ]);
+        }
+
+        $products = $productIds->map(fn (int $id) => $productsById->get($id));
+        $prepared = $products->map(fn (Product $product) => [
+            'product' => $product,
+            'entries' => $this->marketplaceMasterEntries($product),
+        ]);
+        $normalizedSkus = $prepared
+            ->flatMap(fn (array $item) => $item['entries']->pluck('normalized_sku'))
+            ->unique()
+            ->values();
+
+        $result = DB::transaction(function () use ($normalizedSkus, $prepared, $user) {
+            DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+
+            $variantsBySku = $normalizedSkus->isEmpty()
+                ? collect()
+                : MasterProductVariant::query()
+                    ->where('user_id', $user->id)
+                    ->whereIn(DB::raw('LOWER(sku)'), $normalizedSkus)
+                    ->with('masterProduct')
+                    ->get()
+                    ->keyBy(fn (MasterProductVariant $variant) => mb_strtolower(trim($variant->sku)));
+            $createdProductCount = 0;
+            $createdVariantCount = 0;
+            $convertedProductCount = 0;
+            $alreadyConvertedProductCount = 0;
+            $skippedProductCount = 0;
+            $existingSkus = collect();
+            $createdSkus = collect();
+            $touchedVariantIds = collect();
+
+            foreach ($prepared as $item) {
+                /** @var Product $marketplaceProduct */
+                $marketplaceProduct = $item['product'];
+                /** @var Collection $entries */
+                $entries = $item['entries'];
+
+                if ($entries->isEmpty()) {
+                    $skippedProductCount++;
+
+                    continue;
+                }
+
+                $matchingVariants = $entries
+                    ->map(fn (array $entry) => $variantsBySku->get($entry['normalized_sku']))
+                    ->filter();
+                $targetProductId = $matchingVariants
+                    ->groupBy('master_product_id')
+                    ->sortByDesc(fn (Collection $group) => $group->count())
+                    ->keys()
+                    ->first();
+                $targetProduct = $targetProductId
+                    ? $matchingVariants->firstWhere('master_product_id', (int) $targetProductId)?->masterProduct
+                    : null;
+
+                if (! $targetProduct) {
+                    $targetProduct = MasterProduct::create([
+                        'user_id' => $user->id,
+                        'name' => mb_substr(
+                            trim((string) $marketplaceProduct->product_name) ?: 'Master Produk '.$marketplaceProduct->product_id,
+                            0,
+                            255
+                        ),
+                        'brand' => null,
+                        'category' => $marketplaceProduct->category
+                            ? mb_substr((string) $marketplaceProduct->category, 0, 120)
+                            : null,
+                        'description' => null,
+                        'image' => $marketplaceProduct->image
+                            ?: $entries->pluck('image')->filter()->first(),
+                        'status' => 'active',
+                        'source' => 'manual',
+                    ]);
+                    $createdProductCount++;
+                } elseif ($targetProduct->source !== 'manual') {
+                    $targetProduct->update(['source' => 'manual']);
+                }
+
+                $createdForProduct = 0;
+                foreach ($entries as $entry) {
+                    $existingVariant = $variantsBySku->get($entry['normalized_sku']);
+                    if ($existingVariant) {
+                        if (! $createdSkus->has($entry['normalized_sku'])) {
+                            $existingSkus->put($entry['normalized_sku'], $existingVariant->sku);
+                        }
+                        $touchedVariantIds->push($existingVariant->id);
+
+                        continue;
+                    }
+
+                    $variant = $targetProduct->variants()->create([
+                        'user_id' => $user->id,
+                        'supplier_id' => $entry['supplier_id'],
+                        'sku' => $entry['sku'],
+                        'variant_name' => $entry['variant_name'],
+                        'barcode' => null,
+                        'hpp' => $entry['hpp'],
+                        'stock' => $entry['stock'],
+                        'is_active' => true,
+                        'is_bundle' => false,
+                    ]);
+
+                    $variantsBySku->put($entry['normalized_sku'], $variant->load('masterProduct'));
+                    $createdSkus->put($entry['normalized_sku'], $variant->sku);
+                    $touchedVariantIds->push($variant->id);
+                    $createdVariantCount++;
+                    $createdForProduct++;
+                }
+
+                if ($createdForProduct > 0) {
+                    $convertedProductCount++;
+                } else {
+                    $alreadyConvertedProductCount++;
+                }
+            }
+
+            return [
+                'created_product_count' => $createdProductCount,
+                'created_variant_count' => $createdVariantCount,
+                'converted_product_count' => $convertedProductCount,
+                'already_converted_product_count' => $alreadyConvertedProductCount,
+                'skipped_product_count' => $skippedProductCount,
+                'existing_skus' => $existingSkus->values()->all(),
+                'variant_ids' => $touchedVariantIds->unique()->values()->all(),
+            ];
+        });
+
+        collect($result['variant_ids'])
+            ->chunk(50)
+            ->each(fn (Collection $ids) => SyncMasterProductVariantsJob::dispatch($ids->values()->all())
+                ->onQueue('products'));
+
+        if ($result['created_variant_count'] > 0) {
+            $this->queuePayableSync($user->id);
+        }
+
+        $messages = [];
+        if ($result['created_variant_count'] > 0) {
+            $messages[] = "{$result['created_variant_count']} SKU berhasil dikonversi ke produk master.";
+        }
+        if (count($result['existing_skus']) > 0) {
+            $messages[] = count($result['existing_skus']).' SKU sudah ada dan ditautkan kembali.';
+        }
+        if ($result['skipped_product_count'] > 0) {
+            $messages[] = "{$result['skipped_product_count']} produk dilewati karena tidak memiliki SKU.";
+        }
+        if ($messages === []) {
+            $messages[] = 'Tidak ada produk baru yang perlu dikonversi.';
+        }
+
+        return response()->json([
+            'message' => implode(' ', $messages),
+            'requested_count' => $productIds->count(),
+            ...collect($result)->except('variant_ids')->all(),
+            'linked_existing_sku_count' => count($result['existing_skus']),
+            'sync_queued' => count($result['variant_ids']) > 0,
+        ], $result['created_variant_count'] > 0 ? 201 : 200);
     }
 
     public function update(
@@ -759,6 +940,59 @@ class MasterProductController extends Controller
         }
 
         return response()->json(['message' => 'Produk master berhasil dihapus.']);
+    }
+
+    private function marketplaceMasterEntries(Product $product): Collection
+    {
+        if ($product->variantProducts->isNotEmpty()) {
+            return $product->variantProducts
+                ->map(function ($variant) use ($product) {
+                    $sku = trim((string) $variant->model_sku);
+                    if ($sku === '' || $sku === '0') {
+                        return null;
+                    }
+
+                    return [
+                        'sku' => $sku,
+                        'normalized_sku' => mb_strtolower($sku),
+                        'variant_name' => ($variant->variant_name ?: $variant->model_name)
+                            ? mb_substr((string) ($variant->variant_name ?: $variant->model_name), 0, 255)
+                            : null,
+                        'image' => $variant->variant_image,
+                        'stock' => max(0, (int) ($variant->stock ?? 0)),
+                        'hpp' => max(0, (float) ($variant->hpp ?? $product->hpp ?? 0)),
+                        'supplier_id' => $this->marketplaceSupplierId($product, $sku),
+                    ];
+                })
+                ->filter()
+                ->unique('normalized_sku')
+                ->values();
+        }
+
+        $sku = trim((string) $product->product_sku);
+        if ($sku === '' || $sku === '0') {
+            return collect();
+        }
+
+        return collect([[
+            'sku' => $sku,
+            'normalized_sku' => mb_strtolower($sku),
+            'variant_name' => null,
+            'image' => $product->image,
+            'stock' => max(0, (int) ($product->stock ?? 0)),
+            'hpp' => max(0, (float) ($product->hpp ?? 0)),
+            'supplier_id' => $this->marketplaceSupplierId($product, $sku),
+        ]]);
+    }
+
+    private function marketplaceSupplierId(Product $product, string $sku): ?int
+    {
+        $normalizedSku = mb_strtolower(trim($sku));
+        $mapping = $product->supplierMappings->first(
+            fn (SupplierProductMapping $candidate) => mb_strtolower(trim((string) $candidate->sku)) === $normalizedSku
+        );
+
+        return $mapping?->supplier_id ?? $product->supplier_id;
     }
 
     private function validateProductPayload(Request $request, ?MasterProduct $product = null): array

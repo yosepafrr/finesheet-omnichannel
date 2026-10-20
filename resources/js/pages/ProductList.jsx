@@ -2,6 +2,7 @@ import React, {
     useState,
     useEffect,
     useCallback,
+    useMemo,
     useRef,
     Fragment,
 } from "react";
@@ -13,9 +14,11 @@ import HppEditor from "../components/HppEditor";
 import MasterProductPanel from "../components/MasterProductPanel";
 import SupplierAssignmentModal from "../components/SupplierAssignmentModal";
 import ManageSuppliersModal from "../../views/components/react/ManageSuppliersModal";
+import MarketplaceConversionModal from "../components/MarketplaceConversionModal";
 import OnboardingTour from "@/components/OnboardingTour";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { CheckCircle2, PackagePlus, SquareMousePointer, X } from "lucide-react";
 
 const PRODUCT_TOUR_STEPS = [
     {
@@ -67,6 +70,64 @@ function StockBadge({ stock }) {
         >
             {stock}
         </span>
+    );
+}
+
+function marketplaceMasterEntries(product) {
+    const entries = product?.variants?.length ? product.variants : [product];
+
+    return entries.filter((entry) => {
+        const sku = String(entry.model_sku ?? entry.product_sku ?? "").trim();
+        return sku !== "" && sku !== "0";
+    });
+}
+
+function marketplaceConversionState(product) {
+    const entries = marketplaceMasterEntries(product);
+    if (entries.length === 0) return "unavailable";
+
+    const converted = entries.filter(
+        (entry) => entry.master_product_variant_id,
+    ).length;
+    if (converted === entries.length) return "converted";
+    if (converted > 0) return "partial";
+
+    return "ready";
+}
+
+function MarketplaceMasterAction({ product, onConvert, fullWidth = false }) {
+    const state = marketplaceConversionState(product);
+
+    if (state === "converted") {
+        return (
+            <span
+                className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 ${fullWidth ? "w-full" : ""}`}
+            >
+                <CheckCircle2 size={14} />
+                Sudah master
+            </span>
+        );
+    }
+
+    if (state === "unavailable") {
+        return (
+            <span
+                className={`inline-flex items-center justify-center rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-400 dark:bg-slate-700/60 dark:text-slate-500 ${fullWidth ? "w-full" : ""}`}
+            >
+                SKU kosong
+            </span>
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={() => onConvert(product)}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#304674]/20 bg-[#304674]/5 px-2.5 py-1.5 text-xs font-semibold text-[#304674] transition-colors hover:border-[#304674]/35 hover:bg-[#304674]/10 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/15 ${fullWidth ? "w-full" : ""}`}
+        >
+            <PackagePlus size={14} />
+            {state === "partial" ? "Lengkapi master" : "Jadikan master"}
+        </button>
     );
 }
 
@@ -167,6 +228,17 @@ export default function ProductList() {
     const [supplierManagerOpen, setSupplierManagerOpen] = useState(false);
     const [managedSuppliers, setManagedSuppliers] = useState([]);
     const [supplierRevision, setSupplierRevision] = useState(0);
+    const [marketplaceSelectionMode, setMarketplaceSelectionMode] =
+        useState(false);
+    const [selectedMarketplaceProductIds, setSelectedMarketplaceProductIds] =
+        useState([]);
+    const [conversionModal, setConversionModal] = useState({
+        open: false,
+        products: [],
+    });
+    const [conversionNotice, setConversionNotice] = useState("");
+    const [conversionError, setConversionError] = useState("");
+    const [convertingMarketplace, setConvertingMarketplace] = useState(false);
 
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
@@ -188,6 +260,8 @@ export default function ProductList() {
 
     useEffect(() => {
         setPageByStore({});
+        setMarketplaceSelectionMode(false);
+        setSelectedMarketplaceProductIds([]);
     }, [search, selectedStore]);
 
     const handleSync = async () => {
@@ -280,6 +354,93 @@ export default function ProductList() {
         await Promise.all([loadManagedSuppliers(), fetchData()]);
         setSupplierRevision((current) => current + 1);
     }, [fetchData, loadManagedSuppliers]);
+
+    const visibleStores = useMemo(
+        () =>
+            (data?.stores || []).filter(
+                (store) => selectedStore === "" || store.id == selectedStore,
+            ),
+        [data?.stores, selectedStore],
+    );
+    const selectableMarketplaceProducts = useMemo(
+        () =>
+            visibleStores
+                .flatMap((store) => store.products || [])
+                .filter((product) =>
+                    ["ready", "partial"].includes(
+                        marketplaceConversionState(product),
+                    ),
+                ),
+        [visibleStores],
+    );
+    const selectedMarketplaceProducts = useMemo(() => {
+        const selectedIds = new Set(selectedMarketplaceProductIds);
+        return selectableMarketplaceProducts.filter((product) =>
+            selectedIds.has(product.id),
+        );
+    }, [selectableMarketplaceProducts, selectedMarketplaceProductIds]);
+    const allMarketplaceProductsSelected =
+        selectableMarketplaceProducts.length > 0 &&
+        selectedMarketplaceProducts.length ===
+            selectableMarketplaceProducts.length;
+
+    const toggleMarketplaceProduct = (productId) => {
+        setSelectedMarketplaceProductIds((current) =>
+            current.includes(productId)
+                ? current.filter((id) => id !== productId)
+                : [...current, productId],
+        );
+    };
+
+    const toggleAllMarketplaceProducts = () => {
+        setSelectedMarketplaceProductIds(
+            allMarketplaceProductsSelected
+                ? []
+                : selectableMarketplaceProducts.map((product) => product.id),
+        );
+    };
+
+    const openMarketplaceConversion = (products) => {
+        const selected = Array.isArray(products) ? products : [products];
+        setConversionError("");
+        setConversionModal({ open: true, products: selected });
+    };
+
+    const closeMarketplaceConversion = () => {
+        if (convertingMarketplace) return;
+        setConversionModal({ open: false, products: [] });
+        setConversionError("");
+    };
+
+    const convertMarketplaceProducts = async () => {
+        setConvertingMarketplace(true);
+        setConversionError("");
+
+        try {
+            const response = await axios.post(
+                "/api/master-products/convert-marketplace",
+                {
+                    product_ids: conversionModal.products.map(
+                        (product) => product.id,
+                    ),
+                },
+            );
+            setConversionNotice(response.data.message);
+            setConversionModal({ open: false, products: [] });
+            setMarketplaceSelectionMode(false);
+            setSelectedMarketplaceProductIds([]);
+            await fetchData();
+        } catch (error) {
+            const errors = error.response?.data?.errors;
+            setConversionError(
+                (errors && Object.values(errors).flat()[0]) ||
+                    error.response?.data?.message ||
+                    "Produk marketplace gagal dikonversi.",
+            );
+        } finally {
+            setConvertingMarketplace(false);
+        }
+    };
 
     useEffect(() => {
         if (activeTab !== "products") return undefined;
@@ -474,6 +635,89 @@ export default function ProductList() {
                                     <button type="button" onClick={() => setSupplierNotice("")} className="material-symbols-rounded" aria-label="Tutup pemberitahuan">close</button>
                                 </div>
                             )}
+                            {conversionNotice && (
+                                <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
+                                    <span>{conversionNotice}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setConversionNotice("")}
+                                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/10"
+                                        aria-label="Tutup pemberitahuan"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            )}
+                            {!loading && data?.stores?.length > 0 && (
+                                <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                                    {marketplaceSelectionMode ? (
+                                        <>
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={allMarketplaceProductsSelected}
+                                                        onChange={toggleAllMarketplaceProducts}
+                                                        className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900"
+                                                    />
+                                                    Pilih semua
+                                                </label>
+                                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {selectedMarketplaceProducts.length} dari{" "}
+                                                    {selectableMarketplaceProducts.length} produk
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setMarketplaceSelectionMode(false);
+                                                        setSelectedMarketplaceProductIds([]);
+                                                    }}
+                                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                >
+                                                    <X size={15} />
+                                                    Batal
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={selectedMarketplaceProducts.length === 0}
+                                                    onClick={() =>
+                                                        openMarketplaceConversion(
+                                                            selectedMarketplaceProducts,
+                                                        )
+                                                    }
+                                                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#304674] px-3.5 text-sm font-semibold text-white hover:bg-[#243558] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-blue-600 dark:hover:bg-blue-700"
+                                                >
+                                                    <PackagePlus size={16} />
+                                                    Konversi ({selectedMarketplaceProducts.length})
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                <PackagePlus
+                                                    size={17}
+                                                    className="text-[#304674] dark:text-blue-300"
+                                                />
+                                                Produk Master
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={selectableMarketplaceProducts.length === 0}
+                                                onClick={() =>
+                                                    setMarketplaceSelectionMode(true)
+                                                }
+                                                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3.5 text-sm font-semibold text-slate-700 hover:border-[#304674]/40 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                                            >
+                                                <SquareMousePointer size={16} />
+                                                Konversi Massal
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                             {/* Store Groups */}
                             {loading ? (
                                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
@@ -486,8 +730,7 @@ export default function ProductList() {
                                     </p>
                                 </div>
                             ) : (
-                                data.stores
-                                    .filter(store => selectedStore === "" || store.id == selectedStore)
+                                visibleStores
                                     .map((store) => (
                                         <div
                                             key={store.id}
@@ -578,7 +821,7 @@ export default function ProductList() {
                                                     return (
                                                         <>
                                                             {/* Desktop Table */}
-                                                            <div id={store.id === data.stores[0]?.id ? "tour-product-table" : undefined} className="hidden md:block overflow-x-auto">
+                                                            <div id={store.id === visibleStores[0]?.id ? "tour-product-table" : undefined} className="hidden md:block overflow-x-auto">
                                                                 <table className="w-full text-left text-sm text-gray-600 dark:text-slate-300">
                                                                     <thead className="bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 text-xs uppercase text-gray-400 dark:text-slate-500 font-semibold sticky top-0 z-10">
                                                                         <tr>
@@ -599,6 +842,9 @@ export default function ProductList() {
                                                                             <th className="px-6 py-4 w-52 text-left">
                                                                                 Supplier
                                                                             </th>
+                                                                            <th className="px-6 py-4 w-40 text-left">
+                                                                                Produk Master
+                                                                            </th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
@@ -610,6 +856,14 @@ export default function ProductList() {
                                                                                 const hasVariants =
                                                                                     variants.length >
                                                                                     0;
+                                                                                const conversionState =
+                                                                                    marketplaceConversionState(
+                                                                                        product,
+                                                                                    );
+                                                                                const isSelected =
+                                                                                    selectedMarketplaceProductIds.includes(
+                                                                                        product.id,
+                                                                                    );
 
                                                                                 let totalStock =
                                                                                     product.stock;
@@ -724,22 +978,35 @@ export default function ProductList() {
                                                                                             product.id
                                                                                         }
                                                                                     >
-                                                                                        <tr className="group hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                                                                                        <tr className={`group transition-colors ${isSelected ? "bg-blue-50/70 dark:bg-blue-500/10" : "hover:bg-gray-50/50 dark:hover:bg-slate-700/30"}`}>
                                                                                             <td className="px-6 py-4 align-top">
-                                                                                                {hasVariants && (
-                                                                                                    <button
-                                                                                                        onClick={() =>
-                                                                                                            toggleExpand(
-                                                                                                                product.id,
-                                                                                                            )
-                                                                                                        }
-                                                                                                        className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}
-                                                                                                    >
-                                                                                                        <span className="material-symbols-rounded">
-                                                                                                            expand_more
-                                                                                                        </span>
-                                                                                                    </button>
-                                                                                                )}
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    {marketplaceSelectionMode && (
+                                                                                                        <input
+                                                                                                            type="checkbox"
+                                                                                                            checked={isSelected}
+                                                                                                            disabled={!["ready", "partial"].includes(conversionState)}
+                                                                                                            onChange={() => toggleMarketplaceProduct(product.id)}
+                                                                                                            className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-600 dark:bg-slate-900"
+                                                                                                            aria-label={`Pilih ${product.product_name}`}
+                                                                                                        />
+                                                                                                    )}
+                                                                                                    {hasVariants && (
+                                                                                                        <button
+                                                                                                            onClick={() =>
+                                                                                                                toggleExpand(
+                                                                                                                    product.id,
+                                                                                                                )
+                                                                                                            }
+                                                                                                            className={`text-gray-400 dark:text-slate-500 hover:text-[#304674] dark:hover:text-blue-400 transition-transform duration-200 ${expandedProducts[product.id] ? "rotate-180" : ""}`}
+                                                                                                            aria-label="Tampilkan varian"
+                                                                                                        >
+                                                                                                            <span className="material-symbols-rounded">
+                                                                                                                expand_more
+                                                                                                            </span>
+                                                                                                        </button>
+                                                                                                    )}
+                                                                                                </div>
                                                                                             </td>
                                                                                             <td className="px-6 py-4 align-top">
                                                                                                 {product.image ? (
@@ -876,6 +1143,12 @@ export default function ProductList() {
                                                                                                     <span className="truncate">{product.supplier_name || "Atur supplier"}</span>
                                                                                                 </button>
                                                                                             </td>
+                                                                                            <td className="px-6 py-4 align-top">
+                                                                                                <MarketplaceMasterAction
+                                                                                                    product={product}
+                                                                                                    onConvert={openMarketplaceConversion}
+                                                                                                />
+                                                                                            </td>
                                                                                         </tr>
 
                                                                                         {/* Expanded Variant Details */}
@@ -890,7 +1163,7 @@ export default function ProductList() {
                                                                                                 >
                                                                                                     <td
                                                                                                         colSpan={
-                                                                                                            7
+                                                                                                            8
                                                                                                         }
                                                                                                         className="px-6 py-4"
                                                                                                     >
@@ -1019,7 +1292,7 @@ export default function ProductList() {
                                                             </div>
 
                                                             {/* Mobile Cards */}
-                                                            <div id={store.id === data.stores[0]?.id ? "tour-product-cards" : undefined} className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
+                                                            <div id={store.id === visibleStores[0]?.id ? "tour-product-cards" : undefined} className="space-y-3 bg-slate-100/80 p-3 md:hidden dark:bg-slate-900/50">
                                                                 {paginatedProducts.map(
                                                                     (product) => {
                                                                         const variants =
@@ -1028,6 +1301,14 @@ export default function ProductList() {
                                                                         const hasVariants =
                                                                             variants.length >
                                                                             0;
+                                                                        const conversionState =
+                                                                            marketplaceConversionState(
+                                                                                product,
+                                                                            );
+                                                                        const isSelected =
+                                                                            selectedMarketplaceProductIds.includes(
+                                                                                product.id,
+                                                                            );
 
                                                                         let totalStock =
                                                                             product.stock;
@@ -1138,9 +1419,21 @@ export default function ProductList() {
                                                                                 key={
                                                                                     product.id
                                                                                 }
-                                                                                className="relative overflow-hidden rounded-lg border border-slate-300 bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:border-slate-700 dark:bg-slate-800"
+                                                                                className={`relative overflow-hidden rounded-lg border bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.10)] dark:bg-slate-800 ${isSelected ? "border-blue-400 ring-2 ring-blue-100 dark:border-blue-500 dark:ring-blue-500/15" : "border-slate-300 dark:border-slate-700"}`}
                                                                             >
                                                                                 <div className="flex gap-4">
+                                                                                    {marketplaceSelectionMode && (
+                                                                                        <div className="flex shrink-0 items-start pt-1">
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={isSelected}
+                                                                                                disabled={!["ready", "partial"].includes(conversionState)}
+                                                                                                onChange={() => toggleMarketplaceProduct(product.id)}
+                                                                                                className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-600 dark:bg-slate-900"
+                                                                                                aria-label={`Pilih ${product.product_name}`}
+                                                                                            />
+                                                                                        </div>
+                                                                                    )}
                                                                                     {product.image ? (
                                                                                         <img
                                                                                             src={
@@ -1234,6 +1527,14 @@ export default function ProductList() {
                                                                                             <span className="inline-flex items-center gap-1.5"><span className="material-symbols-rounded text-base">local_shipping</span>Supplier</span>
                                                                                             <span className="max-w-[55%] truncate">{product.supplier_name || "Belum ditentukan"}</span>
                                                                                         </button>
+
+                                                                                        <div className="mt-2">
+                                                                                            <MarketplaceMasterAction
+                                                                                                product={product}
+                                                                                                onConvert={openMarketplaceConversion}
+                                                                                                fullWidth
+                                                                                            />
+                                                                                        </div>
 
                                                                                         {!hasVariants ? (
                                                                                             <div className="mt-2 flex justify-end">
@@ -1478,6 +1779,14 @@ export default function ProductList() {
                 onClose={() => setIsBulkModalOpen(false)}
                 product={bulkModalProduct}
                 onSave={fetchData}
+            />
+            <MarketplaceConversionModal
+                isOpen={conversionModal.open}
+                products={conversionModal.products}
+                isSaving={convertingMarketplace}
+                error={conversionError}
+                onClose={closeMarketplaceConversion}
+                onConfirm={convertMarketplaceProducts}
             />
             <SupplierAssignmentModal
                 isOpen={supplierModal.open}

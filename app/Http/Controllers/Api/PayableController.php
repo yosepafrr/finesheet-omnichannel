@@ -825,19 +825,20 @@ class PayableController extends Controller
                 $sIdsToUse = Supplier::where('user_id', $userId)->pluck('id')->toArray();
             }
 
-            foreach ($sIdsToUse as $sId) {
-                $latest = PayablePeriod::where('user_id', $userId)
-                    ->where('supplier_id', $sId)
-                    ->orderBy('start_date', 'desc')
-                    ->first();
-                if ($latest) {
-                    $periodIdsToQuery[] = $latest->id;
-                }
-            }
+            $periodIdsToQuery = PayablePeriod::query()
+                ->where('user_id', $userId)
+                ->whereIn('supplier_id', $sIdsToUse)
+                ->whereIn('payment_status', ['UNPAID', 'PARTIAL'])
+                ->where('is_closed', false)
+                ->orderBy('start_date')
+                ->pluck('id')
+                ->all();
 
             $period = (object) [
                 'id' => 'latest',
-                'name' => 'Periode Berjalan (Semua Supplier)',
+                'name' => empty($supplierIds)
+                    ? 'Tagihan Belum Lunas (Semua Supplier)'
+                    : 'Tagihan Belum Lunas',
                 'start_date' => null,
                 'end_date' => null,
                 'payment_status' => 'MIXED',

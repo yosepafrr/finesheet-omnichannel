@@ -33,6 +33,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/master-products/components', [MasterProductController::class, 'components']);
         Route::post('/master-products', [MasterProductController::class, 'store']);
         Route::post('/master-products/bulk', [MasterProductController::class, 'bulkStore']);
+        Route::post('/master-products/convert-marketplace', [MasterProductController::class, 'convertMarketplace']);
         Route::get('/master-products/variants/selection', [MasterProductController::class, 'selection']);
         Route::put('/master-products/variants/bulk', [MasterProductController::class, 'bulkUpdateVariants']);
         Route::put('/master-products/variants/bulk/data', [MasterProductController::class, 'bulkUpdateData']);
