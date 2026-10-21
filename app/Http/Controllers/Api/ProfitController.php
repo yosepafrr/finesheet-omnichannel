@@ -56,22 +56,19 @@ class ProfitController extends Controller
             ->orderByDesc('order_time')
             ->get();
         $analyticsOrders = $includeAnalytics
-            ? Order::with(['returns', 'packages', 'orderProducts', 'store'])
-                ->whereIn('store_id', $analyticsStoreIds)
-                ->whereIn('order_status', $escrowService->profitAnalyticsStatuses())
-                ->whereBetween('order_time', [$analyticsPeriod['start'], $analyticsPeriod['end']])
-                ->orderBy('order_time')
-                ->get()
+            ? $this->analyticsOrders(
+                $analyticsStoreIds,
+                $analyticsPeriod['start'],
+                $analyticsPeriod['end'],
+            )
             : collect();
         $analyticsAdSpends = $includeAnalytics
-            ? MarketplaceAdSpend::query()
-                ->where('user_id', $user->id)
-                ->whereIn('store_id', $analyticsStoreIds)
-                ->whereRaw('LOWER(platform) = ?', ['shopee'])
-                ->whereDate('spend_date', '>=', $analyticsPeriod['start']->toDateString())
-                ->whereDate('spend_date', '<=', $analyticsPeriod['end']->toDateString())
-                ->orderBy('spend_date')
-                ->get()
+            ? $this->analyticsAdSpends(
+                $user->id,
+                $analyticsStoreIds,
+                $analyticsPeriod['start'],
+                $analyticsPeriod['end'],
+            )
             : collect();
 
         $allOrders = $realtimeOrders
@@ -166,6 +163,47 @@ class ProfitController extends Controller
         return response()->json($response);
     }
 
+    public function breakdown(
+        Request $request,
+        OrderProfitService $profitService,
+        ProfitAnalyticsService $profitAnalyticsService,
+    ) {
+        $validated = $request->validate([
+            'bucket' => 'required|string',
+            'granularity' => 'required|in:day,month',
+            'store_id' => 'nullable|integer',
+        ]);
+        $user = Auth::user();
+        $allStores = $user->stores()->orderBy('store_name')->get();
+        $selectedStoreId = $request->filled('store_id') ? (int) $request->query('store_id') : null;
+
+        if ($selectedStoreId !== null && ! $allStores->contains('id', $selectedStoreId)) {
+            throw ValidationException::withMessages([
+                'store_id' => 'Toko yang dipilih tidak tersedia.',
+            ]);
+        }
+
+        $stores = $selectedStoreId === null
+            ? $allStores
+            : $allStores->where('id', $selectedStoreId)->values();
+        $period = $this->breakdownPeriod($validated['bucket'], $validated['granularity']);
+        $orders = $this->analyticsOrders($stores->pluck('id'), $period['start'], $period['end']);
+        $financialSummaries = $profitService->summaries($orders);
+        $adSpends = $this->analyticsAdSpends(
+            $user->id,
+            $stores->pluck('id'),
+            $period['start'],
+            $period['end'],
+        );
+
+        return response()->json($profitAnalyticsService->breakdown(
+            $orders,
+            $financialSummaries,
+            $period,
+            $adSpends,
+        ));
+    }
+
     /**
      * @return array{key: string, start: Carbon, end: Carbon, granularity: string}
      */
@@ -254,5 +292,72 @@ class ProfitController extends Controller
         $start = Carbon::create($year, 1, 1, 0, 0, 0, $timezone)->startOfYear();
 
         return [$start, $start->copy()->endOfYear(), 'month'];
+    }
+
+    private function breakdownPeriod(string $bucket, string $granularity): array
+    {
+        $timezone = 'Asia/Jakarta';
+
+        try {
+            $start = $granularity === 'month'
+                ? Carbon::createFromFormat('Y-m-d', $bucket.'-01', $timezone)->startOfMonth()
+                : Carbon::createFromFormat('Y-m-d', $bucket, $timezone)->startOfDay();
+        } catch (\Throwable) {
+            throw ValidationException::withMessages([
+                'bucket' => 'Periode rincian tidak valid.',
+            ]);
+        }
+
+        return [
+            'key' => $bucket,
+            'start' => $start,
+            'end' => $granularity === 'month'
+                ? $start->copy()->endOfMonth()
+                : $start->copy()->endOfDay(),
+            'granularity' => $granularity,
+        ];
+    }
+
+    private function analyticsOrders($storeIds, Carbon $start, Carbon $end)
+    {
+        return Order::with(['returns.items', 'packages', 'orderProducts', 'store'])
+            ->whereIn('store_id', $storeIds)
+            ->where(function ($query) use ($start, $end) {
+                $query->whereBetween('order_time', [$start, $end])
+                    ->orWhereHas('returns', function ($returnQuery) use ($start, $end) {
+                        $returnQuery->where(function ($dateQuery) use ($start, $end) {
+                            $dateQuery->whereBetween('created_at_platform', [$start, $end])
+                                ->orWhere(function ($fallbackQuery) use ($start, $end) {
+                                    $fallbackQuery->whereNull('created_at_platform')
+                                        ->whereBetween('created_at', [$start, $end]);
+                                });
+                        });
+                    })
+                    ->orWhereHas('packages', function ($packageQuery) use ($start, $end) {
+                        $packageQuery->where('normalized_logistics_status', 'DELIVERY_FAILED')
+                            ->where(function ($dateQuery) use ($start, $end) {
+                                $dateQuery->whereBetween('failed_at', [$start, $end])
+                                    ->orWhere(function ($fallbackQuery) use ($start, $end) {
+                                        $fallbackQuery->whereNull('failed_at')
+                                            ->whereBetween('updated_at', [$start, $end]);
+                                    });
+                            });
+                    });
+            })
+            ->orderBy('order_time')
+            ->get();
+    }
+
+    private function analyticsAdSpends(int $userId, $storeIds, Carbon $start, Carbon $end)
+    {
+        return MarketplaceAdSpend::query()
+            ->with('store')
+            ->where('user_id', $userId)
+            ->whereIn('store_id', $storeIds)
+            ->whereRaw('LOWER(platform) = ?', ['shopee'])
+            ->whereDate('spend_date', '>=', $start->toDateString())
+            ->whereDate('spend_date', '<=', $end->toDateString())
+            ->orderBy('spend_date')
+            ->get();
     }
 }

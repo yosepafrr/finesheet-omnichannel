@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { CalendarDays, Check, ChevronDown, Store, TriangleAlert } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, ChevronRight, Store, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
+import ProfitBreakdownModal from "@/components/ProfitBreakdownModal";
 import { useOnboarding } from "@/hooks/useOnboarding";
 
 const PROFIT_TOUR_STEPS = [
@@ -287,6 +288,7 @@ export default function ProfitTracker() {
         month: today.slice(0, 7),
         year: today.slice(0, 4),
     });
+    const [selectedBreakdownPoint, setSelectedBreakdownPoint] = useState(null);
 
     const fetchData = useCallback(async ({ silent = false } = {}) => {
         const requestSequence = ++requestSequenceRef.current;
@@ -392,6 +394,13 @@ export default function ProfitTracker() {
 
     const updateAnalyticsFilter = (key, value) => {
         setAnalyticsFilter((previous) => ({ ...previous, [key]: value }));
+    };
+
+    const openBreakdown = (point) => {
+        setSelectedBreakdownPoint({
+            ...point,
+            label: formatPeriodLabel(point.key, analytics?.granularity),
+        });
     };
 
     const analytics = data?.analytics;
@@ -688,28 +697,64 @@ export default function ProfitTracker() {
                                                             <th className="px-5 py-3 text-right font-semibold">Escrow</th>
                                                             <th className="px-5 py-3 text-right font-semibold">Iklan Shopee</th>
                                                             <th className="px-5 py-3 text-right font-semibold">Profit Bersih</th>
+                                                            <th className="w-28 px-3 py-3 text-center font-semibold">Rincian</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/70">
                                                         {analytics.points.map((point) => (
-                                                            <tr key={point.key} className="hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
+                                                            <tr
+                                                                key={point.key}
+                                                                data-testid={`profit-period-${point.key}`}
+                                                                onClick={() => openBreakdown(point)}
+                                                                className="group cursor-pointer transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-700/30"
+                                                            >
                                                                 <td className="px-5 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatPeriodLabel(point.key, analytics.granularity)}</td>
-                                                                <td className="px-5 py-3 text-right text-slate-600 dark:text-slate-300">{point.order_count.toLocaleString("id-ID")}</td>
+                                                                <td className="px-5 py-3 text-right text-slate-600 dark:text-slate-300">
+                                                                    <span className="block">{point.order_count.toLocaleString("id-ID")}</span>
+                                                                    {Number(point.correction_count || 0) > 0 && (
+                                                                        <span className="block text-[10px] font-semibold text-red-500 dark:text-red-400">
+                                                                            {point.correction_count.toLocaleString("id-ID")} koreksi
+                                                                        </span>
+                                                                    )}
+                                                                </td>
                                                                 <td className="px-5 py-3 text-right font-medium text-slate-700 dark:text-slate-200">{formatRp(point.hpp_amount)}</td>
                                                                 <td className="px-5 py-3 text-right font-medium text-[#304674] dark:text-blue-400">{formatRp(point.escrow_amount)}</td>
                                                                 <td className="px-5 py-3 text-right font-medium text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</td>
                                                                 <td className={`px-5 py-3 text-right font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</td>
+                                                                <td className="px-3 py-2.5 text-center">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(event) => {
+                                                                            event.stopPropagation();
+                                                                            openBreakdown(point);
+                                                                        }}
+                                                                        className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] font-semibold text-[#304674] transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-[#304674]/30 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                                                                        aria-label={`Lihat rincian profit ${formatPeriodLabel(point.key, analytics.granularity)}`}
+                                                                        title="Lihat rincian profit"
+                                                                    >
+                                                                        <span>Lihat</span>
+                                                                        <ChevronRight size={14} aria-hidden="true" />
+                                                                    </button>
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
                                                     <tfoot className="sticky bottom-0 border-t border-slate-200 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-900">
                                                         <tr>
                                                             <td className="px-5 py-3 text-slate-700 dark:text-slate-200">Total</td>
-                                                            <td className="px-5 py-3 text-right text-slate-700 dark:text-slate-200">{analytics.totals.order_count.toLocaleString("id-ID")}</td>
+                                                            <td className="px-5 py-3 text-right text-slate-700 dark:text-slate-200">
+                                                                <span className="block">{analytics.totals.order_count.toLocaleString("id-ID")}</span>
+                                                                {Number(analytics.totals.correction_count || 0) > 0 && (
+                                                                    <span className="block text-[10px] text-red-500 dark:text-red-400">
+                                                                        {analytics.totals.correction_count.toLocaleString("id-ID")} koreksi
+                                                                    </span>
+                                                                )}
+                                                            </td>
                                                             <td className="px-5 py-3 text-right text-slate-800 dark:text-white">{formatRp(analytics.totals.hpp_amount)}</td>
                                                             <td className="px-5 py-3 text-right text-[#304674] dark:text-blue-400">{formatRp(analytics.totals.escrow_amount)}</td>
                                                             <td className="px-5 py-3 text-right text-orange-600 dark:text-orange-400">{formatRp(analytics.totals.ad_spend_amount)}</td>
                                                             <td className={`px-5 py-3 text-right ${Number(analytics.totals.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(analytics.totals.profit_amount)}</td>
+                                                            <td className="px-3 py-3" />
                                                         </tr>
                                                     </tfoot>
                                                 </table>
@@ -718,10 +763,23 @@ export default function ProfitTracker() {
 
                                         <div className="space-y-3 md:hidden">
                                             {analytics.points.map((point) => (
-                                                <div key={point.key} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+                                                <button
+                                                    key={point.key}
+                                                    type="button"
+                                                    onClick={() => openBreakdown(point)}
+                                                    data-testid={`profit-period-mobile-${point.key}`}
+                                                    aria-label={`Lihat rincian profit ${formatPeriodLabel(point.key, analytics.granularity)}`}
+                                                    className="block w-full rounded-lg border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
+                                                >
                                                     <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-700">
                                                         <p className="text-sm font-bold text-slate-800 dark:text-white">{formatPeriodLabel(point.key, analytics.granularity)}</p>
-                                                        <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{point.order_count} pesanan</span>
+                                                        <span className="inline-flex items-center gap-1.5">
+                                                            <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                                                {point.order_count} pesanan
+                                                                {Number(point.correction_count || 0) > 0 ? ` / ${point.correction_count} koreksi` : ""}
+                                                            </span>
+                                                            <ChevronRight size={15} className="text-slate-400" aria-hidden="true" />
+                                                        </span>
                                                     </div>
                                                     <div className="mt-3 grid grid-cols-2 gap-3">
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">HPP</p><p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{formatRp(point.hpp_amount)}</p></div>
@@ -729,7 +787,7 @@ export default function ProfitTracker() {
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Iklan Shopee</p><p className="truncate text-xs font-bold text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</p></div>
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Profit Bersih</p><p className={`truncate text-xs font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</p></div>
                                                     </div>
-                                                </div>
+                                                </button>
                                             ))}
                                         </div>
                                     </>
@@ -756,6 +814,13 @@ export default function ProfitTracker() {
                 onSkip={tour.skip}
                 onFinish={tour.finish}
                 onStart={tour.start}
+            />
+            <ProfitBreakdownModal
+                isOpen={Boolean(selectedBreakdownPoint)}
+                point={selectedBreakdownPoint}
+                granularity={analytics?.granularity || "day"}
+                storeId={selectedStore}
+                onClose={() => setSelectedBreakdownPoint(null)}
             />
         </AppLayout>
     );

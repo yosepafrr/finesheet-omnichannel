@@ -54,6 +54,7 @@ export default function OnboardingTour({
     const tooltipRef = useRef(null);
 
     const step = steps[currentStep];
+    const isTourVisible = isOpen && Boolean(step);
     const isLast = currentStep === steps.length - 1;
     const isFirst = currentStep === 0;
 
@@ -240,16 +241,15 @@ export default function OnboardingTour({
         <>
             {/* ── Spotlight Overlay ── */}
             <AnimatePresence>
-                {isOpen && (
+                {isTourVisible && (
                     <motion.div
                         key="overlay"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.25 }}
-                        className="fixed inset-0 z-[9000] pointer-events-auto"
+                        className="pointer-events-none fixed inset-0 z-[9000]"
                         style={{ background: targetRect ? "transparent" : "rgba(10, 12, 30, 0.60)" }}
-                        onClick={onSkip}
                     >
                         {/* Spotlight cutout via SVG clip-path */}
                         {targetRect && (
@@ -307,7 +307,7 @@ export default function OnboardingTour({
 
             {/* ── Tooltip Card ── */}
             <AnimatePresence mode="wait">
-                {isOpen && step && (
+                {isTourVisible && (
                     <motion.div
                         ref={tooltipRef}
                         initial={{ opacity: 0, y: 10, scale: 0.97 }}
@@ -419,7 +419,7 @@ export default function OnboardingTour({
 
             {/* ── Floating Help Button (always visible) ── */}
             <AnimatePresence>
-                {!isOpen && (
+                {!isTourVisible && (
                     <motion.button
                         key="help-btn"
                         initial={{ opacity: 0, scale: 0.8 }}

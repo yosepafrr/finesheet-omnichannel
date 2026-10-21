@@ -84,6 +84,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/sync/orders/status', [OrderSyncController::class, 'status']);
         Route::post('/sync/orders', [OrderSyncController::class, 'store']);
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
+        Route::get('/profit-tracker/breakdown', [ProfitController::class, 'breakdown']);
         Route::get('/tiktok-ads/status', [TiktokAdsController::class, 'status']);
         Route::put('/tiktok-ads/accounts/{accountId}/store', [TiktokAdsController::class, 'updateStore']);
 

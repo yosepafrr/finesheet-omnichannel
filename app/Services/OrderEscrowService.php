@@ -38,6 +38,14 @@ class OrderEscrowService
         'CANCELLED',
     ];
 
+    private const CANCELLED_RETURN_PLATFORM_STATUSES = [
+        'CANCELLED',
+        'RETURN_OR_REFUND_CANCEL',
+        'RETURN_OR_REFUND_REQUEST_CANCEL',
+        'RETURN_OR_REFUND_REQUEST_CANCELED',
+        'RETURN_OR_REFUND_REQUEST_CANCELLED',
+    ];
+
     public function amount(Order $order): float
     {
         $amount = $order->escrow_amount;
@@ -101,6 +109,14 @@ class OrderEscrowService
 
         return in_array($status, self::PROFIT_ANALYTICS_STATUSES, true)
             && ! $this->hasReturnOrFailedDelivery($order);
+    }
+
+    public function isProfitAnalyticsSaleEligible(Order $order): bool
+    {
+        $status = strtoupper(trim((string) $order->order_status));
+
+        return in_array($status, self::PROFIT_ANALYTICS_STATUSES, true)
+            || $this->hasReturnOrFailedDelivery($order);
     }
 
     /** @return array<int, string> */
@@ -175,27 +191,46 @@ class OrderEscrowService
         ];
     }
 
-    private function hasReturnOrFailedDelivery(Order $order): bool
+    public function hasReturnOrFailedDelivery(Order $order): bool
+    {
+        return $this->activeReturns($order)->isNotEmpty()
+            || $this->failedDeliveryPackages($order)->isNotEmpty();
+    }
+
+    public function activeReturns(Order $order): Collection
     {
         if (! $order->relationLoaded('returns')) {
-            $order->load('returns');
+            $order->load('returns.items');
         }
 
-        if ($order->returns->contains(function ($return) {
+        return $order->returns->filter(function ($return) {
             $status = strtoupper(trim((string) $return->normalized_status));
+            $platformStatus = strtoupper(trim((string) ($return->platform_status ?: $return->return_status)));
 
-            return ! in_array($status, self::INACTIVE_RETURN_STATUSES, true);
-        })) {
-            return true;
-        }
+            if (in_array($platformStatus, self::CANCELLED_RETURN_PLATFORM_STATUSES, true)) {
+                return false;
+            }
 
+            if (! in_array($status, self::INACTIVE_RETURN_STATUSES, true)) {
+                return true;
+            }
+
+            return $status === 'REJECTED'
+                && strcasecmp((string) $return->platform, 'Shopee') === 0
+                && $platformStatus === 'CLOSED'
+                && (float) $return->refund_amount > 0;
+        })->values();
+    }
+
+    public function failedDeliveryPackages(Order $order): Collection
+    {
         if (! $order->relationLoaded('packages')) {
             $order->load('packages');
         }
 
-        return $order->packages->contains(
+        return $order->packages->filter(
             fn ($package) => strtoupper(trim((string) $package->normalized_logistics_status)) === 'DELIVERY_FAILED'
-        );
+        )->values();
     }
 
     /**

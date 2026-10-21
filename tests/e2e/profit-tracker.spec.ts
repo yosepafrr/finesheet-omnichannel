@@ -50,6 +50,21 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(page.locator('#analytics-date').locator('..').locator('..')).toHaveClass(/focus-within:ring/);
   });
 
+  test('Analytics period row opens its profit breakdown', async ({ page }) => {
+    const periodRow = page.locator('[data-testid^="profit-period-"]:not([data-testid^="profit-period-mobile-"])').first();
+
+    await expect(periodRow).toBeVisible();
+    const breakdownRequest = page.waitForRequest((request) => (
+      request.method() === 'GET'
+      && request.url().includes('/api/profit-tracker/breakdown')
+    ));
+
+    await periodRow.click({ position: { x: 16, y: 16 } });
+
+    await breakdownRequest;
+    await expect(page.getByRole('dialog', { name: 'Rincian Profit' })).toBeVisible();
+  });
+
   test('Store filter is scoped to the analytics section', async ({ page }) => {
     const analyticsSection = page.locator('#tour-profit-analytics');
     const storeFilter = analyticsSection.getByRole('button', { name: 'Toko: Semua Toko' });
