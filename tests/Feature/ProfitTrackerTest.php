@@ -328,6 +328,20 @@ class ProfitTrackerTest extends TestCase
             ])->saveQuietly();
             $this->attachHppItem($order, $hpp);
 
+            if ($orderSn === 'PAID-PRE-SHIP-CANCEL') {
+                OrderPackage::withoutEvents(fn () => OrderPackage::create([
+                    'order_id' => $order->id,
+                    'platform' => 'Tiktokshop',
+                    'package_id' => $orderSn.'-PACKAGE',
+                    'logistics_status' => 'Pengiriman paket gagal',
+                    'normalized_logistics_status' => 'DELIVERY_FAILED',
+                    'raw_data' => [
+                        'status' => 'CANCELLED',
+                        'cancel_reason' => 'Buyer cancelled before shipment',
+                    ],
+                ]));
+            }
+
             OrderReturn::withoutEvents(fn () => OrderReturn::create([
                 'order_id' => $order->id,
                 'platform' => 'Tiktokshop',
@@ -458,7 +472,13 @@ class ProfitTrackerTest extends TestCase
             'package_id' => 'FAILED-PACKAGE-1',
             'normalized_logistics_status' => 'DELIVERY_FAILED',
             'failed_at' => now('Asia/Jakarta')->setTime(11, 0),
-            'raw_data' => [],
+            'raw_data' => [
+                'tracking' => [[
+                    'action_code' => 70201,
+                    'description' => 'Your package is being returned to the seller.',
+                    'update_time_millis' => now('Asia/Jakarta')->setTime(11, 0)->getTimestampMs(),
+                ]],
+            ],
         ]));
         OrderReturn::withoutEvents(fn () => OrderReturn::create([
             'order_id' => $order->id,

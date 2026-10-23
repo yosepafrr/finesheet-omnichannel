@@ -161,11 +161,38 @@ class OrderEscrowServiceTest extends TestCase
     {
         $order = $this->order('CANCELLED', 150_000);
         $order->setRelation('packages', new Collection([
-            new OrderPackage(['normalized_logistics_status' => 'DELIVERY_FAILED']),
+            new OrderPackage([
+                'normalized_logistics_status' => 'DELIVERY_FAILED',
+                'raw_data' => [
+                    'tracking' => [[
+                        'action_code' => 70201,
+                        'description' => 'Your package is being returned to the seller.',
+                        'update_time_millis' => 1_789_026_473_000,
+                    ]],
+                ],
+            ]),
         ]));
 
         $this->assertFalse($this->service->isPreShipmentCancellation($order));
         $this->assertTrue($this->service->isProfitAnalyticsSaleEligible($order));
+    }
+
+    public function test_stale_failed_delivery_status_without_tracking_evidence_is_not_treated_as_shipped(): void
+    {
+        $order = $this->order('CANCELLED', 150_000);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage([
+                'normalized_logistics_status' => 'DELIVERY_FAILED',
+                'logistics_status' => 'Pengiriman paket gagal',
+                'raw_data' => [
+                    'status' => 'CANCELLED',
+                    'cancel_reason' => 'Buyer cancelled before shipment',
+                ],
+            ]),
+        ]));
+
+        $this->assertTrue($this->service->isPreShipmentCancellation($order));
+        $this->assertFalse($this->service->isProfitAnalyticsSaleEligible($order));
     }
 
     public function test_seller_late_cancellation_overrides_stale_failed_delivery_data(): void

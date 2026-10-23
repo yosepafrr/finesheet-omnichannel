@@ -7,6 +7,10 @@ use Illuminate\Support\Collection;
 
 class OrderEscrowService
 {
+    public function __construct(
+        private readonly ?LogisticsStatusNormalizer $logisticsStatusNormalizer = null,
+    ) {}
+
     public const CATEGORY_NEEDS_SHIPPING = 'perlu_dikirim';
 
     public const CATEGORY_SHIPPED = 'dikirim';
@@ -38,11 +42,6 @@ class OrderEscrowService
         'COMPLETED',
         'TO_RETURN',
         'RETURNED',
-    ];
-
-    private const SHIPMENT_CONFIRMED_PACKAGE_STATUSES = [
-        'DELIVERED',
-        'DELIVERY_FAILED',
     ];
 
     private const PROFIT_ANALYTICS_STATUSES = [
@@ -145,6 +144,13 @@ class OrderEscrowService
     {
         $status = strtoupper(trim((string) $order->order_status));
 
+        // Stock is only reverted when the order is cancelled before it reaches
+        // a shipped state. Keep this historical marker authoritative even if a
+        // later marketplace sync sends an inconsistent terminal status.
+        if ($order->stock_sync_reverted_at) {
+            return true;
+        }
+
         if (! in_array($status, self::CANCELLED_ORDER_STATUSES, true)) {
             return false;
         }
@@ -175,8 +181,40 @@ class OrderEscrowService
         return $order->packages->contains(function ($package) {
             $status = strtoupper(trim((string) $package->normalized_logistics_status));
 
-            return in_array($status, self::SHIPMENT_CONFIRMED_PACKAGE_STATUSES, true);
+            if ($status === 'DELIVERED') {
+                return true;
+            }
+
+            return $status === 'DELIVERY_FAILED'
+                && $this->hasConfirmedFailedDeliveryEvidence($package);
         });
+    }
+
+    private function hasConfirmedFailedDeliveryEvidence(mixed $package): bool
+    {
+        $payload = is_array($package->raw_data ?? null) ? $package->raw_data : [];
+        $normalizer = $this->logisticsStatusNormalizer ?? new LogisticsStatusNormalizer;
+        $trackingNumber = trim((string) (
+            $package->tracking_number
+            ?: $normalizer->trackingNumber($payload)
+        ));
+        $historyHasFinalFailure = collect($normalizer->history($payload))
+            ->contains(function (array $event) use ($trackingNumber) {
+                return ($event['is_failed_delivery'] ?? false)
+                    && ((int) ($event['timestamp'] ?? 0) > 0
+                        || ($event['action_code'] ?? null) !== null
+                        || $trackingNumber !== '');
+            });
+
+        if ($historyHasFinalFailure) {
+            return true;
+        }
+
+        // A tracking number plus the carrier's final status is acceptable for
+        // older records that do not retain a full tracking timeline. A number
+        // by itself is not enough because labels exist before courier handover.
+        return $trackingNumber !== ''
+            && $normalizer->isFailedDelivery($package->logistics_status);
     }
 
     /** @return array<int, string> */
