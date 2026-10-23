@@ -27,6 +27,24 @@ class OrderEscrowService
         'TO_CONFIRM_RECEIVE',
     ];
 
+    private const CANCELLED_ORDER_STATUSES = [
+        'CANCEL',
+        'CANCELLED',
+        'IN_CANCEL',
+    ];
+
+    private const HISTORICALLY_SHIPPED_ORDER_STATUSES = [
+        ...self::SHIPPED_STATUSES,
+        'COMPLETED',
+        'TO_RETURN',
+        'RETURNED',
+    ];
+
+    private const SHIPMENT_CONFIRMED_PACKAGE_STATUSES = [
+        'DELIVERED',
+        'DELIVERY_FAILED',
+    ];
+
     private const PROFIT_ANALYTICS_STATUSES = [
         ...self::NEEDS_SHIPPING_STATUSES,
         ...self::SHIPPED_STATUSES,
@@ -113,10 +131,52 @@ class OrderEscrowService
 
     public function isProfitAnalyticsSaleEligible(Order $order): bool
     {
+        if ($this->isPreShipmentCancellation($order)) {
+            return false;
+        }
+
         $status = strtoupper(trim((string) $order->order_status));
 
         return in_array($status, self::PROFIT_ANALYTICS_STATUSES, true)
             || $this->hasReturnOrFailedDelivery($order);
+    }
+
+    public function isPreShipmentCancellation(Order $order): bool
+    {
+        $status = strtoupper(trim((string) $order->order_status));
+
+        if (! in_array($status, self::CANCELLED_ORDER_STATUSES, true)) {
+            return false;
+        }
+
+        // This category explicitly means the seller never handed the package
+        // to the courier. It also overrides stale package rows created by older
+        // failed-delivery classification rules.
+        if (strtoupper(trim((string) $order->normalized_cancel_category)) === 'SELLER_LATE_SHIPMENT') {
+            return true;
+        }
+
+        return ! $this->wasEverShipped($order);
+    }
+
+    public function wasEverShipped(Order $order): bool
+    {
+        $status = strtoupper(trim((string) $order->order_status));
+
+        if (in_array($status, self::HISTORICALLY_SHIPPED_ORDER_STATUSES, true)
+            || $order->stock_sync_shipped_at) {
+            return true;
+        }
+
+        if (! $order->relationLoaded('packages')) {
+            $order->load('packages');
+        }
+
+        return $order->packages->contains(function ($package) {
+            $status = strtoupper(trim((string) $package->normalized_logistics_status));
+
+            return in_array($status, self::SHIPMENT_CONFIRMED_PACKAGE_STATUSES, true);
+        });
     }
 
     /** @return array<int, string> */

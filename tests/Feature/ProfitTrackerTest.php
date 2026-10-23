@@ -310,29 +310,38 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('events.0.profit_amount', -90_000);
     }
 
-    public function test_full_same_day_cancellation_is_removed_from_sales_and_corrections(): void
+    public function test_orders_cancelled_before_shipping_are_removed_from_sales_and_corrections_across_dates(): void
     {
         $user = User::factory()->create();
-        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Batal Langsung', 'shop-same-day-cancel');
-        $order = $this->createOrder($store, 'SAME-DAY-CANCEL', 'CANCELLED', 191_900);
-        $order->forceFill([
-            'order_time' => now('Asia/Jakarta')->setTime(11, 59),
-        ])->saveQuietly();
-        $this->attachHppItem($order, 115_000);
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Batal Sebelum Kirim', 'shop-pre-ship-cancel');
+        $cases = [
+            ['UNPAID-CANCEL', 0, 0, 'BUYER_SIDE', 2],
+            ['SELLER-LATE-CANCEL', 191_900, 115_000, 'SELLER_LATE_SHIPMENT', 2],
+            ['PAID-PRE-SHIP-CANCEL', 180_700, 90_000, 'BUYER_SIDE', 1],
+        ];
 
-        OrderReturn::withoutEvents(fn () => OrderReturn::create([
-            'order_id' => $order->id,
-            'platform' => 'Tiktokshop',
-            'external_return_id' => 'SAME-DAY-CANCEL-1',
-            'return_status' => 'COMPLETED',
-            'platform_status' => 'COMPLETED',
-            'normalized_status' => 'REFUND_COMPLETED',
-            'refund_amount' => 191_900,
-            'created_at_platform' => now('Asia/Jakarta')->setTime(12, 23),
-        ]));
+        foreach ($cases as [$orderSn, $escrow, $hpp, $cancelCategory, $daysAgo]) {
+            $order = $this->createOrder($store, $orderSn, 'CANCELLED', $escrow);
+            $order->forceFill([
+                'order_time' => now('Asia/Jakarta')->subDays($daysAgo)->setTime(11, 59),
+                'normalized_cancel_category' => $cancelCategory,
+            ])->saveQuietly();
+            $this->attachHppItem($order, $hpp);
+
+            OrderReturn::withoutEvents(fn () => OrderReturn::create([
+                'order_id' => $order->id,
+                'platform' => 'Tiktokshop',
+                'external_return_id' => $orderSn.'-RETURN',
+                'return_status' => 'COMPLETED',
+                'platform_status' => 'COMPLETED',
+                'normalized_status' => 'REFUND_COMPLETED',
+                'refund_amount' => $escrow,
+                'created_at_platform' => now('Asia/Jakarta')->setTime(12, 23),
+            ]));
+        }
 
         $this->actingAs($user)
-            ->getJson('/api/profit-tracker?analytics_period=today')
+            ->getJson('/api/profit-tracker?analytics_period=last_3_days')
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 0)
             ->assertJsonPath('analytics.totals.correction_count', 0)
@@ -341,13 +350,15 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.gross_profit_amount', 0)
             ->assertJsonPath('analytics.totals.profit_amount', 0);
 
-        $bucket = now('Asia/Jakarta')->toDateString();
-        $this->actingAs($user)
-            ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
-            ->assertOk()
-            ->assertJsonPath('totals.sale_count', 0)
-            ->assertJsonPath('totals.correction_count', 0)
-            ->assertJsonCount(0, 'events');
+        foreach ([now('Asia/Jakarta')->subDays(2), now('Asia/Jakarta')->subDay(), now('Asia/Jakarta')] as $date) {
+            $bucket = $date->toDateString();
+            $this->actingAs($user)
+                ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
+                ->assertOk()
+                ->assertJsonPath('totals.sale_count', 0)
+                ->assertJsonPath('totals.correction_count', 0)
+                ->assertJsonCount(0, 'events');
+        }
     }
 
     public function test_partial_same_day_return_remains_in_profit_analytics(): void
@@ -379,6 +390,45 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.hpp_amount', 40_000)
             ->assertJsonPath('analytics.totals.escrow_amount', 100_000)
             ->assertJsonPath('analytics.totals.profit_amount', 60_000);
+
+        $bucket = now('Asia/Jakarta')->toDateString();
+        $this->actingAs($user)
+            ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
+            ->assertOk()
+            ->assertJsonPath('totals.sale_count', 1)
+            ->assertJsonPath('totals.correction_count', 1)
+            ->assertJsonCount(2, 'events');
+    }
+
+    public function test_full_same_day_return_after_shipping_remains_in_profit_analytics(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Retur Penuh', 'shop-same-day-full-return');
+        $order = $this->createOrder($store, 'SAME-DAY-FULL-RETURN', 'COMPLETED', 200_000);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->setTime(9, 0),
+        ])->saveQuietly();
+        $this->attachHppItem($order, 80_000);
+
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'SAME-DAY-FULL-RETURN-1',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 200_000,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(13, 0),
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=today')
+            ->assertOk()
+            ->assertJsonPath('analytics.totals.order_count', 1)
+            ->assertJsonPath('analytics.totals.correction_count', 1)
+            ->assertJsonPath('analytics.totals.hpp_amount', 0)
+            ->assertJsonPath('analytics.totals.escrow_amount', 0)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
 
         $bucket = now('Asia/Jakarta')->toDateString();
         $this->actingAs($user)

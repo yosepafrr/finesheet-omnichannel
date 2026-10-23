@@ -143,6 +143,43 @@ class OrderEscrowServiceTest extends TestCase
         ));
     }
 
+    public function test_tracking_number_alone_does_not_prove_a_cancelled_order_was_shipped(): void
+    {
+        $order = $this->order('CANCELLED', 150_000);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage([
+                'tracking_number' => 'TRACKING-CREATED-BEFORE-HANDOVER',
+                'normalized_logistics_status' => null,
+            ]),
+        ]));
+
+        $this->assertTrue($this->service->isPreShipmentCancellation($order));
+        $this->assertFalse($this->service->isProfitAnalyticsSaleEligible($order));
+    }
+
+    public function test_confirmed_failed_delivery_proves_a_cancelled_order_was_shipped(): void
+    {
+        $order = $this->order('CANCELLED', 150_000);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage(['normalized_logistics_status' => 'DELIVERY_FAILED']),
+        ]));
+
+        $this->assertFalse($this->service->isPreShipmentCancellation($order));
+        $this->assertTrue($this->service->isProfitAnalyticsSaleEligible($order));
+    }
+
+    public function test_seller_late_cancellation_overrides_stale_failed_delivery_data(): void
+    {
+        $order = $this->order('CANCELLED', 150_000);
+        $order->normalized_cancel_category = 'SELLER_LATE_SHIPMENT';
+        $order->setRelation('packages', new Collection([
+            new OrderPackage(['normalized_logistics_status' => 'DELIVERY_FAILED']),
+        ]));
+
+        $this->assertTrue($this->service->isPreShipmentCancellation($order));
+        $this->assertFalse($this->service->isProfitAnalyticsSaleEligible($order));
+    }
+
     public function test_returned_order_is_excluded_from_profit_analytics(): void
     {
         $order = $this->order('COMPLETED', 150_000);

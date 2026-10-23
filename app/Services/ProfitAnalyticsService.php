@@ -210,15 +210,17 @@ class ProfitAnalyticsService
                 continue;
             }
 
+            // A cancellation before courier handover never became a realized
+            // sale. Remove both its original sale and any later refund record,
+            // even when those records fall on different dates.
+            if ($this->escrowService->isPreShipmentCancellation($order)) {
+                continue;
+            }
+
             $saleDate = $this->date($order->order_time ?? $order->created_at);
             $correction = $this->correctionService->forOrder($order, $summary);
-            $isSameDayFullReversal = $saleDate
-                && $correction
-                && (float) $correction['affected_ratio'] >= 0.9999
-                && $saleDate->isSameDay($correction['occurred_at']);
 
-            if (! $isSameDayFullReversal
-                && $saleDate
+            if ($saleDate
                 && $this->within($saleDate, $period)
                 && $this->escrowService->isProfitAnalyticsSaleEligible($order)) {
                 $events->push($this->orderEvent(
@@ -236,9 +238,7 @@ class ProfitAnalyticsService
                 ));
             }
 
-            if ($isSameDayFullReversal
-                || ! $correction
-                || ! $this->within($correction['occurred_at'], $period)) {
+            if (! $correction || ! $this->within($correction['occurred_at'], $period)) {
                 continue;
             }
 
