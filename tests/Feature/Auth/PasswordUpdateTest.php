@@ -5,7 +5,6 @@ namespace Tests\Feature\Auth;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Livewire\Volt\Volt;
 use Tests\TestCase;
 
 class PasswordUpdateTest extends TestCase
@@ -16,35 +15,31 @@ class PasswordUpdateTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user);
+        $response = $this->actingAs($user)->putJson('/api/profile/password', [
+            'current_password' => 'password',
+            'password' => 'new-password1',
+            'password_confirmation' => 'new-password1',
+        ]);
 
-        $component = Volt::test('profile.update-password-form')
-            ->set('current_password', 'password')
-            ->set('password', 'new-password')
-            ->set('password_confirmation', 'new-password')
-            ->call('updatePassword');
-
-        $component
-            ->assertHasNoErrors()
-            ->assertNoRedirect();
-
-        $this->assertTrue(Hash::check('new-password', $user->refresh()->password));
+        $response
+            ->assertOk()
+            ->assertJsonPath('message', 'Password updated successfully');
+        $this->assertTrue(Hash::check('new-password1', $user->refresh()->password));
     }
 
     public function test_correct_password_must_be_provided_to_update_password(): void
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user);
+        $response = $this->actingAs($user)->putJson('/api/profile/password', [
+            'current_password' => 'wrong-password',
+            'password' => 'new-password1',
+            'password_confirmation' => 'new-password1',
+        ]);
 
-        $component = Volt::test('profile.update-password-form')
-            ->set('current_password', 'wrong-password')
-            ->set('password', 'new-password')
-            ->set('password_confirmation', 'new-password')
-            ->call('updatePassword');
-
-        $component
-            ->assertHasErrors(['current_password'])
-            ->assertNoRedirect();
+        $response
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('current_password');
+        $this->assertTrue(Hash::check('password', $user->refresh()->password));
     }
 }

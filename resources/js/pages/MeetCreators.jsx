@@ -7,7 +7,7 @@ const CREATORS = [
         role: "Undergraduate Computer Science Student",
         image: "/images/yosep.jpg",
         bio: "Arsitek di balik logika sistem backend dan manajemen database. Mengubah kopi menjadi kode yang efisien.",
-        stack: ["Laravel", "PostgreSQL", "Livewire"],
+        stack: ["Laravel", "PostgreSQL", "React"],
         social: {
             github: "https://github.com/yosepafrr",
             linkedin: "https://linkedin.com/in/",

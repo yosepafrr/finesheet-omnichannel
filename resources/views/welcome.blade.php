@@ -31,9 +31,9 @@
             @if (Route::has('login'))
                 <div class="flex gap-4">
                     @auth
-                        <a href="{{ url('/dashboard') }}" wire:navigate class="text-sm font-semibold text-gray-900 hover:text-blue-600 transition">Dashboard</a>
+                        <a href="{{ url('/dashboard') }}" class="text-sm font-semibold text-gray-900 hover:text-blue-600 transition">Dashboard</a>
                     @else
-                        <a href="{{ route('login') }}" wire:navigate class="text-sm font-semibold text-gray-900 hover:text-blue-600 transition">Log in</a>
+                        <a href="{{ route('login') }}" class="text-sm font-semibold text-gray-900 hover:text-blue-600 transition">Log in</a>
                     @endauth
                 </div>
             @endif
@@ -63,14 +63,14 @@
                     <div class="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                          @if (Route::has('login'))
                             @auth
-                                <a href="{{ url('/dashboard') }}" wire:navigate class="px-8 py-4 bg-slate-900 text-white rounded-xl font-semibold shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-1 transition-all duration-300 w-full sm:w-auto flex justify-center items-center gap-2">
+                                <a href="{{ url('/dashboard') }}" class="px-8 py-4 bg-slate-900 text-white rounded-xl font-semibold shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-1 transition-all duration-300 w-full sm:w-auto flex justify-center items-center gap-2">
                                     Buka Dashboard
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                                     </svg>
                                 </a>
                             @else
-                                <a href="{{ route('login') }}" wire:navigate class="px-8 py-4 bg-slate-900 text-white rounded-xl font-semibold shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-1 transition-all duration-300 w-full sm:w-auto">
+                                <a href="{{ route('login') }}" class="px-8 py-4 bg-slate-900 text-white rounded-xl font-semibold shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-1 transition-all duration-300 w-full sm:w-auto">
                                     Masuk Akun
                                 </a>
                                 <a href="#" class="px-8 py-4 bg-white text-slate-700 border border-gray-200 rounded-xl font-semibold hover:bg-gray-50 hover:border-gray-300 transition-all w-full sm:w-auto">
