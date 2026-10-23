@@ -155,6 +155,16 @@ class OrderEscrowService
             return false;
         }
 
+        // Payment-timeout cancellations cannot have reached courier handover.
+        // Treat the platform reason as authoritative because older sync runs
+        // can leave an incorrect shipped marker or a zero-value return record.
+        if (OrderCancellationMapper::isPaymentCancellationReason(
+            $order->cancel_reason,
+            $order->buyer_cancel_reason,
+        )) {
+            return true;
+        }
+
         // This category explicitly means the seller never handed the package
         // to the courier. It also overrides stale package rows created by older
         // failed-delivery classification rules.

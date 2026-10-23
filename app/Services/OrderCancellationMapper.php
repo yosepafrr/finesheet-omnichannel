@@ -4,6 +4,24 @@ namespace App\Services;
 
 class OrderCancellationMapper
 {
+    private const PAYMENT_CANCELLATION_FRAGMENTS = [
+        'unpaid',
+        'payment',
+        'payment timeout',
+        'payment time out',
+        'payment expired',
+        'failed to pay',
+        'did not pay',
+        'not paid',
+        'terlambat membayar',
+        'belum membayar',
+        'tidak membayar',
+        'gagal membayar',
+        'batas waktu pembayaran',
+        'pembayaran',
+        'pembayaran kedaluwarsa',
+    ];
+
     /**
      * Normalize raw cancellation data into a standardized category:
      * - SELLER_LATE_SHIPMENT
@@ -19,7 +37,7 @@ class OrderCancellationMapper
 
         if (strcasecmp($platform, 'Shopee') === 0) {
             // Buyer initiated or buyer reason is present
-            if ($source === 'BUYER' || !empty($buyerCancelReason)) {
+            if ($source === 'BUYER' || ! empty($buyerCancelReason)) {
                 return 'BUYER_SIDE';
             }
 
@@ -31,14 +49,14 @@ class OrderCancellationMapper
                 if (str_contains($reasonLower, 'late') || str_contains($reasonLower, 'ship')) {
                     return 'SELLER_LATE_SHIPMENT';
                 }
+
                 return 'UNKNOWN';
             }
 
             // System / Shopee auto cancellation
             if ($source === 'SYSTEM' || $source === 'SHOPEE') {
                 if (
-                    str_contains($reasonLower, 'unpaid') ||
-                    str_contains($reasonLower, 'payment') ||
+                    self::isPaymentCancellationReason($reason, $buyerCancelReason) ||
                     str_contains($reasonLower, 'fraud') ||
                     str_contains($reasonLower, 'voucher')
                 ) {
@@ -63,7 +81,7 @@ class OrderCancellationMapper
             }
 
             // Fallback when source is empty
-            if (!empty($buyerCancelReason)) {
+            if (! empty($buyerCancelReason)) {
                 return 'BUYER_SIDE';
             }
 
@@ -90,8 +108,7 @@ class OrderCancellationMapper
                 }
 
                 if (
-                    str_contains($reasonLower, 'payment') ||
-                    str_contains($reasonLower, 'unpaid') ||
+                    self::isPaymentCancellationReason($reason, $buyerCancelReason) ||
                     str_contains($reasonLower, 'fraud') ||
                     str_contains($reasonLower, 'risk')
                 ) {
@@ -128,8 +145,7 @@ class OrderCancellationMapper
             }
 
             if (
-                str_contains($reasonLower, 'payment') ||
-                str_contains($reasonLower, 'unpaid') ||
+                self::isPaymentCancellationReason($reason, $buyerCancelReason) ||
                 str_contains($reasonLower, 'fraud')
             ) {
                 return 'BUYER_SIDE';
@@ -139,5 +155,25 @@ class OrderCancellationMapper
         }
 
         return 'UNKNOWN';
+    }
+
+    public static function isPaymentCancellationReason(?string ...$reasons): bool
+    {
+        $text = strtolower(trim(implode(' ', array_filter(
+            $reasons,
+            fn (?string $reason) => $reason !== null && trim($reason) !== '',
+        ))));
+
+        if ($text === '') {
+            return false;
+        }
+
+        foreach (self::PAYMENT_CANCELLATION_FRAGMENTS as $fragment) {
+            if (str_contains($text, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

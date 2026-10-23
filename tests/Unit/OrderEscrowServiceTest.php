@@ -207,6 +207,23 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertFalse($this->service->isProfitAnalyticsSaleEligible($order));
     }
 
+    public function test_payment_timeout_overrides_incorrect_shipment_evidence(): void
+    {
+        $order = $this->order('CANCELLED', 179_000);
+        $order->forceFill([
+            'platform' => 'Tiktokshop',
+            'cancel_source' => 'SYSTEM',
+            'cancel_reason' => 'Pesanan dibatalkan karena pembeli terlambat membayar',
+            'normalized_cancel_category' => 'UNKNOWN',
+        ]);
+        $order->setRelation('packages', new Collection([
+            new OrderPackage(['normalized_logistics_status' => 'DELIVERED']),
+        ]));
+
+        $this->assertTrue($this->service->isPreShipmentCancellation($order));
+        $this->assertFalse($this->service->isProfitAnalyticsSaleEligible($order));
+    }
+
     public function test_returned_order_is_excluded_from_profit_analytics(): void
     {
         $order = $this->order('COMPLETED', 150_000);

@@ -354,6 +354,37 @@ class ProfitTrackerTest extends TestCase
             ]));
         }
 
+        $paymentTimeoutOrder = $this->createOrder(
+            $store,
+            'PAYMENT-TIMEOUT-CANCEL',
+            'CANCELLED',
+            179_000,
+        );
+        $paymentTimeoutOrder->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDay()->setTime(8, 37),
+            'cancel_source' => 'SYSTEM',
+            'cancel_reason' => 'Pesanan dibatalkan karena pembeli terlambat membayar',
+            'normalized_cancel_category' => 'UNKNOWN',
+            'stock_sync_shipped_at' => now('Asia/Jakarta')->subDay()->setTime(9, 0),
+        ])->saveQuietly();
+        $this->attachHppItem($paymentTimeoutOrder, 115_000);
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $paymentTimeoutOrder->id,
+            'platform' => 'Tiktokshop',
+            'package_id' => 'PAYMENT-TIMEOUT-CANCEL',
+        ]));
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $paymentTimeoutOrder->id,
+            'platform' => 'Tiktokshop',
+            'external_return_id' => 'PAYMENT-TIMEOUT-CANCEL-RETURN',
+            'return_status' => 'RETURN_AND_REFUND',
+            'platform_status' => 'RETURN_AND_REFUND',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 0,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(8, 37),
+        ]));
+
         $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=last_3_days')
             ->assertOk()

@@ -40,4 +40,15 @@ class OrderCancellationMapperTest extends TestCase
             ],
         ];
     }
+
+    public function test_it_recognizes_indonesian_buyer_payment_timeout(): void
+    {
+        $reason = 'Pesanan dibatalkan karena pembeli terlambat membayar';
+
+        $this->assertTrue(OrderCancellationMapper::isPaymentCancellationReason($reason));
+        $this->assertSame(
+            'BUYER_SIDE',
+            OrderCancellationMapper::normalize('Tiktokshop', 'SYSTEM', $reason),
+        );
+    }
 }
