@@ -310,6 +310,85 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('events.0.profit_amount', -90_000);
     }
 
+    public function test_full_same_day_cancellation_is_removed_from_sales_and_corrections(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Batal Langsung', 'shop-same-day-cancel');
+        $order = $this->createOrder($store, 'SAME-DAY-CANCEL', 'CANCELLED', 191_900);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->setTime(11, 59),
+        ])->saveQuietly();
+        $this->attachHppItem($order, 115_000);
+
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'external_return_id' => 'SAME-DAY-CANCEL-1',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 191_900,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(12, 23),
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=today')
+            ->assertOk()
+            ->assertJsonPath('analytics.totals.order_count', 0)
+            ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.hpp_amount', 0)
+            ->assertJsonPath('analytics.totals.escrow_amount', 0)
+            ->assertJsonPath('analytics.totals.gross_profit_amount', 0)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
+
+        $bucket = now('Asia/Jakarta')->toDateString();
+        $this->actingAs($user)
+            ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
+            ->assertOk()
+            ->assertJsonPath('totals.sale_count', 0)
+            ->assertJsonPath('totals.correction_count', 0)
+            ->assertJsonCount(0, 'events');
+    }
+
+    public function test_partial_same_day_return_remains_in_profit_analytics(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Retur Parsial', 'shop-same-day-partial');
+        $order = $this->createOrder($store, 'SAME-DAY-PARTIAL', 'COMPLETED', 200_000);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->setTime(9, 0),
+        ])->saveQuietly();
+        $this->attachHppItem($order, 80_000);
+
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'SAME-DAY-PARTIAL-1',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 100_000,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(13, 0),
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=today')
+            ->assertOk()
+            ->assertJsonPath('analytics.totals.order_count', 1)
+            ->assertJsonPath('analytics.totals.correction_count', 1)
+            ->assertJsonPath('analytics.totals.hpp_amount', 40_000)
+            ->assertJsonPath('analytics.totals.escrow_amount', 100_000)
+            ->assertJsonPath('analytics.totals.profit_amount', 60_000);
+
+        $bucket = now('Asia/Jakarta')->toDateString();
+        $this->actingAs($user)
+            ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
+            ->assertOk()
+            ->assertJsonPath('totals.sale_count', 1)
+            ->assertJsonPath('totals.correction_count', 1)
+            ->assertJsonCount(2, 'events');
+    }
+
     public function test_failed_delivery_wins_over_return_and_is_only_corrected_once(): void
     {
         $user = User::factory()->create();

@@ -211,7 +211,14 @@ class ProfitAnalyticsService
             }
 
             $saleDate = $this->date($order->order_time ?? $order->created_at);
-            if ($saleDate
+            $correction = $this->correctionService->forOrder($order, $summary);
+            $isSameDayFullReversal = $saleDate
+                && $correction
+                && (float) $correction['affected_ratio'] >= 0.9999
+                && $saleDate->isSameDay($correction['occurred_at']);
+
+            if (! $isSameDayFullReversal
+                && $saleDate
                 && $this->within($saleDate, $period)
                 && $this->escrowService->isProfitAnalyticsSaleEligible($order)) {
                 $events->push($this->orderEvent(
@@ -229,8 +236,9 @@ class ProfitAnalyticsService
                 ));
             }
 
-            $correction = $this->correctionService->forOrder($order, $summary);
-            if (! $correction || ! $this->within($correction['occurred_at'], $period)) {
+            if ($isSameDayFullReversal
+                || ! $correction
+                || ! $this->within($correction['occurred_at'], $period)) {
                 continue;
             }
 
