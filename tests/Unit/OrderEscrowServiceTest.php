@@ -65,6 +65,13 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertSame(82_500.0, $this->service->amount($order));
     }
 
+    public function test_negative_final_escrow_is_not_replaced_by_an_old_positive_adjusted_amount(): void
+    {
+        $order = $this->order('COMPLETED', -13_200, 244_562);
+
+        $this->assertSame(-13_200.0, $this->service->amount($order));
+    }
+
     public function test_orders_are_grouped_into_the_profit_tracker_categories(): void
     {
         $returnedOrder = $this->order('IN_TRANSIT', 300_000);

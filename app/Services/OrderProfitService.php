@@ -67,8 +67,32 @@ class OrderProfitService
             return $currentEscrowAmount;
         }
 
+        if (is_numeric($order->sale_escrow_amount)
+            && (float) $order->sale_escrow_amount > 0) {
+            return (float) $order->sale_escrow_amount;
+        }
+
+        // Some marketplaces keep the positive sale settlement on the order
+        // while separately reporting the return. That value is more reliable
+        // than reconstructing net income from a post-return payload.
+        if ($currentEscrowAmount > 0) {
+            return $currentEscrowAmount;
+        }
+
+        if (is_numeric($order->escrow_amount_after_adjustment)
+            && (float) $order->escrow_amount_after_adjustment > 0) {
+            return (float) $order->escrow_amount_after_adjustment;
+        }
+
         $breakdown = $this->financialBreakdownService->forOrder($order);
-        $estimatedAmount = (float) $breakdown['gross_amount'];
+        $itemGrossAmount = (float) $order->orderProducts->sum(
+            fn ($item) => (float) ($item->price ?? 0)
+                * max(0, (int) ($item->quantity_purchased ?? 0)),
+        );
+        $estimatedAmount = max(
+            (float) $breakdown['gross_amount'],
+            $itemGrossAmount,
+        );
 
         foreach ($breakdown['components'] as $component) {
             if (in_array($component['key'], self::PROFIT_CORRECTION_COMPONENTS, true)
@@ -81,22 +105,7 @@ class OrderProfitService
                 : -(float) $component['amount'];
         }
 
-        $positiveStoredAmount = collect([
-            $order->escrow_amount,
-            $order->escrow_amount_after_adjustment,
-        ])->filter(fn ($amount) => is_numeric($amount) && (float) $amount > 0)
-            ->map(fn ($amount) => (float) $amount)
-            ->max();
-
-        if ($estimatedAmount > 0 && ($positiveStoredAmount === null || $estimatedAmount > $positiveStoredAmount)) {
-            return $estimatedAmount;
-        }
-
-        if ($positiveStoredAmount !== null) {
-            return $positiveStoredAmount;
-        }
-
-        return max(0, $estimatedAmount, (float) ($order->order_selling_price ?? 0));
+        return max(0, $estimatedAmount);
     }
 
     /** @param Collection<int, Order> $orders */

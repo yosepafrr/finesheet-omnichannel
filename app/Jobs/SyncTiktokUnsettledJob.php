@@ -98,15 +98,23 @@ class SyncTiktokUnsettledJob implements ShouldBeUnique, ShouldQueue
                     continue;
                 }
 
-                $order->fill([
-                    'escrow_amount' => $resolver->amountForOrder(
-                        $order,
-                        (float) $result['amount']
-                    ),
+                $resolvedEscrow = $resolver->amountForOrder(
+                    $order,
+                    (float) $result['amount']
+                );
+                $updates = [
+                    'escrow_amount' => $resolvedEscrow,
                     'fee_details' => $result['details'],
-                ]);
+                ];
 
-                if (! $order->isDirty(['escrow_amount', 'fee_details'])) {
+                $saleEscrowSnapshot = $resolver->saleSnapshot($order, $result);
+                if ($saleEscrowSnapshot !== null) {
+                    $updates['sale_escrow_amount'] = $saleEscrowSnapshot;
+                }
+
+                $order->fill($updates);
+
+                if (! $order->isDirty(['escrow_amount', 'sale_escrow_amount', 'fee_details'])) {
                     continue;
                 }
 

@@ -109,6 +109,27 @@ class TiktokEscrowAmountResolver
         return $this->fallbackForOrder($order);
     }
 
+    /** @param array{amount?: mixed, details?: array<string, mixed>}|null $financeResult */
+    public function saleSnapshot(Order $order, ?array $financeResult): ?float
+    {
+        if (is_numeric($order->sale_escrow_amount)
+            && (float) $order->sale_escrow_amount > 0) {
+            return null;
+        }
+
+        if ($this->hasValidStoredAmount($order->fee_details, $order->escrow_amount)
+            && is_numeric($order->escrow_amount)
+            && (float) $order->escrow_amount > 0) {
+            return (float) $order->escrow_amount;
+        }
+
+        $incomingAmount = $financeResult['amount'] ?? null;
+
+        return is_numeric($incomingAmount) && (float) $incomingAmount > 0
+            ? (float) $incomingAmount
+            : null;
+    }
+
     public function unsettled(array $response, string $orderId): ?array
     {
         if (($response['code'] ?? null) !== 0 || ! is_array($response['data'] ?? null)) {

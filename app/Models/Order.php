@@ -54,6 +54,7 @@ class Order extends Model
                 'order_selling_price',
                 'escrow_amount',
                 'escrow_amount_after_adjustment',
+                'sale_escrow_amount',
                 'fee_details',
             ]);
 
@@ -81,6 +82,7 @@ class Order extends Model
         'order_selling_price',
         'escrow_amount',
         'escrow_amount_after_adjustment',
+        'sale_escrow_amount',
         'fee_details',
         'cancel_source',
         'cancel_reason',
@@ -105,6 +107,7 @@ class Order extends Model
         'order_selling_price' => 'float',
         'escrow_amount' => 'float',
         'escrow_amount_after_adjustment' => 'float',
+        'sale_escrow_amount' => 'float',
         'stock_sync_processed_at' => 'datetime',
         'stock_sync_deductions' => 'array',
         'stock_sync_reverted_at' => 'datetime',

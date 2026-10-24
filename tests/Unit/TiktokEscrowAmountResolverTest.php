@@ -139,6 +139,54 @@ class TiktokEscrowAmountResolverTest extends TestCase
         $this->assertSame(0.0, $this->resolver->amountForOrder($order, 0));
     }
 
+    public function test_sale_snapshot_uses_the_existing_valid_net_escrow_before_it_is_replaced(): void
+    {
+        $order = new Order([
+            'escrow_amount' => 53_000,
+            'fee_details' => [
+                'source' => 'settled',
+                'summary' => ['settlement_amount' => 53_000],
+            ],
+        ]);
+
+        $this->assertSame(
+            53_000.0,
+            $this->resolver->saleSnapshot($order, [
+                'amount' => 0,
+                'details' => ['source' => 'settled'],
+            ]),
+        );
+    }
+
+    public function test_sale_snapshot_uses_positive_platform_finance_instead_of_sale_price_fallback(): void
+    {
+        $order = new Order([
+            'escrow_amount' => 61_934,
+            'fee_details' => null,
+        ]);
+
+        $this->assertSame(
+            53_000.0,
+            $this->resolver->saleSnapshot($order, [
+                'amount' => 53_000,
+                'details' => ['source' => 'unsettled'],
+            ]),
+        );
+    }
+
+    public function test_sale_snapshot_is_not_overwritten_after_it_has_been_recorded(): void
+    {
+        $order = new Order([
+            'escrow_amount' => -13_200,
+            'sale_escrow_amount' => 244_562,
+        ]);
+
+        $this->assertNull($this->resolver->saleSnapshot($order, [
+            'amount' => 285_000,
+            'details' => ['source' => 'settled'],
+        ]));
+    }
+
     public function test_completed_order_keeps_refreshing_until_settled_data_is_available(): void
     {
         $unsettled = [

@@ -577,6 +577,7 @@ class ProfitTrackerTest extends TestCase
         $order->forceFill([
             'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(10, 0),
             'order_selling_price' => 139_000,
+            'sale_escrow_amount' => 132_500,
             'fee_details' => [
                 'order_income' => [
                     'commission_fee' => 6_500,
@@ -612,6 +613,131 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.hpp_amount', 0)
             ->assertJsonPath('analytics.totals.escrow_amount', -16_300)
             ->assertJsonPath('analytics.totals.profit_amount', -16_300);
+    }
+
+    public function test_failed_delivery_uses_stored_net_escrow_instead_of_reconstructed_buyer_payment(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Net Escrow', 'shop-net-escrow');
+        $order = $this->createOrder($store, 'TIKTOK-NET-ESCROW', 'CANCELLED', 53_000);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(10, 0),
+            'order_selling_price' => 61_934,
+            'fee_details' => [
+                'source' => 'settled',
+                'summary' => ['revenue_amount' => 61_934],
+            ],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 35_000);
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'package_id' => 'TIKTOK-NET-ESCROW-PACKAGE',
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+            'failed_at' => now('Asia/Jakarta')->setTime(11, 28),
+            'raw_data' => [
+                'tracking' => [[
+                    'action_code' => 70201,
+                    'description' => 'Your package is being returned to the seller.',
+                    'update_time_millis' => now('Asia/Jakarta')->setTime(11, 28)->getTimestampMs(),
+                ]],
+            ],
+        ]));
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?analytics_period=last_3_days',
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('analytics.points.0.escrow_amount', 53_000)
+            ->assertJsonPath('analytics.points.0.profit_amount', 18_000)
+            ->assertJsonPath('analytics.points.2.escrow_amount', -53_000)
+            ->assertJsonPath('analytics.points.2.profit_amount', -18_000);
+    }
+
+    public function test_return_uses_sale_escrow_snapshot_instead_of_turning_the_correction_into_profit(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Snapshot', 'shop-sale-snapshot');
+        $order = $this->createOrder($store, 'SHOPEE-SALE-SNAPSHOT', 'COMPLETED', -13_200);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(0, 45),
+            'order_selling_price' => 0,
+            'sale_escrow_amount' => 244_562,
+            'fee_details' => [
+                'reverse_shipping_fee' => 6_700,
+                'seller_return_refund' => 285_000,
+                'final_shipping_fee' => -6_500,
+            ],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 185_000);
+
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'SHOPEE-SALE-SNAPSHOT-RETURN',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 285_000,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(8, 58),
+        ]));
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?analytics_period=last_3_days',
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('analytics.points.0.escrow_amount', 244_562)
+            ->assertJsonPath('analytics.points.0.profit_amount', 59_562)
+            ->assertJsonPath('analytics.points.2.hpp_amount', -185_000)
+            ->assertJsonPath('analytics.points.2.escrow_amount', -257_762)
+            ->assertJsonPath('analytics.points.2.profit_amount', -72_762)
+            ->assertJsonPath('analytics.totals.profit_amount', -13_200);
+    }
+
+    public function test_legacy_return_without_snapshot_uses_item_revenue_as_a_safe_reconstruction_base(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Legacy Return', 'shop-legacy-return');
+        $order = $this->createOrder($store, 'SHOPEE-LEGACY-RETURN', 'COMPLETED', -13_200);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(0, 45),
+            'order_selling_price' => 0,
+            'fee_details' => [
+                'reverse_shipping_fee' => 6_700,
+                'seller_return_refund' => 285_000,
+                'final_shipping_fee' => -6_500,
+            ],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 185_000);
+        $order->orderProducts()->update(['price' => 285_000]);
+
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'SHOPEE-LEGACY-RETURN-1',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 285_000,
+            'created_at_platform' => now('Asia/Jakarta')->setTime(8, 58),
+        ]));
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?analytics_period=last_3_days',
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('analytics.points.0.escrow_amount', 278_500)
+            ->assertJsonPath('analytics.points.0.profit_amount', 93_500)
+            ->assertJsonPath('analytics.points.2.escrow_amount', -291_700)
+            ->assertJsonPath('analytics.points.2.profit_amount', -106_700)
+            ->assertJsonPath('analytics.totals.profit_amount', -13_200);
     }
 
     public function test_old_order_return_is_loaded_into_the_current_correction_period(): void

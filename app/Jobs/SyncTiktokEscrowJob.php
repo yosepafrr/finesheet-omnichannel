@@ -143,11 +143,18 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
             ]);
         }
 
-        $orderModel->update([
+        $updates = [
             'escrow_amount' => $escrowAmount,
             'fee_details' => $financeResult['details']
                 ?? ($hasValidExistingAmount ? $existingFeeDetails : null),
-        ]);
+        ];
+
+        $saleEscrowSnapshot = $resolver->saleSnapshot($orderModel, $financeResult);
+        if ($saleEscrowSnapshot !== null) {
+            $updates['sale_escrow_amount'] = $saleEscrowSnapshot;
+        }
+
+        $orderModel->update($updates);
 
         Log::info('TikTok Escrow Synced', [
             'order_id' => $this->orderId,

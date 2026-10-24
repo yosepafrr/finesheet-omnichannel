@@ -41,24 +41,37 @@ class ShopeeEscrowAmountResolver
             $feeDetails['return_order_sn_list'] = $returnOrderSns;
         }
 
-        return [
+        $resolvedEscrow = $this->resolveAmount(
+            $income['escrow_amount'] ?? null,
+            $order->escrow_amount,
+            $preservePositive
+        );
+        $resolvedAdjustedEscrow = $this->resolveAmount(
+            $income['escrow_amount_after_adjustment'] ?? null,
+            $order->escrow_amount_after_adjustment,
+            $preservePositive
+        );
+        $updates = [
             'order_selling_price' => $this->resolveAmount(
                 $income['order_selling_price'] ?? null,
                 $order->order_selling_price,
                 $preservePositive
             ),
-            'escrow_amount' => $this->resolveAmount(
-                $income['escrow_amount'] ?? null,
-                $order->escrow_amount,
-                $preservePositive
-            ),
-            'escrow_amount_after_adjustment' => $this->resolveAmount(
-                $income['escrow_amount_after_adjustment'] ?? null,
-                $order->escrow_amount_after_adjustment,
-                $preservePositive
-            ),
+            'escrow_amount' => $resolvedEscrow,
+            'escrow_amount_after_adjustment' => $resolvedAdjustedEscrow,
             'fee_details' => $feeDetails,
         ];
+
+        $saleEscrowSnapshot = $this->saleEscrowSnapshot(
+            $order,
+            $resolvedEscrow,
+            $resolvedAdjustedEscrow,
+        );
+        if ($saleEscrowSnapshot !== null) {
+            $updates['sale_escrow_amount'] = $saleEscrowSnapshot;
+        }
+
+        return $updates;
     }
 
     /** @return array<int, string> */
@@ -98,5 +111,29 @@ class ShopeeEscrowAmountResolver
         }
 
         return $incoming;
+    }
+
+    private function saleEscrowSnapshot(
+        Order $order,
+        mixed $resolvedEscrow,
+        mixed $resolvedAdjustedEscrow,
+    ): ?float {
+        if (is_numeric($order->sale_escrow_amount)
+            && (float) $order->sale_escrow_amount > 0) {
+            return null;
+        }
+
+        foreach ([
+            $order->escrow_amount,
+            $resolvedEscrow,
+            $order->escrow_amount_after_adjustment,
+            $resolvedAdjustedEscrow,
+        ] as $amount) {
+            if (is_numeric($amount) && (float) $amount > 0) {
+                return (float) $amount;
+            }
+        }
+
+        return null;
     }
 }

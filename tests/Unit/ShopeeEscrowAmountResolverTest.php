@@ -40,6 +40,7 @@ class ShopeeEscrowAmountResolverTest extends TestCase
         ]);
 
         $this->assertSame('141132', $updates['escrow_amount']);
+        $this->assertSame(141_132.0, $updates['sale_escrow_amount']);
     }
 
     public function test_terminal_order_can_accept_zero_from_platform(): void
@@ -73,5 +74,35 @@ class ShopeeEscrowAmountResolverTest extends TestCase
             ['261004ONKUV94K5'],
             $updates['fee_details']['return_order_sn_list'],
         );
+    }
+
+    public function test_positive_sale_escrow_is_snapshotted_before_a_negative_return_balance(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => 244_562,
+        ]);
+
+        $updates = (new ShopeeEscrowAmountResolver)->updates($order, [
+            'escrow_amount' => -13_200,
+        ]);
+
+        $this->assertSame(-13_200, $updates['escrow_amount']);
+        $this->assertSame(244_562.0, $updates['sale_escrow_amount']);
+    }
+
+    public function test_existing_sale_escrow_snapshot_is_never_overwritten(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => -13_200,
+            'sale_escrow_amount' => 244_562,
+        ]);
+
+        $updates = (new ShopeeEscrowAmountResolver)->updates($order, [
+            'escrow_amount' => 285_000,
+        ]);
+
+        $this->assertArrayNotHasKey('sale_escrow_amount', $updates);
     }
 }
