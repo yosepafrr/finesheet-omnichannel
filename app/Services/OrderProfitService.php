@@ -8,18 +8,10 @@ use Illuminate\Support\Collection;
 
 class OrderProfitService
 {
-    private const PROFIT_CORRECTION_COMPONENTS = [
-        'refund_amount',
-        'refund_amount_to_buyer',
-        'reverse_shipping_fee',
-        'reverse_shipping_fee_sst',
-        'seller_return_refund',
-    ];
-
     public function __construct(
         private readonly OrderEscrowService $escrowService,
         private readonly ProductHppService $hppService,
-        private readonly OrderFinancialBreakdownService $financialBreakdownService,
+        private readonly HistoricalSaleEscrowEstimator $historicalSaleEscrowEstimator,
     ) {}
 
     /**
@@ -30,14 +22,18 @@ class OrderProfitService
      *     profit_amount: float,
      *     sale_escrow_amount: float,
      *     sale_profit_amount: float,
+     *     sale_escrow_source: string,
+     *     sale_escrow_is_estimated: bool,
+     *     sale_escrow_sample_size: int,
      *     has_missing_hpp: bool
      * }>
      */
     public function summaries(Collection $orders): Collection
     {
         $this->hydrateMarketplaceProducts($orders);
+        $historicalEstimates = $this->historicalSaleEscrowEstimator->estimates($orders);
 
-        return $orders->mapWithKeys(function (Order $order) {
+        return $orders->mapWithKeys(function (Order $order) use ($historicalEstimates) {
             $hppAmount = 0.0;
             $hasMissingHpp = $order->orderProducts->isEmpty();
 
@@ -48,64 +44,98 @@ class OrderProfitService
             }
 
             $escrowAmount = (float) $this->escrowService->amount($order);
-            $saleEscrowAmount = $this->saleEscrowAmount($order, $escrowAmount);
+            $saleEscrow = $this->saleEscrow(
+                $order,
+                $escrowAmount,
+                $historicalEstimates->get($order->id),
+            );
 
             return [$order->id => [
                 'hpp_amount' => $hppAmount,
                 'escrow_amount' => $escrowAmount,
                 'profit_amount' => $escrowAmount - $hppAmount,
-                'sale_escrow_amount' => $saleEscrowAmount,
-                'sale_profit_amount' => $saleEscrowAmount - $hppAmount,
+                'sale_escrow_amount' => $saleEscrow['amount'],
+                'sale_profit_amount' => $saleEscrow['amount'] - $hppAmount,
+                'sale_escrow_source' => $saleEscrow['source'],
+                'sale_escrow_is_estimated' => $saleEscrow['is_estimated'],
+                'sale_escrow_sample_size' => $saleEscrow['sample_size'],
                 'has_missing_hpp' => $hasMissingHpp,
             ]];
         });
     }
 
-    private function saleEscrowAmount(Order $order, float $currentEscrowAmount): float
-    {
+    /**
+     * @param  array{amount: float, source: string, is_estimated: bool, sample_size: int}|null  $historicalEstimate
+     * @return array{amount: float, source: string, is_estimated: bool, sample_size: int}
+     */
+    private function saleEscrow(
+        Order $order,
+        float $currentEscrowAmount,
+        ?array $historicalEstimate,
+    ): array {
         if (! $this->escrowService->hasReturnOrFailedDelivery($order)) {
-            return $currentEscrowAmount;
+            return $this->saleEscrowResult(
+                $currentEscrowAmount,
+                'current_platform',
+                false,
+            );
         }
 
         if (is_numeric($order->sale_escrow_amount)
             && (float) $order->sale_escrow_amount > 0) {
-            return (float) $order->sale_escrow_amount;
+            return $this->saleEscrowResult(
+                (float) $order->sale_escrow_amount,
+                $order->sale_escrow_source ?: 'platform_snapshot',
+                (bool) $order->sale_escrow_is_estimated,
+                (int) ($order->sale_escrow_sample_size ?? 0),
+            );
         }
 
         // Some marketplaces keep the positive sale settlement on the order
         // while separately reporting the return. That value is more reliable
         // than reconstructing net income from a post-return payload.
         if ($currentEscrowAmount > 0) {
-            return $currentEscrowAmount;
+            return $this->saleEscrowResult(
+                $currentEscrowAmount,
+                'current_platform',
+                false,
+            );
         }
 
         if (is_numeric($order->escrow_amount_after_adjustment)
             && (float) $order->escrow_amount_after_adjustment > 0) {
-            return (float) $order->escrow_amount_after_adjustment;
+            return $this->saleEscrowResult(
+                (float) $order->escrow_amount_after_adjustment,
+                'adjusted_platform',
+                false,
+            );
         }
 
-        $breakdown = $this->financialBreakdownService->forOrder($order);
-        $itemGrossAmount = (float) $order->orderProducts->sum(
-            fn ($item) => (float) ($item->price ?? 0)
-                * max(0, (int) ($item->quantity_purchased ?? 0)),
-        );
-        $estimatedAmount = max(
-            (float) $breakdown['gross_amount'],
-            $itemGrossAmount,
-        );
-
-        foreach ($breakdown['components'] as $component) {
-            if (in_array($component['key'], self::PROFIT_CORRECTION_COMPONENTS, true)
-                || $component['key'] === 'platform_adjustment') {
-                continue;
-            }
-
-            $estimatedAmount += $component['operator'] === '+'
-                ? (float) $component['amount']
-                : -(float) $component['amount'];
+        if ($historicalEstimate !== null) {
+            return $this->saleEscrowResult(
+                (float) $historicalEstimate['amount'],
+                (string) $historicalEstimate['source'],
+                (bool) $historicalEstimate['is_estimated'],
+                (int) $historicalEstimate['sample_size'],
+            );
         }
 
-        return max(0, $estimatedAmount);
+        return $this->saleEscrowResult(0, 'unavailable', true);
+    }
+
+    /** @return array{amount: float, source: string, is_estimated: bool, sample_size: int} */
+    private function saleEscrowResult(
+        float $amount,
+        string $source,
+        bool $isEstimated,
+        int $sampleSize = 0,
+    ): array {
+        return [
+            'amount' => $amount,
+            'source' => $source,
+            'is_estimated' => $isEstimated,
+            'sample_size' => $sampleSize,
+        ];
     }
 
     /** @param Collection<int, Order> $orders */

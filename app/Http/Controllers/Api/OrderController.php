@@ -282,7 +282,8 @@ class OrderController extends Controller
         OrderFinancialBreakdownService $financialBreakdownService,
         LogisticsStatusNormalizer $logisticsStatusNormalizer,
         TiktokEscrowAmountResolver $tiktokEscrowResolver,
-        PayableService $payableService
+        PayableService $payableService,
+        OrderProfitService $profitService,
     ) {
         $user = Auth::user();
         $stores = $user->stores()->pluck('id');
@@ -345,6 +346,19 @@ class OrderController extends Controller
 
         $financialBreakdown = $financialBreakdownService->forOrder($order);
         $financialBreakdown['sync_pending'] = $financeSyncPending;
+        $financialSummary = $profitService->summaries(collect([$order]))->get($order->id, []);
+        $financialBreakdown['has_financial_correction'] = $escrowService
+            ->hasReturnOrFailedDelivery($order);
+        $financialBreakdown['sale_escrow_amount'] = (float) (
+            $financialSummary['sale_escrow_amount'] ?? $financialBreakdown['escrow_amount']
+        );
+        $financialBreakdown['sale_escrow_source'] = $financialSummary['sale_escrow_source'] ?? null;
+        $financialBreakdown['sale_escrow_is_estimated'] = (bool) (
+            $financialSummary['sale_escrow_is_estimated'] ?? false
+        );
+        $financialBreakdown['sale_escrow_sample_size'] = (int) (
+            $financialSummary['sale_escrow_sample_size'] ?? 0
+        );
 
         $orderData = [
             'id' => $order->id,

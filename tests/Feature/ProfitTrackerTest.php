@@ -740,6 +740,150 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('analytics.totals.profit_amount', -13_200);
     }
 
+    public function test_legacy_failed_delivery_uses_nearby_same_sku_net_escrow_ratio(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Historical', 'shop-historical-ratio');
+
+        foreach ([80_000, 82_000, 84_000] as $index => $escrowAmount) {
+            $candidate = $this->createOrder(
+                $store,
+                'HISTORICAL-CANDIDATE-'.$index,
+                'COMPLETED',
+                $escrowAmount,
+            );
+            $candidate->forceFill([
+                'order_time' => now('Asia/Jakarta')->subDays(30 + $index),
+                'order_selling_price' => 100_000,
+                'fee_details' => ['escrow_amount' => $escrowAmount],
+            ])->saveQuietly();
+            $this->attachHppItem($candidate, 50_000);
+            $candidate->orderProducts()->update([
+                'sku' => 'SHARED-HISTORICAL-SKU',
+                'price' => 100_000,
+            ]);
+        }
+
+        $order = $this->createOrder($store, 'LEGACY-ZERO-ESCROW', 'COMPLETED', 0);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(10, 0),
+            'order_selling_price' => 200_000,
+            'fee_details' => [
+                'seller_return_refund' => 200_000,
+            ],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 120_000);
+        $order->orderProducts()->update([
+            'sku' => 'SHARED-HISTORICAL-SKU',
+            'price' => 200_000,
+        ]);
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'package_id' => 'LEGACY-ZERO-ESCROW-PACKAGE',
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+            'failed_at' => now('Asia/Jakarta')->setTime(11, 0),
+            'raw_data' => [],
+        ]));
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?analytics_period=last_3_days',
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('analytics.points.0.escrow_amount', 164_000)
+            ->assertJsonPath('analytics.points.0.profit_amount', 44_000)
+            ->assertJsonPath('analytics.points.2.escrow_amount', -164_000)
+            ->assertJsonPath('analytics.points.2.profit_amount', -44_000)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 2);
+
+        $breakdown = $this->actingAs($user)->getJson(
+            '/api/profit-tracker/breakdown?bucket='.
+            now('Asia/Jakarta')->toDateString().'&granularity=day',
+        );
+
+        $breakdown
+            ->assertOk()
+            ->assertJsonPath('events.0.escrow_source', 'estimated_sku_ratio')
+            ->assertJsonPath('events.0.escrow_is_estimated', true)
+            ->assertJsonPath('events.0.escrow_sample_size', 3);
+
+        $this->actingAs($user)
+            ->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('order.financial_breakdown.escrow_amount', 0)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 164_000)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'estimated_sku_ratio')
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', true)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_sample_size', 3);
+
+        $this->artisan('profit:backfill-sale-escrow', [
+            '--order_sn' => $order->order_sn,
+        ])->assertSuccessful();
+
+        $order->refresh();
+        $this->assertSame(164_000.0, $order->sale_escrow_amount);
+        $this->assertSame('estimated_sku_ratio', $order->sale_escrow_source);
+        $this->assertTrue($order->sale_escrow_is_estimated);
+        $this->assertSame(3, $order->sale_escrow_sample_size);
+        $this->assertSame(0.82, $order->sale_escrow_ratio);
+    }
+
+    public function test_terminal_tiktok_payload_recovers_the_positive_sale_transaction(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Historical', 'shop-tiktok-history');
+        $order = $this->createOrder($store, 'TIKTOK-POSITIVE-SALE-LEG', 'COMPLETED', 0);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->subDays(2)->setTime(10, 0),
+            'order_selling_price' => 176_000,
+            'fee_details' => [
+                'source' => 'settled',
+                'summary' => ['settlement_amount' => 0],
+                'transactions' => [
+                    ['settlement_amount' => 140_000],
+                    ['settlement_amount' => -140_000],
+                ],
+            ],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 130_000);
+        $order->orderProducts()->update(['price' => 176_000]);
+
+        OrderPackage::withoutEvents(fn () => OrderPackage::create([
+            'order_id' => $order->id,
+            'platform' => 'Tiktokshop',
+            'package_id' => 'TIKTOK-POSITIVE-SALE-LEG-PACKAGE',
+            'normalized_logistics_status' => 'DELIVERY_FAILED',
+            'failed_at' => now('Asia/Jakarta')->setTime(11, 0),
+            'raw_data' => [],
+        ]));
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?analytics_period=last_3_days',
+        );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('analytics.points.0.escrow_amount', 140_000)
+            ->assertJsonPath('analytics.points.0.profit_amount', 10_000)
+            ->assertJsonPath('analytics.points.2.escrow_amount', -140_000)
+            ->assertJsonPath('analytics.points.2.profit_amount', -10_000)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 0);
+
+        $breakdown = $this->actingAs($user)->getJson(
+            '/api/profit-tracker/breakdown?bucket='.
+            now('Asia/Jakarta')->toDateString().'&granularity=day',
+        );
+
+        $breakdown
+            ->assertOk()
+            ->assertJsonPath('events.0.escrow_source', 'platform_history')
+            ->assertJsonPath('events.0.escrow_is_estimated', false)
+            ->assertJsonPath('events.0.escrow_amount', -140_000);
+    }
+
     public function test_old_order_return_is_loaded_into_the_current_correction_period(): void
     {
         $user = User::factory()->create();

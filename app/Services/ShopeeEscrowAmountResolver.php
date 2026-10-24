@@ -69,6 +69,10 @@ class ShopeeEscrowAmountResolver
         );
         if ($saleEscrowSnapshot !== null) {
             $updates['sale_escrow_amount'] = $saleEscrowSnapshot;
+            $updates['sale_escrow_source'] = 'platform_api';
+            $updates['sale_escrow_is_estimated'] = false;
+            $updates['sale_escrow_sample_size'] = 0;
+            $updates['sale_escrow_ratio'] = null;
         }
 
         return $updates;

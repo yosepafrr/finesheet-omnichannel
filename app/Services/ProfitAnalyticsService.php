@@ -78,6 +78,7 @@ class ProfitAnalyticsService
                 'key' => $bucketKey,
                 'order_count' => $bucketSales->count(),
                 'correction_count' => $bucketCorrections->count(),
+                'estimated_escrow_count' => $bucketEvents->where('escrow_is_estimated', true)->count(),
                 'hpp_amount' => (float) $bucketEvents->sum('hpp_amount'),
                 'escrow_amount' => (float) $bucketEvents->sum('escrow_amount'),
                 'gross_profit_amount' => $grossProfit,
@@ -102,6 +103,7 @@ class ProfitAnalyticsService
             'totals' => [
                 'order_count' => (int) $points->sum('order_count'),
                 'correction_count' => (int) $points->sum('correction_count'),
+                'estimated_escrow_count' => (int) $points->sum('estimated_escrow_count'),
                 'hpp_amount' => (float) $points->sum('hpp_amount'),
                 'escrow_amount' => (float) $points->sum('escrow_amount'),
                 'gross_profit_amount' => (float) $points->sum('gross_profit_amount'),
@@ -163,6 +165,9 @@ class ProfitAnalyticsService
                 'escrow_amount' => 0.0,
                 'profit_amount' => -$amount,
                 'affected_ratio' => null,
+                'escrow_source' => null,
+                'escrow_is_estimated' => false,
+                'escrow_sample_size' => 0,
                 'reason' => 'Pengeluaran iklan harian toko',
                 'item_summary' => null,
             ];
@@ -181,6 +186,7 @@ class ProfitAnalyticsService
                 'sale_count' => $financialEvents->where('kind', 'sale')->count(),
                 'correction_count' => $financialEvents->where('kind', 'correction')->count(),
                 'ad_spend_count' => $adSpendEvents->count(),
+                'estimated_escrow_count' => $financialEvents->where('escrow_is_estimated', true)->count(),
                 'hpp_amount' => (float) $financialEvents->sum('hpp_amount'),
                 'escrow_amount' => (float) $financialEvents->sum('escrow_amount'),
                 'gross_profit_amount' => (float) $financialEvents->sum('profit_amount'),
@@ -235,6 +241,9 @@ class ProfitAnalyticsService
                     (float) $summary['sale_profit_amount'],
                     null,
                     null,
+                    (string) ($summary['sale_escrow_source'] ?? 'current_platform'),
+                    (bool) ($summary['sale_escrow_is_estimated'] ?? false),
+                    (int) ($summary['sale_escrow_sample_size'] ?? 0),
                 ));
             }
 
@@ -254,6 +263,9 @@ class ProfitAnalyticsService
                 $correction['profit_amount'],
                 $correction['affected_ratio'],
                 $correction['reason'],
+                (string) ($summary['sale_escrow_source'] ?? 'current_platform'),
+                (bool) ($summary['sale_escrow_is_estimated'] ?? false),
+                (int) ($summary['sale_escrow_sample_size'] ?? 0),
             ));
         }
 
@@ -273,6 +285,9 @@ class ProfitAnalyticsService
         float $profitAmount,
         ?float $affectedRatio,
         ?string $reason,
+        string $escrowSource,
+        bool $escrowIsEstimated,
+        int $escrowSampleSize,
     ): array {
         return [
             'id' => $kind.':'.$order->id,
@@ -293,6 +308,9 @@ class ProfitAnalyticsService
             'escrow_amount' => $escrowAmount,
             'profit_amount' => $profitAmount,
             'affected_ratio' => $affectedRatio,
+            'escrow_source' => $escrowSource,
+            'escrow_is_estimated' => $escrowIsEstimated,
+            'escrow_sample_size' => $escrowSampleSize,
             'reason' => $reason,
             'item_summary' => $this->itemSummary($order),
         ];

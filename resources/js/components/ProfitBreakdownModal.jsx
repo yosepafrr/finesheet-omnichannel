@@ -82,6 +82,11 @@ function EventRow({ event, onOpenOrder }) {
                                 {Math.round(Number(event.affected_ratio) * 100)}% item
                             </span>
                         )}
+                        {event.escrow_is_estimated && (
+                            <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                Escrow estimasi
+                            </span>
+                        )}
                     </div>
                     <button
                         type="button"
@@ -282,6 +287,12 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
                                     </button>
                                 ))}
                             </div>
+
+                            {Number(data.totals.estimated_escrow_count || 0) > 0 && (
+                                <div className="border-b border-amber-200 bg-amber-50/80 px-4 py-2.5 text-xs leading-relaxed text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300 sm:px-5">
+                                    {data.totals.estimated_escrow_count} event memakai escrow penjualan historis yang direkonstruksi. Setiap nilainya ditandai dengan badge agar dapat dibedakan dari data platform asli.
+                                </div>
+                            )}
 
                             <div className="hidden grid-cols-[minmax(0,1fr)_110px_120px_125px_28px] border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-[10px] font-bold uppercase text-slate-400 dark:border-slate-700 dark:bg-slate-900/30 md:grid">
                                 <span>Event</span>

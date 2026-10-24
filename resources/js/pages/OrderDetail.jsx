@@ -243,6 +243,11 @@ export default function OrderDetail({ routeParams }) {
     const financialBreakdown = order.financial_breakdown || {
         gross_amount: order.order_selling_price,
         escrow_amount: order.escrow_amount,
+        sale_escrow_amount: order.escrow_amount,
+        sale_escrow_source: null,
+        sale_escrow_is_estimated: false,
+        sale_escrow_sample_size: 0,
+        has_financial_correction: false,
         components: [],
         is_affiliate: false,
         affiliate_percentage: null,
@@ -392,6 +397,15 @@ export default function OrderDetail({ routeParams }) {
                                         Nilai ini masih estimasi. TikTok menyediakan rincian biaya final setelah statement transaksi tersedia.
                                     </div>
                                 )}
+                                {financialBreakdown.has_financial_correction && financialBreakdown.sale_escrow_is_estimated && (
+                                    <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                                        Escrow penjualan lama sudah direkonstruksi
+                                        {financialBreakdown.sale_escrow_sample_size > 0
+                                            ? ` dari ${financialBreakdown.sale_escrow_sample_size} pesanan pembanding terdekat`
+                                            : " dari data finansial yang masih tersedia"}.
+                                        Nilai ini ditandai sebagai estimasi karena platform hanya mengembalikan saldo akhir setelah koreksi.
+                                    </div>
+                                )}
                                 <div className="flex items-start justify-between gap-4 py-2 text-gray-700 dark:text-slate-300">
                                     <span className="font-semibold">Penghasilan kotor</span>
                                     <span className="font-semibold tabular-nums">{formatRp(financialBreakdown.gross_amount)}</span>
@@ -417,11 +431,36 @@ export default function OrderDetail({ routeParams }) {
                                     </div>
                                 ))}
 
+                                {financialBreakdown.has_financial_correction && Number(financialBreakdown.sale_escrow_amount || 0) > 0 && (
+                                    <div className="mt-2 flex items-center justify-between gap-4 border-t border-dashed border-slate-200 py-3 dark:border-slate-600">
+                                        <div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <p className="font-semibold text-gray-700 dark:text-slate-200">Escrow penjualan sebelum koreksi</p>
+                                                {financialBreakdown.sale_escrow_is_estimated && (
+                                                    <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                                        Estimasi
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-[11px] text-gray-500 dark:text-slate-400">Nilai bersih saat pesanan masih menjadi penjualan</p>
+                                        </div>
+                                        <span className="shrink-0 font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+                                            {formatRp(financialBreakdown.sale_escrow_amount)}
+                                        </span>
+                                    </div>
+                                )}
+
                                 <div className="mt-2 border-t-2 border-gray-200 pt-3 dark:border-slate-600">
                                     <div className="flex items-center justify-between gap-4 rounded-lg bg-blue-50 px-3 py-3 dark:bg-blue-900/20">
                                         <div>
-                                            <p className="font-bold text-gray-900 dark:text-white">Escrow</p>
-                                            <p className="text-[11px] text-gray-500 dark:text-slate-400">Penghasilan bersih dari platform</p>
+                                            <p className="font-bold text-gray-900 dark:text-white">
+                                                {financialBreakdown.has_financial_correction ? "Escrow akhir" : "Escrow"}
+                                            </p>
+                                            <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                                                {financialBreakdown.has_financial_correction
+                                                    ? "Saldo setelah pengembalian atau pengantaran gagal"
+                                                    : "Penghasilan bersih dari platform"}
+                                            </p>
                                         </div>
                                         <span className="text-base font-bold tabular-nums text-[#304674] dark:text-blue-300">
                                             {formatRp(financialBreakdown.escrow_amount)}
