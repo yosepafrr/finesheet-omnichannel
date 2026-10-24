@@ -35,7 +35,9 @@ class ProfitAnalyticsService
         int $shopeeStoreCount,
     ): array {
         $events = $this->financialEvents($orders, $financialSummaries, $period);
+        $potentialAdjustments = $this->potentialAdjustments($orders, $financialSummaries, $period);
         $groupedEvents = $events->groupBy('bucket_key');
+        $groupedPotentialAdjustments = $potentialAdjustments->groupBy('bucket_key');
         $groupedAdSpends = $adSpends->groupBy(function (MarketplaceAdSpend $spend) use ($period) {
             return $period['granularity'] === 'month'
                 ? $spend->spend_date->format('Y-m')
@@ -52,7 +54,7 @@ class ProfitAnalyticsService
                 : $cursor->format('Y-m-d');
             $bucketEvents = $groupedEvents->get($bucketKey, collect());
             $bucketSales = $bucketEvents->where('kind', 'sale');
-            $bucketCorrections = $bucketEvents->where('kind', 'correction');
+            $bucketPotentialAdjustments = $groupedPotentialAdjustments->get($bucketKey, collect());
             $bucketAdSpends = $groupedAdSpends->get($bucketKey, collect());
             $grossProfit = (float) $bucketEvents->sum('profit_amount');
             $adSpendAmount = (float) $bucketAdSpends->sum('amount');
@@ -77,12 +79,13 @@ class ProfitAnalyticsService
             $points->push([
                 'key' => $bucketKey,
                 'order_count' => $bucketSales->count(),
-                'correction_count' => $bucketCorrections->count(),
+                'correction_count' => 0,
+                'potential_adjustment_count' => $bucketPotentialAdjustments->count(),
                 'estimated_escrow_count' => $bucketEvents->where('escrow_is_estimated', true)->count(),
                 'hpp_amount' => (float) $bucketEvents->sum('hpp_amount'),
                 'escrow_amount' => (float) $bucketEvents->sum('escrow_amount'),
                 'gross_profit_amount' => $grossProfit,
-                'correction_profit_amount' => (float) $bucketCorrections->sum('profit_amount'),
+                'correction_profit_amount' => 0.0,
                 'ad_spend_amount' => $adSpendAmount,
                 'profit_amount' => $grossProfit - $adSpendAmount,
                 'ad_spend_synced' => $bucketAdSpends->isNotEmpty(),
@@ -102,7 +105,8 @@ class ProfitAnalyticsService
             'granularity' => $period['granularity'],
             'totals' => [
                 'order_count' => (int) $points->sum('order_count'),
-                'correction_count' => (int) $points->sum('correction_count'),
+                'correction_count' => 0,
+                'potential_adjustment_count' => (int) $points->sum('potential_adjustment_count'),
                 'estimated_escrow_count' => (int) $points->sum('estimated_escrow_count'),
                 'hpp_amount' => (float) $points->sum('hpp_amount'),
                 'escrow_amount' => (float) $points->sum('escrow_amount'),
@@ -146,6 +150,10 @@ class ProfitAnalyticsService
     ): array {
         $financialEvents = $this->financialEvents($orders, $financialSummaries, $period)
             ->map(fn (array $event) => collect($event)->except('bucket_key')->all());
+        $potentialAdjustments = $this->potentialAdjustments($orders, $financialSummaries, $period)
+            ->map(fn (array $event) => collect($event)->except('bucket_key')->all())
+            ->sortByDesc(fn (array $event) => $event['occurred_at'])
+            ->values();
         $adSpendEvents = $adSpends->map(function (MarketplaceAdSpend $spend) {
             $amount = (float) $spend->amount;
 
@@ -184,7 +192,8 @@ class ProfitAnalyticsService
             'granularity' => $period['granularity'],
             'totals' => [
                 'sale_count' => $financialEvents->where('kind', 'sale')->count(),
-                'correction_count' => $financialEvents->where('kind', 'correction')->count(),
+                'correction_count' => 0,
+                'potential_adjustment_count' => $potentialAdjustments->count(),
                 'ad_spend_count' => $adSpendEvents->count(),
                 'estimated_escrow_count' => $financialEvents->where('escrow_is_estimated', true)->count(),
                 'hpp_amount' => (float) $financialEvents->sum('hpp_amount'),
@@ -194,6 +203,7 @@ class ProfitAnalyticsService
                 'profit_amount' => (float) $events->sum('profit_amount'),
             ],
             'events' => $events,
+            'potential_adjustments' => $potentialAdjustments,
         ];
     }
 
@@ -226,6 +236,14 @@ class ProfitAnalyticsService
             $saleDate = $this->date($order->order_time ?? $order->created_at);
             $correction = $this->correctionService->forOrder($order, $summary);
 
+            // Until marketplace return balances are unambiguous, orders with
+            // an active return or confirmed failed delivery are information
+            // only. Exclude both their original sale and correction so a
+            // terminal order can never masquerade as a regular sale.
+            if ($correction) {
+                continue;
+            }
+
             if ($saleDate
                 && $this->within($saleDate, $period)
                 && $this->escrowService->isProfitAnalyticsSaleEligible($order)) {
@@ -246,30 +264,56 @@ class ProfitAnalyticsService
                     (int) ($summary['sale_escrow_sample_size'] ?? 0),
                 ));
             }
-
-            if (! $correction || ! $this->within($correction['occurred_at'], $period)) {
-                continue;
-            }
-
-            $events->push($this->orderEvent(
-                $order,
-                $correction['occurred_at'],
-                $period,
-                'correction',
-                $correction['type'],
-                $correction['label'],
-                $correction['hpp_amount'],
-                $correction['escrow_amount'],
-                $correction['profit_amount'],
-                $correction['affected_ratio'],
-                $correction['reason'],
-                (string) ($summary['sale_escrow_source'] ?? 'current_platform'),
-                (bool) ($summary['sale_escrow_is_estimated'] ?? false),
-                (int) ($summary['sale_escrow_sample_size'] ?? 0),
-            ));
         }
 
         return $events;
+    }
+
+    /**
+     * @param  Collection<int, Order>  $orders
+     * @param  Collection<int, array<string, mixed>>  $financialSummaries
+     * @param  array{key: string, start: Carbon, end: Carbon, granularity: string}  $period
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function potentialAdjustments(
+        Collection $orders,
+        Collection $financialSummaries,
+        array $period,
+    ): Collection {
+        return $orders->map(function (Order $order) use ($financialSummaries, $period) {
+            if ($this->escrowService->isPreShipmentCancellation($order)) {
+                return null;
+            }
+
+            $summary = $financialSummaries->get($order->id);
+            if (! $summary) {
+                return null;
+            }
+
+            $correction = $this->correctionService->forOrder($order, $summary);
+            if (! $correction || ! $this->within($correction['occurred_at'], $period)) {
+                return null;
+            }
+
+            return [
+                'id' => 'potential-adjustment:'.$order->id,
+                'bucket_key' => $period['granularity'] === 'month'
+                    ? $correction['occurred_at']->format('Y-m')
+                    : $correction['occurred_at']->format('Y-m-d'),
+                'kind' => 'potential_adjustment',
+                'type' => $correction['type'],
+                'label' => $correction['label'],
+                'occurred_at' => $correction['occurred_at']->toIso8601String(),
+                'order_id' => $order->id,
+                'order_sn' => $order->order_sn,
+                'store_id' => $order->store_id,
+                'store_name' => $order->store?->store_name,
+                'platform' => $order->platform,
+                'status' => $order->order_status,
+                'reason' => $correction['reason'],
+                'item_summary' => $this->itemSummary($order),
+            ];
+        })->filter()->values();
     }
 
     /** @param array{key: string, start: Carbon, end: Carbon, granularity: string} $period */

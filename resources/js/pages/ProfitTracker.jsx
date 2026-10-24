@@ -582,7 +582,7 @@ export default function ProfitTracker() {
                                             <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
                                             <span className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold uppercase text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">Iklan Shopee</span>
                                         </div>
-                                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia.</p>
+                                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia. Pesanan cancel/return ditampilkan terpisah sebagai informasi.</p>
                                     </div>
 
                                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -686,6 +686,18 @@ export default function ProfitTracker() {
                                             ))}
                                         </div>
 
+                                        {Number(analytics.totals.potential_adjustment_count || 0) > 0 && (
+                                            <div className="flex items-start gap-3 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500 dark:bg-amber-500/10 dark:text-amber-200" role="status">
+                                                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                                <div className="min-w-0 text-xs leading-relaxed">
+                                                    <p className="font-bold">
+                                                        {analytics.totals.potential_adjustment_count.toLocaleString("id-ID")} pesanan cancel/return belum dimasukkan ke perhitungan.
+                                                    </p>
+                                                    <p>Klik periode yang memiliki penanda cancel/return untuk melihat daftar pesanannya.</p>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 md:block">
                                             <div className="max-h-[520px] overflow-auto">
                                                 <table className="w-full text-left text-sm">
@@ -711,9 +723,9 @@ export default function ProfitTracker() {
                                                                 <td className="px-5 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatPeriodLabel(point.key, analytics.granularity)}</td>
                                                                 <td className="px-5 py-3 text-right text-slate-600 dark:text-slate-300">
                                                                     <span className="block">{point.order_count.toLocaleString("id-ID")}</span>
-                                                                    {Number(point.correction_count || 0) > 0 && (
-                                                                        <span className="block text-[10px] font-semibold text-red-500 dark:text-red-400">
-                                                                            {point.correction_count.toLocaleString("id-ID")} koreksi
+                                                                    {Number(point.potential_adjustment_count || 0) > 0 && (
+                                                                        <span className="block text-[10px] font-semibold text-amber-600 underline decoration-amber-300 underline-offset-2 dark:text-amber-400">
+                                                                            {point.potential_adjustment_count.toLocaleString("id-ID")} cancel/return
                                                                         </span>
                                                                     )}
                                                                 </td>
@@ -744,9 +756,9 @@ export default function ProfitTracker() {
                                                             <td className="px-5 py-3 text-slate-700 dark:text-slate-200">Total</td>
                                                             <td className="px-5 py-3 text-right text-slate-700 dark:text-slate-200">
                                                                 <span className="block">{analytics.totals.order_count.toLocaleString("id-ID")}</span>
-                                                                {Number(analytics.totals.correction_count || 0) > 0 && (
-                                                                    <span className="block text-[10px] text-red-500 dark:text-red-400">
-                                                                        {analytics.totals.correction_count.toLocaleString("id-ID")} koreksi
+                                                                {Number(analytics.totals.potential_adjustment_count || 0) > 0 && (
+                                                                    <span className="block text-[10px] text-amber-600 dark:text-amber-400">
+                                                                        {analytics.totals.potential_adjustment_count.toLocaleString("id-ID")} cancel/return
                                                                     </span>
                                                                 )}
                                                             </td>
@@ -776,7 +788,7 @@ export default function ProfitTracker() {
                                                         <span className="inline-flex items-center gap-1.5">
                                                             <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                                                 {point.order_count} pesanan
-                                                                {Number(point.correction_count || 0) > 0 ? ` / ${point.correction_count} koreksi` : ""}
+                                                                {Number(point.potential_adjustment_count || 0) > 0 ? ` / ${point.potential_adjustment_count} cancel/return` : ""}
                                                             </span>
                                                             <ChevronRight size={15} className="text-slate-400" aria-hidden="true" />
                                                         </span>

@@ -1,5 +1,6 @@
 import axios from "axios";
 import {
+    ArrowLeft,
     ArrowDownRight,
     ArrowUpRight,
     ChevronRight,
@@ -145,11 +146,58 @@ function EventRow({ event, onOpenOrder }) {
     );
 }
 
+function PotentialAdjustmentRow({ event, onOpenOrder }) {
+    return (
+        <div className="flex items-start gap-3 border-b border-slate-100 px-4 py-4 last:border-b-0 dark:border-slate-700/70 sm:px-5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300">
+                <PackageX size={17} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                        {event.label}
+                    </span>
+                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                        Tidak dihitung
+                    </span>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onOpenOrder(event.order_id)}
+                    className="mt-1 block max-w-full truncate text-left text-sm font-bold text-slate-800 hover:text-[#304674] dark:text-white dark:hover:text-blue-300"
+                >
+                    {event.order_sn}
+                </button>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                    {[event.store_name, event.platform, event.item_summary?.product_name].filter(Boolean).join(" / ")}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                    {formatDateTime(event.occurred_at)}
+                </p>
+                {event.reason && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                        {event.reason}
+                    </p>
+                )}
+            </div>
+            <button
+                type="button"
+                onClick={() => onOpenOrder(event.order_id)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-[#304674] dark:hover:bg-slate-700 dark:hover:text-blue-300"
+                aria-label={`Buka pesanan ${event.order_sn}`}
+            >
+                <ChevronRight size={16} aria-hidden="true" />
+            </button>
+        </div>
+    );
+}
+
 export default function ProfitBreakdownModal({ isOpen, point, granularity, storeId, onClose }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [activeFilter, setActiveFilter] = useState("all");
+    const [activeView, setActiveView] = useState("breakdown");
 
     useEffect(() => {
         if (!isOpen || !point?.key) return undefined;
@@ -159,6 +207,7 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
         setError("");
         setData(null);
         setActiveFilter("all");
+        setActiveView("breakdown");
 
         const params = {
             bucket: point.key,
@@ -207,9 +256,10 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
     const filterOptions = [
         { id: "all", label: "Semua", count: data?.events?.length || 0 },
         { id: "sale", label: "Penambah", count: data?.totals?.sale_count || 0 },
-        { id: "correction", label: "Koreksi", count: data?.totals?.correction_count || 0 },
         { id: "ad_spend", label: "Iklan", count: data?.totals?.ad_spend_count || 0 },
     ];
+    const potentialAdjustments = data?.potential_adjustments || [];
+    const showingPotentialAdjustments = activeView === "potential_adjustments";
 
     const openOrder = (orderId) => {
         if (!orderId) return;
@@ -226,12 +276,27 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
             <div role="dialog" aria-modal="true" aria-labelledby="profit-breakdown-title" className="relative z-10 flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
                 <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-700 sm:px-5">
                     <div className="flex min-w-0 items-start gap-3">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-300">
-                            <ReceiptText size={19} aria-hidden="true" />
+                        {showingPotentialAdjustments && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveView("breakdown")}
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#304674] dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-blue-300"
+                                aria-label="Kembali ke rincian profit"
+                            >
+                                <ArrowLeft size={18} aria-hidden="true" />
+                            </button>
+                        )}
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${showingPotentialAdjustments
+                            ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300"
+                            : "bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-300"
+                        }`}>
+                            {showingPotentialAdjustments
+                                ? <PackageX size={19} aria-hidden="true" />
+                                : <ReceiptText size={19} aria-hidden="true" />}
                         </span>
                         <div className="min-w-0">
                             <h2 id="profit-breakdown-title" className="text-base font-bold text-slate-900 dark:text-white">
-                                Rincian Profit
+                                {showingPotentialAdjustments ? "Daftar Cancel / Return" : "Rincian Profit"}
                             </h2>
                             <p className="truncate text-xs text-slate-500 dark:text-slate-400">{point?.label}</p>
                         </div>
@@ -258,7 +323,7 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
                         </div>
                     )}
 
-                    {!loading && !error && data && (
+                    {!loading && !error && data && !showingPotentialAdjustments && (
                         <>
                             <div className="grid grid-cols-2 border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 lg:grid-cols-4">
                                 {[
@@ -273,6 +338,28 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
                                     </div>
                                 ))}
                             </div>
+
+                            {potentialAdjustments.length > 0 && (
+                                <div className="flex flex-col gap-3 border-b border-amber-200 bg-amber-50/80 px-4 py-3 text-amber-900 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between sm:px-5" role="status">
+                                    <div className="flex min-w-0 items-start gap-2.5">
+                                        <PackageX size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+                                        <div className="text-xs leading-relaxed">
+                                            <p className="font-bold">
+                                                {potentialAdjustments.length} pesanan cancel/return berpotensi mengurangi profit periode ini.
+                                            </p>
+                                            <p>Untuk sementara pesanan tersebut tidak dimasukkan ke breakdown maupun perhitungan profit.</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveView("potential_adjustments")}
+                                        className="inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1.5 text-xs font-bold text-amber-900 underline decoration-amber-500 underline-offset-4 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-500/10 sm:self-center"
+                                    >
+                                        Cek daftar pesanan cancel/return
+                                        <ChevronRight size={14} aria-hidden="true" />
+                                    </button>
+                                </div>
+                            )}
 
                             <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-4 py-3 dark:border-slate-700 sm:px-5">
                                 {filterOptions.map((option) => (
@@ -314,6 +401,26 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
                                 <div className="flex min-h-48 flex-col items-center justify-center px-6 text-center text-slate-400">
                                     {activeFilter === "sale" ? <ArrowUpRight size={22} aria-hidden="true" /> : <ArrowDownRight size={22} aria-hidden="true" />}
                                     <p className="mt-2 text-sm font-semibold">Tidak ada data pada kategori ini.</p>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {!loading && !error && data && showingPotentialAdjustments && (
+                        <>
+                            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300 sm:px-5">
+                                Daftar ini hanya bersifat informasi. Seluruh pesanan di bawah belum memengaruhi total HPP, escrow, maupun profit pada analisis.
+                            </div>
+                            {potentialAdjustments.length > 0 ? (
+                                <div>
+                                    {potentialAdjustments.map((event) => (
+                                        <PotentialAdjustmentRow key={event.id} event={event} onOpenOrder={openOrder} />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center text-slate-400">
+                                    <PackageX size={22} aria-hidden="true" />
+                                    <p className="mt-2 text-sm font-semibold">Tidak ada pesanan cancel/return pada periode ini.</p>
                                 </div>
                             )}
                         </>

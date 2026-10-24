@@ -260,7 +260,7 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('stores.0.included_order_count', 1);
     }
 
-    public function test_return_correction_reduces_profit_on_the_return_date(): void
+    public function test_return_is_excluded_from_profit_and_exposed_as_a_potential_adjustment(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Return', 'shop-return');
@@ -287,16 +287,18 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.order_count', 1)
+            ->assertJsonPath('analytics.points.0.order_count', 0)
             ->assertJsonPath('analytics.points.0.correction_count', 0)
-            ->assertJsonPath('analytics.points.0.hpp_amount', 60_000)
-            ->assertJsonPath('analytics.points.0.escrow_amount', 150_000)
-            ->assertJsonPath('analytics.points.0.profit_amount', 90_000)
+            ->assertJsonPath('analytics.points.0.hpp_amount', 0)
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
             ->assertJsonPath('analytics.points.2.order_count', 0)
-            ->assertJsonPath('analytics.points.2.correction_count', 1)
-            ->assertJsonPath('analytics.points.2.hpp_amount', -60_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -150_000)
-            ->assertJsonPath('analytics.points.2.profit_amount', -90_000)
+            ->assertJsonPath('analytics.points.2.correction_count', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.points.2.hpp_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 1)
             ->assertJsonPath('analytics.totals.profit_amount', 0);
 
         $bucket = now('Asia/Jakarta')->toDateString();
@@ -304,10 +306,13 @@ class ProfitTrackerTest extends TestCase
             ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
             ->assertOk()
             ->assertJsonPath('totals.sale_count', 0)
-            ->assertJsonPath('totals.correction_count', 1)
-            ->assertJsonPath('events.0.type', 'return')
-            ->assertJsonPath('events.0.order_sn', 'RETURN-CORRECTION')
-            ->assertJsonPath('events.0.profit_amount', -90_000);
+            ->assertJsonPath('totals.correction_count', 0)
+            ->assertJsonPath('totals.potential_adjustment_count', 1)
+            ->assertJsonCount(0, 'events')
+            ->assertJsonCount(1, 'potential_adjustments')
+            ->assertJsonPath('potential_adjustments.0.type', 'return')
+            ->assertJsonPath('potential_adjustments.0.label', 'Pengembalian')
+            ->assertJsonPath('potential_adjustments.0.order_sn', 'RETURN-CORRECTION');
     }
 
     public function test_orders_cancelled_before_shipping_are_removed_from_sales_and_corrections_across_dates(): void
@@ -390,6 +395,7 @@ class ProfitTrackerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 0)
             ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 0)
             ->assertJsonPath('analytics.totals.hpp_amount', 0)
             ->assertJsonPath('analytics.totals.escrow_amount', 0)
             ->assertJsonPath('analytics.totals.gross_profit_amount', 0)
@@ -402,11 +408,13 @@ class ProfitTrackerTest extends TestCase
                 ->assertOk()
                 ->assertJsonPath('totals.sale_count', 0)
                 ->assertJsonPath('totals.correction_count', 0)
-                ->assertJsonCount(0, 'events');
+                ->assertJsonPath('totals.potential_adjustment_count', 0)
+                ->assertJsonCount(0, 'events')
+                ->assertJsonCount(0, 'potential_adjustments');
         }
     }
 
-    public function test_partial_same_day_return_remains_in_profit_analytics(): void
+    public function test_partial_same_day_return_is_information_only(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Retur Parsial', 'shop-same-day-partial');
@@ -430,22 +438,25 @@ class ProfitTrackerTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=today')
             ->assertOk()
-            ->assertJsonPath('analytics.totals.order_count', 1)
-            ->assertJsonPath('analytics.totals.correction_count', 1)
-            ->assertJsonPath('analytics.totals.hpp_amount', 40_000)
-            ->assertJsonPath('analytics.totals.escrow_amount', 100_000)
-            ->assertJsonPath('analytics.totals.profit_amount', 60_000);
+            ->assertJsonPath('analytics.totals.order_count', 0)
+            ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.totals.hpp_amount', 0)
+            ->assertJsonPath('analytics.totals.escrow_amount', 0)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
 
         $bucket = now('Asia/Jakarta')->toDateString();
         $this->actingAs($user)
             ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
             ->assertOk()
-            ->assertJsonPath('totals.sale_count', 1)
-            ->assertJsonPath('totals.correction_count', 1)
-            ->assertJsonCount(2, 'events');
+            ->assertJsonPath('totals.sale_count', 0)
+            ->assertJsonPath('totals.correction_count', 0)
+            ->assertJsonPath('totals.potential_adjustment_count', 1)
+            ->assertJsonCount(0, 'events')
+            ->assertJsonPath('potential_adjustments.0.label', 'Pengembalian');
     }
 
-    public function test_full_same_day_return_after_shipping_remains_in_profit_analytics(): void
+    public function test_full_same_day_return_after_shipping_is_information_only(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Retur Penuh', 'shop-same-day-full-return');
@@ -469,8 +480,9 @@ class ProfitTrackerTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=today')
             ->assertOk()
-            ->assertJsonPath('analytics.totals.order_count', 1)
-            ->assertJsonPath('analytics.totals.correction_count', 1)
+            ->assertJsonPath('analytics.totals.order_count', 0)
+            ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 1)
             ->assertJsonPath('analytics.totals.hpp_amount', 0)
             ->assertJsonPath('analytics.totals.escrow_amount', 0)
             ->assertJsonPath('analytics.totals.profit_amount', 0);
@@ -479,12 +491,14 @@ class ProfitTrackerTest extends TestCase
         $this->actingAs($user)
             ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
             ->assertOk()
-            ->assertJsonPath('totals.sale_count', 1)
-            ->assertJsonPath('totals.correction_count', 1)
-            ->assertJsonCount(2, 'events');
+            ->assertJsonPath('totals.sale_count', 0)
+            ->assertJsonPath('totals.correction_count', 0)
+            ->assertJsonPath('totals.potential_adjustment_count', 1)
+            ->assertJsonCount(0, 'events')
+            ->assertJsonPath('potential_adjustments.0.label', 'Pengembalian');
     }
 
-    public function test_failed_delivery_wins_over_return_and_is_only_corrected_once(): void
+    public function test_failed_delivery_wins_over_return_in_the_information_list(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Tiktokshop', 'TikTok Gagal', 'shop-failed');
@@ -527,19 +541,23 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.order_count', 1)
-            ->assertJsonPath('analytics.points.0.profit_amount', 120_000)
-            ->assertJsonPath('analytics.points.2.correction_count', 1)
-            ->assertJsonPath('analytics.points.2.profit_amount', -120_000)
-            ->assertJsonPath('analytics.totals.correction_count', 1)
+            ->assertJsonPath('analytics.points.0.order_count', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.correction_count', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 1)
             ->assertJsonPath('analytics.totals.profit_amount', 0);
 
         $bucket = now('Asia/Jakarta')->toDateString();
         $this->actingAs($user)
             ->getJson("/api/profit-tracker/breakdown?bucket={$bucket}&granularity=day")
             ->assertOk()
-            ->assertJsonCount(1, 'events')
-            ->assertJsonPath('events.0.type', 'failed_delivery');
+            ->assertJsonCount(0, 'events')
+            ->assertJsonCount(1, 'potential_adjustments')
+            ->assertJsonPath('potential_adjustments.0.type', 'failed_delivery')
+            ->assertJsonPath('potential_adjustments.0.label', 'Pengantaran Gagal');
     }
 
     public function test_cancelled_return_request_does_not_reduce_profit(): void
@@ -564,12 +582,13 @@ class ProfitTrackerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 1)
             ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 0)
             ->assertJsonPath('analytics.totals.hpp_amount', 50_000)
             ->assertJsonPath('analytics.totals.escrow_amount', 120_000)
             ->assertJsonPath('analytics.totals.profit_amount', 70_000);
     }
 
-    public function test_return_correction_reconciles_negative_final_escrow_on_the_return_date(): void
+    public function test_negative_final_return_balance_is_not_used_in_profit_analytics(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Refund', 'shop-negative-refund');
@@ -605,17 +624,18 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 132_500)
-            ->assertJsonPath('analytics.points.0.profit_amount', 42_500)
-            ->assertJsonPath('analytics.points.2.hpp_amount', -90_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -148_800)
-            ->assertJsonPath('analytics.points.2.profit_amount', -58_800)
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.hpp_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
             ->assertJsonPath('analytics.totals.hpp_amount', 0)
-            ->assertJsonPath('analytics.totals.escrow_amount', -16_300)
-            ->assertJsonPath('analytics.totals.profit_amount', -16_300);
+            ->assertJsonPath('analytics.totals.escrow_amount', 0)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
     }
 
-    public function test_failed_delivery_uses_stored_net_escrow_instead_of_reconstructed_buyer_payment(): void
+    public function test_failed_delivery_balance_is_not_used_in_profit_analytics(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Tiktokshop', 'TikTok Net Escrow', 'shop-net-escrow');
@@ -651,13 +671,14 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 53_000)
-            ->assertJsonPath('analytics.points.0.profit_amount', 18_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -53_000)
-            ->assertJsonPath('analytics.points.2.profit_amount', -18_000);
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1);
     }
 
-    public function test_return_uses_sale_escrow_snapshot_instead_of_turning_the_correction_into_profit(): void
+    public function test_return_with_sale_snapshot_is_still_information_only(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Snapshot', 'shop-sale-snapshot');
@@ -691,15 +712,16 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 244_562)
-            ->assertJsonPath('analytics.points.0.profit_amount', 59_562)
-            ->assertJsonPath('analytics.points.2.hpp_amount', -185_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -257_762)
-            ->assertJsonPath('analytics.points.2.profit_amount', -72_762)
-            ->assertJsonPath('analytics.totals.profit_amount', -13_200);
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.hpp_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
     }
 
-    public function test_legacy_return_without_snapshot_uses_item_revenue_as_a_safe_reconstruction_base(): void
+    public function test_legacy_return_without_snapshot_is_information_only(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Legacy Return', 'shop-legacy-return');
@@ -733,11 +755,12 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 278_500)
-            ->assertJsonPath('analytics.points.0.profit_amount', 93_500)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -291_700)
-            ->assertJsonPath('analytics.points.2.profit_amount', -106_700)
-            ->assertJsonPath('analytics.totals.profit_amount', -13_200);
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
     }
 
     public function test_legacy_failed_delivery_uses_nearby_same_sku_net_escrow_ratio(): void
@@ -793,11 +816,12 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 164_000)
-            ->assertJsonPath('analytics.points.0.profit_amount', 44_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -164_000)
-            ->assertJsonPath('analytics.points.2.profit_amount', -44_000)
-            ->assertJsonPath('analytics.totals.estimated_escrow_count', 2);
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 0);
 
         $breakdown = $this->actingAs($user)->getJson(
             '/api/profit-tracker/breakdown?bucket='.
@@ -806,9 +830,9 @@ class ProfitTrackerTest extends TestCase
 
         $breakdown
             ->assertOk()
-            ->assertJsonPath('events.0.escrow_source', 'estimated_sku_ratio')
-            ->assertJsonPath('events.0.escrow_is_estimated', true)
-            ->assertJsonPath('events.0.escrow_sample_size', 3);
+            ->assertJsonCount(0, 'events')
+            ->assertJsonPath('potential_adjustments.0.type', 'failed_delivery')
+            ->assertJsonPath('potential_adjustments.0.order_sn', 'LEGACY-ZERO-ESCROW');
 
         $this->actingAs($user)
             ->getJson("/api/orders/{$order->id}")
@@ -866,10 +890,11 @@ class ProfitTrackerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('analytics.points.0.escrow_amount', 140_000)
-            ->assertJsonPath('analytics.points.0.profit_amount', 10_000)
-            ->assertJsonPath('analytics.points.2.escrow_amount', -140_000)
-            ->assertJsonPath('analytics.points.2.profit_amount', -10_000)
+            ->assertJsonPath('analytics.points.0.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.0.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.potential_adjustment_count', 1)
             ->assertJsonPath('analytics.totals.estimated_escrow_count', 0);
 
         $breakdown = $this->actingAs($user)->getJson(
@@ -879,12 +904,19 @@ class ProfitTrackerTest extends TestCase
 
         $breakdown
             ->assertOk()
-            ->assertJsonPath('events.0.escrow_source', 'platform_history')
-            ->assertJsonPath('events.0.escrow_is_estimated', false)
-            ->assertJsonPath('events.0.escrow_amount', -140_000);
+            ->assertJsonCount(0, 'events')
+            ->assertJsonPath('potential_adjustments.0.type', 'failed_delivery')
+            ->assertJsonPath('potential_adjustments.0.order_sn', 'TIKTOK-POSITIVE-SALE-LEG');
+
+        $this->actingAs($user)
+            ->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 140_000)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'platform_history')
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', false);
     }
 
-    public function test_old_order_return_is_loaded_into_the_current_correction_period(): void
+    public function test_old_order_return_is_loaded_into_the_current_information_period(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Return Lama', 'shop-old-return');
@@ -909,10 +941,11 @@ class ProfitTrackerTest extends TestCase
             ->getJson('/api/profit-tracker?analytics_period=today')
             ->assertOk()
             ->assertJsonPath('analytics.totals.order_count', 0)
-            ->assertJsonPath('analytics.totals.correction_count', 1)
-            ->assertJsonPath('analytics.totals.hpp_amount', -60_000)
-            ->assertJsonPath('analytics.totals.escrow_amount', -150_000)
-            ->assertJsonPath('analytics.totals.profit_amount', -90_000);
+            ->assertJsonPath('analytics.totals.correction_count', 0)
+            ->assertJsonPath('analytics.totals.potential_adjustment_count', 1)
+            ->assertJsonPath('analytics.totals.hpp_amount', 0)
+            ->assertJsonPath('analytics.totals.escrow_amount', 0)
+            ->assertJsonPath('analytics.totals.profit_amount', 0);
     }
 
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
