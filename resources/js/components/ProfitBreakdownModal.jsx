@@ -212,8 +212,10 @@ export default function ProfitBreakdownModal({ isOpen, point, granularity, store
     ];
 
     const openOrder = (orderId) => {
-        onClose();
-        window.location.hash = `#/orders/${orderId}`;
+        if (!orderId) return;
+
+        const url = `${window.location.origin}${window.location.pathname}#/orders/${orderId}`;
+        window.open(url, "_blank", "noopener,noreferrer");
     };
 
     if (!isOpen || typeof document === "undefined") return null;
