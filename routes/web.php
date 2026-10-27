@@ -1,33 +1,41 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\ShopeeController;
-use App\Http\Controllers\ShopeeWebhookController;
-use App\Http\Controllers\TikTokController;
-use App\Http\Controllers\TiktokAdsController;
-use App\Http\Controllers\DashboardController;
-
-use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\CashflowController;
 use App\Http\Controllers\Api\MasterProductController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderSyncController;
+use App\Http\Controllers\Api\PayableController;
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProfitController;
+use App\Http\Controllers\Api\SkuSyncController;
+use App\Http\Controllers\Api\StoreController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ShopeeController;
+use App\Http\Controllers\ShopeeWebhookController;
+use App\Http\Controllers\TiktokAdsController;
+use App\Http\Controllers\TikTokController;
+use App\Http\Controllers\TiktokWebhookController;
+use App\Jobs\SyncShopeeProductJob;
+use App\Jobs\SyncTiktokProductJob;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 // Auth Routes (Login, Register, Logout)
-require __DIR__ . '/auth.php';
+require __DIR__.'/auth.php';
 
 // Auth-protected React SPA API Endpoints
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
 
     Route::prefix('api')->group(function () {
-        Route::get('/user', function (\Illuminate\Http\Request $request) {
+        Route::get('/user', function (Request $request) {
             return $request->user();
         });
-        Route::put('/profile', [\App\Http\Controllers\Api\ProfileController::class, 'update']);
-        Route::put('/profile/password', [\App\Http\Controllers\Api\ProfileController::class, 'updatePassword']);
-        Route::get('/stores', [\App\Http\Controllers\Api\StoreController::class, 'index']);
-        Route::delete('/stores/{id}', [\App\Http\Controllers\Api\StoreController::class, 'destroy']);
+        Route::put('/profile', [ProfileController::class, 'update']);
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+        Route::get('/stores', [StoreController::class, 'index']);
+        Route::delete('/stores/{id}', [StoreController::class, 'destroy']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::get('/master-products', [MasterProductController::class, 'index']);
         Route::get('/master-products/components', [MasterProductController::class, 'components']);
@@ -50,30 +58,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/products/supplier', [ProductController::class, 'updateSuppliers']);
         Route::put('/variants/bulk/hpp', [ProductController::class, 'updateBulkVariantHpp']);
         Route::put('/variants/{id}/hpp', [ProductController::class, 'updateVariantHpp']);
-        
-        // SKU Sync Routes
-        Route::get('/sku-sync/detect', [\App\Http\Controllers\Api\SkuSyncController::class, 'detect']);
 
-        Route::post('/sync/products', function (\Illuminate\Http\Request $request) {
+        // SKU Sync Routes
+        Route::get('/sku-sync/detect', [SkuSyncController::class, 'detect']);
+
+        Route::post('/sync/products', function (Request $request) {
             $storeId = $request->input('store_id');
             if ($storeId) {
                 $store = $request->user()->stores()->find($storeId);
                 if ($store) {
                     if ($store->platform === 'Shopee') {
-                        dispatch(new \App\Jobs\SyncShopeeProductJob($storeId))->onQueue('products');
+                        dispatch(new SyncShopeeProductJob($storeId))->onQueue('products');
                     } elseif ($store->platform === 'Tiktokshop') {
-                        dispatch(new \App\Jobs\SyncTiktokProductJob($storeId))->onQueue('products');
+                        dispatch(new SyncTiktokProductJob($storeId))->onQueue('products');
                     }
-                    return response()->json(['message' => 'Product sync started for store ' . $store->store_name]);
+
+                    return response()->json(['message' => 'Product sync started for store '.$store->store_name]);
                 }
+
                 return response()->json(['message' => 'Store not found'], 404);
             }
 
             $request->user()->stores()->get()->each(function ($store) {
                 if ($store->platform === 'Shopee') {
-                    dispatch(new \App\Jobs\SyncShopeeProductJob($store->id))->onQueue('products');
+                    dispatch(new SyncShopeeProductJob($store->id))->onQueue('products');
                 } elseif ($store->platform === 'Tiktokshop') {
-                    dispatch(new \App\Jobs\SyncTiktokProductJob($store->id))->onQueue('products');
+                    dispatch(new SyncTiktokProductJob($store->id))->onQueue('products');
                 }
             });
 
@@ -85,35 +95,45 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/sync/orders', [OrderSyncController::class, 'store']);
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
         Route::get('/profit-tracker/breakdown', [ProfitController::class, 'breakdown']);
+        Route::get('/cashflow', [CashflowController::class, 'index']);
+        Route::post('/cashflow/accounts', [CashflowController::class, 'storeAccount']);
+        Route::put('/cashflow/accounts/{id}', [CashflowController::class, 'updateAccount']);
+        Route::delete('/cashflow/accounts/{id}', [CashflowController::class, 'destroyAccount']);
+        Route::post('/cashflow/obligations', [CashflowController::class, 'storeObligation']);
+        Route::put('/cashflow/obligations/{id}', [CashflowController::class, 'updateObligation']);
+        Route::delete('/cashflow/obligations/{id}', [CashflowController::class, 'destroyObligation']);
+        Route::post('/cashflow/transactions', [CashflowController::class, 'storeTransaction']);
+        Route::put('/cashflow/transactions/{id}', [CashflowController::class, 'updateTransaction']);
+        Route::delete('/cashflow/transactions/{id}', [CashflowController::class, 'destroyTransaction']);
         Route::get('/tiktok-ads/status', [TiktokAdsController::class, 'status']);
         Route::put('/tiktok-ads/accounts/{accountId}/store', [TiktokAdsController::class, 'updateStore']);
 
         // Payable Routes
-        Route::get('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'getConfig']);
-        Route::post('/payable/config', [\App\Http\Controllers\Api\PayableController::class, 'updateConfig']);
-        Route::post('/payable/config/duration', [\App\Http\Controllers\Api\PayableController::class, 'updateDuration']);
-        Route::post('/payable/sync', [\App\Http\Controllers\Api\PayableController::class, 'sync']);
-        Route::get('/payable/sync-status', [\App\Http\Controllers\Api\PayableController::class, 'syncStatus']);
-        Route::get('/payable/periods', [\App\Http\Controllers\Api\PayableController::class, 'getPeriods']);
-        Route::post('/payable/periods/manual', [\App\Http\Controllers\Api\PayableController::class, 'createManualPeriod']);
-        Route::delete('/payable/periods/{id}', [\App\Http\Controllers\Api\PayableController::class, 'destroy']);
-        Route::get('/payable/periods/{id}/details', [\App\Http\Controllers\Api\PayableController::class, 'getPeriodDetails']);
-        Route::put('/payable/periods/{id}/status', [\App\Http\Controllers\Api\PayableController::class, 'updatePaymentStatus']);
-        Route::post('/payable/periods/{id}/payments', [\App\Http\Controllers\Api\PayableController::class, 'addPayment']);
-        Route::put('/payable/payments/{id}', [\App\Http\Controllers\Api\PayableController::class, 'updatePayment']);
-        Route::delete('/payable/payments/{id}', [\App\Http\Controllers\Api\PayableController::class, 'deletePayment']);
-        Route::get('/payable/events/search', [\App\Http\Controllers\Api\PayableController::class, 'searchEvents']);
-        Route::post('/payable/events/reassign', [\App\Http\Controllers\Api\PayableController::class, 'reassignEvents']);
+        Route::get('/payable/config', [PayableController::class, 'getConfig']);
+        Route::post('/payable/config', [PayableController::class, 'updateConfig']);
+        Route::post('/payable/config/duration', [PayableController::class, 'updateDuration']);
+        Route::post('/payable/sync', [PayableController::class, 'sync']);
+        Route::get('/payable/sync-status', [PayableController::class, 'syncStatus']);
+        Route::get('/payable/periods', [PayableController::class, 'getPeriods']);
+        Route::post('/payable/periods/manual', [PayableController::class, 'createManualPeriod']);
+        Route::delete('/payable/periods/{id}', [PayableController::class, 'destroy']);
+        Route::get('/payable/periods/{id}/details', [PayableController::class, 'getPeriodDetails']);
+        Route::put('/payable/periods/{id}/status', [PayableController::class, 'updatePaymentStatus']);
+        Route::post('/payable/periods/{id}/payments', [PayableController::class, 'addPayment']);
+        Route::put('/payable/payments/{id}', [PayableController::class, 'updatePayment']);
+        Route::delete('/payable/payments/{id}', [PayableController::class, 'deletePayment']);
+        Route::get('/payable/events/search', [PayableController::class, 'searchEvents']);
+        Route::post('/payable/events/reassign', [PayableController::class, 'reassignEvents']);
 
         // Supplier Routes
-        Route::get('/payable/suppliers', [\App\Http\Controllers\Api\PayableController::class, 'getSuppliers']);
-        Route::post('/payable/suppliers', [\App\Http\Controllers\Api\PayableController::class, 'createSupplier']);
-        Route::put('/payable/suppliers/{id}', [\App\Http\Controllers\Api\PayableController::class, 'updateSupplier']);
-        Route::delete('/payable/suppliers/{id}', [\App\Http\Controllers\Api\PayableController::class, 'deleteSupplier']);
-        Route::post('/payable/suppliers/onboarding-single', [\App\Http\Controllers\Api\PayableController::class, 'onboardingSingle']);
-        Route::post('/payable/suppliers/onboarding-multiple', [\App\Http\Controllers\Api\PayableController::class, 'onboardingMultiple']);
-        Route::get('/payable/suppliers/products', [\App\Http\Controllers\Api\PayableController::class, 'getProductsForMapping']);
-        Route::post('/payable/suppliers/assign-products', [\App\Http\Controllers\Api\PayableController::class, 'assignProducts']);
+        Route::get('/payable/suppliers', [PayableController::class, 'getSuppliers']);
+        Route::post('/payable/suppliers', [PayableController::class, 'createSupplier']);
+        Route::put('/payable/suppliers/{id}', [PayableController::class, 'updateSupplier']);
+        Route::delete('/payable/suppliers/{id}', [PayableController::class, 'deleteSupplier']);
+        Route::post('/payable/suppliers/onboarding-single', [PayableController::class, 'onboardingSingle']);
+        Route::post('/payable/suppliers/onboarding-multiple', [PayableController::class, 'onboardingMultiple']);
+        Route::get('/payable/suppliers/products', [PayableController::class, 'getProductsForMapping']);
+        Route::post('/payable/suppliers/assign-products', [PayableController::class, 'assignProducts']);
 
     });
 });
@@ -144,7 +164,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // WEBHOOK ROUTE
 Route::post('/webhook/shopee', [ShopeeWebhookController::class, 'handleWebhook']);
-Route::post('/webhook/tiktok', [App\Http\Controllers\TiktokWebhookController::class, 'handleWebhook']);
+Route::post('/webhook/tiktok', [TiktokWebhookController::class, 'handleWebhook']);
 
 // React SPA (catch-all for hash routing) - MUST BE AT THE BOTTOM
 Route::view('/{any?}', 'react')->where('any', '.*')->name('react');

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -10,11 +12,11 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 /**
- * @property \Illuminate\Database\Eloquent\Collection|\App\Models\Store[] $stores
+ * @property Collection|Store[] $stores
  */
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
     /**
@@ -94,5 +96,20 @@ class User extends Authenticatable
     public function masterProducts(): HasMany
     {
         return $this->hasMany(MasterProduct::class, 'user_id');
+    }
+
+    public function financialAccounts(): HasMany
+    {
+        return $this->hasMany(FinancialAccount::class, 'user_id');
+    }
+
+    public function financialObligations(): HasMany
+    {
+        return $this->hasMany(FinancialObligation::class, 'user_id');
+    }
+
+    public function cashflowTransactions(): HasMany
+    {
+        return $this->hasMany(CashflowTransaction::class, 'user_id');
     }
 }
