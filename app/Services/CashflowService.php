@@ -17,7 +17,49 @@ class CashflowService
     public function __construct(
         private readonly OrderProfitService $orderProfitService,
         private readonly ProfitAnalyticsService $profitAnalyticsService,
+        private readonly OrderEscrowService $orderEscrowService,
     ) {}
+
+    /** @return array{total: float, stores: Collection<int, array<string, mixed>>} */
+    public function marketplaceEscrow(User $user): array
+    {
+        $stores = $user->stores()->orderBy('store_name')->get();
+        if ($stores->isEmpty()) {
+            return ['total' => 0.0, 'stores' => collect()];
+        }
+
+        $orders = Order::query()
+            ->with(['returns', 'packages', 'orderProducts', 'store'])
+            ->whereIn('store_id', $stores->pluck('id'))
+            ->whereIn('order_status', $this->orderEscrowService->realtimeStatuses())
+            ->get();
+        $eligibleOrders = $orders->filter(fn (Order $order) => in_array(
+            $this->orderEscrowService->category($order),
+            [OrderEscrowService::CATEGORY_NEEDS_SHIPPING, OrderEscrowService::CATEGORY_SHIPPED],
+            true,
+        ));
+        $summaries = $this->orderProfitService->summaries($eligibleOrders);
+        $ordersByStore = $eligibleOrders->groupBy('store_id');
+
+        $breakdown = $stores->map(function ($store) use ($ordersByStore, $summaries) {
+            $storeOrders = $ordersByStore->get($store->id, collect());
+
+            return [
+                'store_id' => $store->id,
+                'store_name' => $store->store_name,
+                'platform' => $store->platform,
+                'order_count' => $storeOrders->count(),
+                'amount' => (float) $storeOrders->sum(
+                    fn (Order $order) => (float) ($summaries->get($order->id)['escrow_amount'] ?? 0),
+                ),
+            ];
+        })->values();
+
+        return [
+            'total' => (float) $breakdown->sum('amount'),
+            'stores' => $breakdown,
+        ];
+    }
 
     /** @return Collection<int, array<string, mixed>> */
     public function supplierPayables(int $userId): Collection

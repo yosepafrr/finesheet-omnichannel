@@ -11,13 +11,16 @@ class FinancialAccount extends Model
         'name',
         'category',
         'subtype',
+        'source_type',
         'balance',
+        'synced_at',
         'notes',
         'is_active',
     ];
 
     protected $casts = [
         'balance' => 'decimal:2',
+        'synced_at' => 'datetime',
         'is_active' => 'boolean',
     ];
 

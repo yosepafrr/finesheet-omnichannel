@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\FinancialAccount;
+use App\Models\Order;
 use App\Models\PayableEvent;
 use App\Models\PayablePayment;
 use App\Models\PayablePeriod;
+use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -142,5 +144,68 @@ class CashflowTest extends TestCase
         ])->assertNotFound();
 
         $this->assertSame('Private Account', $account->fresh()->name);
+    }
+
+    public function test_marketplace_escrow_integration_only_counts_active_order_escrow_and_can_be_removed(): void
+    {
+        $user = User::factory()->create();
+        $shopee = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Shopee',
+            'store_name' => 'Shopee Utama',
+            'shopee_shop_id' => 'ESCROW-SHOPEE',
+        ]);
+        $tiktok = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Tiktokshop',
+            'store_name' => 'TikTok Utama',
+            'shopee_shop_id' => 'ESCROW-TIKTOK-COMPAT',
+            'platform_shop_id' => 'ESCROW-TIKTOK',
+        ]);
+
+        $this->createEscrowOrder($shopee, 'ACTIVE-SHOPEE', 'READY_TO_SHIP', 100000);
+        $this->createEscrowOrder($tiktok, 'ACTIVE-TIKTOK', 'IN_TRANSIT', 200000);
+        $this->createEscrowOrder($shopee, 'SELLER-BALANCE', 'COMPLETED', 500000);
+        $this->createEscrowOrder($tiktok, 'CANCELLED', 'CANCELLED', 700000);
+
+        $created = $this->actingAs($user)
+            ->postJson('/api/cashflow/integrations/marketplace-escrow')
+            ->assertCreated()
+            ->assertJsonPath('data.source_type', 'marketplace_escrow');
+
+        $this->actingAs($user)
+            ->postJson('/api/cashflow/integrations/marketplace-escrow')
+            ->assertOk();
+
+        $this->assertSame(1, FinancialAccount::where('user_id', $user->id)
+            ->where('source_type', 'marketplace_escrow')
+            ->count());
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('data.summary.cash_position', 300000)
+            ->assertJsonPath('data.accounts.0.balance', '300000.00')
+            ->assertJsonPath('data.accounts.0.integration_details.excludes_seller_balance', true)
+            ->assertJsonCount(2, 'data.accounts.0.integration_details.stores');
+
+        $accountId = $created->json('data.id');
+        $this->actingAs($user)
+            ->deleteJson("/api/cashflow/accounts/{$accountId}")
+            ->assertOk();
+
+        $this->assertDatabaseMissing('financial_accounts', ['id' => $accountId]);
+    }
+
+    private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): void
+    {
+        Order::withoutEvents(fn () => Order::create([
+            'store_id' => $store->id,
+            'platform' => $store->platform,
+            'order_sn' => $orderSn,
+            'order_status' => $status,
+            'order_time' => '2026-10-27 10:00:00',
+            'escrow_amount' => $escrow,
+        ]));
     }
 }

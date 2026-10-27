@@ -52,6 +52,16 @@ class CashflowController extends Controller
             ->orderBy('category')
             ->orderBy('name')
             ->get();
+        $escrowAccount = $accounts->firstWhere('source_type', 'marketplace_escrow');
+        if ($escrowAccount) {
+            $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
+            $escrowAccount->setAttribute('balance', $marketplaceEscrow['total']);
+            $escrowAccount->setAttribute('synced_at', now());
+            $escrowAccount->setAttribute('integration_details', [
+                'excludes_seller_balance' => true,
+                'stores' => $marketplaceEscrow['stores']->values(),
+            ]);
+        }
         $obligations = FinancialObligation::query()
             ->where('user_id', $user->id)
             ->orderByRaw("CASE WHEN status = 'open' THEN 0 ELSE 1 END")
@@ -152,9 +162,51 @@ class CashflowController extends Controller
         return response()->json(['status' => 'success', 'data' => $account], 201);
     }
 
+    public function integrateMarketplaceEscrow(CashflowService $cashflowService)
+    {
+        $user = Auth::user();
+        if (! $user->stores()->exists()) {
+            throw ValidationException::withMessages([
+                'integration' => 'Hubungkan setidaknya satu toko sebelum mengintegrasikan escrow.',
+            ]);
+        }
+
+        $account = FinancialAccount::firstOrCreate(
+            [
+                'user_id' => $user->id,
+                'source_type' => 'marketplace_escrow',
+            ],
+            [
+                'name' => 'Escrow Marketplace',
+                'category' => 'cash',
+                'subtype' => 'marketplace',
+                'balance' => 0,
+                'notes' => 'Escrow pesanan aktif marketplace. Tidak termasuk saldo penjual.',
+                'is_active' => true,
+            ],
+        );
+        $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
+        $account->update([
+            'balance' => $marketplaceEscrow['total'],
+            'synced_at' => now(),
+            'is_active' => true,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $account->fresh(),
+            'created' => $account->wasRecentlyCreated,
+        ], $account->wasRecentlyCreated ? 201 : 200);
+    }
+
     public function updateAccount(Request $request, int $id)
     {
         $account = $this->account($id);
+        if ($account->source_type) {
+            throw ValidationException::withMessages([
+                'account' => 'Portofolio terintegrasi diperbarui otomatis dan tidak dapat diedit manual.',
+            ]);
+        }
         $account->update($this->validateAccount($request));
 
         return response()->json(['status' => 'success', 'data' => $account->fresh()]);
@@ -303,7 +355,14 @@ class CashflowController extends Controller
             $query->lockForUpdate();
         }
 
-        return $query->findOrFail($id);
+        $account = $query->findOrFail($id);
+        if ($account->source_type) {
+            throw ValidationException::withMessages([
+                'financial_account_id' => 'Portofolio terintegrasi tidak dapat digunakan untuk transaksi manual.',
+            ]);
+        }
+
+        return $account;
     }
 
     private function applyToBalance(?FinancialAccount $account, string $direction, float $amount): void

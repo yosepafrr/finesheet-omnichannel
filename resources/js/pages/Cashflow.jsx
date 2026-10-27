@@ -7,8 +7,10 @@ import {
     ArrowUpRight,
     Banknote,
     Building2,
+    Cable,
     CalendarDays,
     ChevronDown,
+    ChevronUp,
     CircleDollarSign,
     Coins,
     CreditCard,
@@ -185,6 +187,7 @@ function SummaryMetric({ label, value, description, icon: Icon, tone = "default"
 }
 
 function AccountRow({ account, onEdit, onDelete }) {
+    const [detailsOpen, setDetailsOpen] = useState(false);
     const icons = {
         bank: Landmark,
         ewallet: WalletCards,
@@ -195,21 +198,35 @@ function AccountRow({ account, onEdit, onDelete }) {
         other_asset: Coins,
     };
     const Icon = icons[account.subtype] || CircleDollarSign;
+    const isIntegratedEscrow = account.source_type === "marketplace_escrow";
+    const integratedStores = account.integration_details?.stores || [];
 
     return (
-        <div className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 first:border-t-0 dark:border-slate-800">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <Icon className="h-4 w-4" />
+        <div className="border-t border-slate-100 first:border-t-0 dark:border-slate-800">
+            <div className="flex items-center gap-3 px-4 py-3">
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${isIntegratedEscrow ? "bg-blue-50 text-[#304674] dark:bg-blue-400/10 dark:text-blue-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}>
+                    <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{account.name}</p>
+                        {isIntegratedEscrow && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-[#304674] dark:bg-blue-400/10 dark:text-blue-300">TERINTEGRASI</span>}
+                    </div>
+                    <p className="text-xs text-slate-400">{isIntegratedEscrow ? `${integratedStores.length} toko | Tidak termasuk saldo penjual` : (subtypeLabels[account.subtype] || account.subtype)}</p>
+                </div>
+                <p className="shrink-0 text-sm font-bold text-slate-900 dark:text-white">{formatRp(account.balance)}</p>
+                <div className="flex shrink-0 gap-1">
+                    {isIntegratedEscrow && integratedStores.length > 0 && <button type="button" onClick={() => setDetailsOpen((current) => !current)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-[#304674] dark:hover:bg-slate-800" title="Rincian escrow">{detailsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</button>}
+                    {!isIntegratedEscrow && <button type="button" onClick={() => onEdit(account)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-[#304674] dark:hover:bg-slate-800" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
+                    <button type="button" onClick={() => onDelete(account)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10" title={isIntegratedEscrow ? "Hapus integrasi escrow" : "Hapus"}><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
             </div>
-            <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{account.name}</p>
-                <p className="text-xs text-slate-400">{subtypeLabels[account.subtype] || account.subtype}</p>
-            </div>
-            <p className="shrink-0 text-sm font-bold text-slate-900 dark:text-white">{formatRp(account.balance)}</p>
-            <div className="flex shrink-0 gap-1">
-                <button type="button" onClick={() => onEdit(account)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-[#304674] dark:hover:bg-slate-800" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                <button type="button" onClick={() => onDelete(account)} className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10" title="Hapus"><Trash2 className="h-3.5 w-3.5" /></button>
-            </div>
+            {isIntegratedEscrow && detailsOpen && <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-2 dark:border-slate-800 dark:bg-slate-950/30">
+                {integratedStores.map((store) => <div key={store.store_id} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                    <div className="min-w-0"><p className="truncate font-semibold text-slate-600 dark:text-slate-300">{store.store_name}</p><p className="text-[11px] text-slate-400">{store.platform} | {store.order_count} pesanan aktif</p></div>
+                    <strong className="shrink-0 text-slate-700 dark:text-slate-200">{formatRp(store.amount)}</strong>
+                </div>)}
+            </div>}
         </div>
     );
 }
@@ -228,6 +245,7 @@ export default function Cashflow() {
     const [modal, setModal] = useState(null);
     const [editing, setEditing] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [integratingEscrow, setIntegratingEscrow] = useState(false);
     const [accountForm, setAccountForm] = useState(emptyAccount);
     const [obligationForm, setObligationForm] = useState(emptyObligation);
     const [transactionForm, setTransactionForm] = useState(emptyTransaction);
@@ -260,6 +278,7 @@ export default function Cashflow() {
 
     const cashAccounts = data?.accounts?.filter((account) => account.category === "cash") || [];
     const assetAccounts = data?.accounts?.filter((account) => account.category === "asset") || [];
+    const escrowAccount = cashAccounts.find((account) => account.source_type === "marketplace_escrow");
     const manualDebt = data?.obligations?.filter((item) => item.kind === "debt" && item.status === "open") || [];
     const receivables = data?.obligations?.filter((item) => item.kind === "receivable" && item.status === "open") || [];
 
@@ -394,6 +413,19 @@ export default function Cashflow() {
         } finally { setSaving(false); }
     };
 
+    const integrateMarketplaceEscrow = async () => {
+        setIntegratingEscrow(true);
+        try {
+            await axios.post("/api/cashflow/integrations/marketplace-escrow");
+            toast.success("Escrow marketplace berhasil diintegrasikan");
+            await loadData(true);
+        } catch (error) {
+            toast.error(error.response?.data?.errors?.integration?.[0] || error.response?.data?.message || "Gagal mengintegrasikan escrow marketplace");
+        } finally {
+            setIntegratingEscrow(false);
+        }
+    };
+
     if (loading && !data) {
         return (
             <AppLayout>
@@ -444,12 +476,17 @@ export default function Cashflow() {
 
                     <section className="grid gap-4 xl:grid-cols-2">
                         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-                            <div className="flex items-center justify-between px-4 py-3">
+                            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                     <h2 className="text-sm font-bold text-slate-900 dark:text-white">Posisi Kas</h2>
                                     <p className="text-xs text-slate-400">Bank, kas, e-wallet, dan marketplace</p>
                                 </div>
-                                <button type="button" onClick={() => openAccount(null, "cash")} className="flex h-8 items-center gap-1.5 rounded-md bg-slate-100 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"><Plus className="h-3.5 w-3.5" /> Tambah</button>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {!escrowAccount && <button type="button" onClick={integrateMarketplaceEscrow} disabled={integratingEscrow} className="flex h-8 items-center gap-1.5 rounded-md border border-[#304674]/20 bg-blue-50 px-2.5 text-xs font-semibold text-[#304674] transition hover:bg-blue-100 disabled:opacity-60 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-300">
+                                        {integratingEscrow ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Cable className="h-3.5 w-3.5" />} Integrasikan escrow marketplace
+                                    </button>}
+                                    <button type="button" onClick={() => openAccount(null, "cash")} className="flex h-8 items-center gap-1.5 rounded-md bg-slate-100 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"><Plus className="h-3.5 w-3.5" /> Tambah</button>
+                                </div>
                             </div>
                             {cashAccounts.length ? cashAccounts.map((account) => <AccountRow key={account.id} account={account} onEdit={openAccount} onDelete={(item) => setDeleteTarget({ type: "accounts", item })} />) : <EmptyRows label="Belum ada akun kas yang dicatat." />}
                             <div className="flex justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-950/40"><span className="font-medium text-slate-500">Total posisi kas</span><strong className="text-slate-900 dark:text-white">{formatRp(data?.summary?.cash_position)}</strong></div>
@@ -585,7 +622,7 @@ export default function Cashflow() {
             {modal === "transaction" && <Modal title={editing ? "Edit transaksi" : "Catat transaksi"} subtitle="Saldo akun yang dipilih akan disesuaikan otomatis." icon={CreditCard} onClose={closeModal} footer={<><button type="button" onClick={closeModal} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Batal</button><button type="submit" form="transaction-form" disabled={saving} className="flex h-10 min-w-28 items-center justify-center rounded-md bg-[#304674] px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Simpan"}</button></>}>
                 <form id="transaction-form" onSubmit={saveTransaction} className="grid gap-4 sm:grid-cols-2">
                     <Field label="Jenis"><SelectField value={transactionForm.direction} onChange={(event) => setTransactionForm((current) => ({ ...current, direction: event.target.value }))}><option value="income">Pemasukan</option><option value="expense">Pengeluaran</option></SelectField></Field>
-                    <Field label="Akun tujuan atau sumber"><SelectField value={transactionForm.financial_account_id} onChange={(event) => setTransactionForm((current) => ({ ...current, financial_account_id: event.target.value }))}><option value="">Tanpa akun</option>{data?.accounts?.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></Field>
+                    <Field label="Akun tujuan atau sumber"><SelectField value={transactionForm.financial_account_id} onChange={(event) => setTransactionForm((current) => ({ ...current, financial_account_id: event.target.value }))}><option value="">Tanpa akun</option>{data?.accounts?.filter((account) => !account.source_type).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></Field>
                     <Field label="Deskripsi"><input required value={transactionForm.description} onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))} className={inputClass} placeholder="Contoh: Pembelian kemasan" /></Field>
                     <Field label="Kategori"><input value={transactionForm.category} onChange={(event) => setTransactionForm((current) => ({ ...current, category: event.target.value }))} className={inputClass} placeholder="Operasional" /></Field>
                     <Field label="Nilai"><input required min="1" step="1" type="number" value={transactionForm.amount} onChange={(event) => setTransactionForm((current) => ({ ...current, amount: event.target.value }))} className={inputClass} placeholder="0" /></Field>
