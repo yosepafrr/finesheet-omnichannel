@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\TiktokAdsConnection;
+use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -62,11 +63,68 @@ class TiktokAdsApiService
         return $records;
     }
 
+    /**
+     * Product and LIVE GMV Max campaigns created from TikTok Shop are excluded
+     * from the regular Auction report and must be queried through this endpoint.
+     *
+     * @param  array<int, string>  $dimensions
+     * @param  array<int, string>  $metrics
+     * @return array<int, array<string, mixed>>
+     */
+    public function gmvMaxReport(
+        TiktokAdsConnection $connection,
+        string $advertiserId,
+        string $storeId,
+        array $dimensions,
+        array $metrics,
+        string $startDate,
+        string $endDate,
+    ): array {
+        $records = [];
+        $chunkStart = Carbon::createFromFormat('!Y-m-d', $startDate);
+        $lastDate = Carbon::createFromFormat('!Y-m-d', $endDate);
+
+        // TikTok limits reports with stat_time_day to 30 inclusive days.
+        while ($chunkStart->lessThanOrEqualTo($lastDate)) {
+            $chunkEnd = $chunkStart->copy()->addDays(29)->min($lastDate);
+            $page = 1;
+
+            do {
+                $payload = $this->get($connection, '/gmv_max/report/get/', [
+                    'advertiser_id' => $advertiserId,
+                    'store_ids' => [$storeId],
+                    'dimensions' => $dimensions,
+                    'metrics' => $metrics,
+                    'start_date' => $chunkStart->toDateString(),
+                    'end_date' => $chunkEnd->toDateString(),
+                    'page' => $page,
+                    'page_size' => 1000,
+                ], 'v1.3');
+
+                $pageRecords = data_get($payload, 'data.list', []);
+                if (is_array($pageRecords)) {
+                    array_push($records, ...array_map(
+                        fn (array $record) => [...$record, '_finesheet_source' => 'gmv_max'],
+                        array_values(array_filter($pageRecords, 'is_array')),
+                    ));
+                }
+
+                $totalPages = max(1, (int) data_get($payload, 'data.page_info.total_page', 1));
+                $page++;
+            } while ($page <= $totalPages);
+
+            $chunkStart = $chunkEnd->copy()->addDay();
+        }
+
+        return $records;
+    }
+
     /** @param array<string, mixed> $query */
     private function get(
         TiktokAdsConnection $connection,
         string $path,
         array $query,
+        ?string $version = null,
     ): array {
         $encodedQuery = collect($query)->mapWithKeys(function ($value, $key) {
             return [$key => is_array($value)
@@ -79,7 +137,7 @@ class TiktokAdsApiService
                 ->withHeaders(['Access-Token' => $connection->access_token])
                 ->timeout(45)
                 ->retry(2, 750, throw: false)
-                ->get($this->endpoint($path), $encodedQuery);
+                ->get($this->endpoint($path, $version), $encodedQuery);
         } catch (ConnectionException $exception) {
             throw new RuntimeException('Tidak dapat terhubung ke TikTok Ads API.', previous: $exception);
         }
@@ -101,10 +159,10 @@ class TiktokAdsApiService
         return $payload;
     }
 
-    private function endpoint(string $path): string
+    private function endpoint(string $path, ?string $version = null): string
     {
         return rtrim((string) config('services.tiktok_ads.api_url'), '/')
-            .'/'.trim((string) config('services.tiktok_ads.api_version'), '/')
+            .'/'.trim($version ?? (string) config('services.tiktok_ads.api_version'), '/')
             .'/'.ltrim($path, '/');
     }
 }

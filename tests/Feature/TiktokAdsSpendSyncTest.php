@@ -49,6 +49,41 @@ class TiktokAdsSpendSyncTest extends TestCase
                 ]);
             }
 
+            if (str_contains($request->url(), '/gmv_max/report/get/')) {
+                $dimensions = json_decode((string) $request['dimensions'], true);
+
+                if (! in_array('campaign_id', $dimensions, true)) {
+                    return Http::response([
+                        'code' => 0,
+                        'message' => 'OK',
+                        'data' => [
+                            'list' => [[
+                                'dimensions' => ['stat_time_day' => '2026-10-29'],
+                                'metrics' => ['cost' => '25000'],
+                            ]],
+                            'page_info' => ['total_page' => 1],
+                        ],
+                    ]);
+                }
+
+                return Http::response([
+                    'code' => 0,
+                    'message' => 'OK',
+                    'data' => [
+                        'list' => [[
+                            'dimensions' => ['campaign_id' => 'gmv-1', 'stat_time_day' => '2026-10-29'],
+                            'metrics' => [
+                                'campaign_name' => 'GMV Max Toko',
+                                'cost' => '25000',
+                                'product_impressions' => '300',
+                                'product_clicks' => '20',
+                            ],
+                        ]],
+                        'page_info' => ['total_page' => 1],
+                    ],
+                ]);
+            }
+
             $dimensions = json_decode((string) $request['dimensions'], true);
             if (! in_array('campaign_id', $dimensions, true)) {
                 return Http::response([
@@ -95,8 +130,8 @@ class TiktokAdsSpendSyncTest extends TestCase
         );
 
         $this->assertSame(2, $summary['days']);
-        $this->assertSame(3, $summary['campaigns']);
-        $this->assertSame(200000.5, $summary['amount']);
+        $this->assertSame(4, $summary['campaigns']);
+        $this->assertSame(225000.5, $summary['amount']);
         $this->assertDatabaseHas('marketplace_ad_spends', [
             'user_id' => $user->id,
             'store_id' => $store->id,
@@ -114,6 +149,14 @@ class TiktokAdsSpendSyncTest extends TestCase
             'amount' => 50000.5,
             'impressions' => 800,
             'clicks' => 40,
+        ]);
+        $this->assertDatabaseHas('tiktok_ad_campaign_spends', [
+            'tiktok_ad_account_id' => $account->id,
+            'campaign_id' => 'gmv-1',
+            'campaign_name' => 'GMV Max Toko',
+            'amount' => 25000,
+            'impressions' => 300,
+            'clicks' => 20,
         ]);
 
         $account->refresh();
@@ -134,6 +177,17 @@ class TiktokAdsSpendSyncTest extends TestCase
                 && ! array_key_exists('service_type', $data)
                 && ! array_key_exists('report_type', $data)
                 && ! array_key_exists('data_level', $data);
+        });
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/open_api/v1.3/gmv_max/report/get/')) {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['advertiser_id'] === '7001'
+                && json_decode((string) $data['store_ids'], true) === ['tiktok-store-id-1']
+                && ! array_key_exists('advertiser_ids', $data);
         });
     }
 
@@ -205,6 +259,7 @@ class TiktokAdsSpendSyncTest extends TestCase
             'platform' => 'Tiktokshop',
             'store_name' => 'Vilion TikTok',
             'shopee_shop_id' => 'tiktok-store-1',
+            'platform_shop_id' => 'tiktok-store-id-1',
         ]);
         $connection = TiktokAdsConnection::create([
             'user_id' => $user->id,

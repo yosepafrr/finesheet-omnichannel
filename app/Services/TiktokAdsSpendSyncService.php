@@ -58,6 +58,35 @@ class TiktokAdsSpendSyncService
             $endDate,
         );
 
+        $platformStoreId = trim((string) $account->store->platform_shop_id);
+        if ($platformStoreId === '') {
+            throw new RuntimeException(
+                'ID TikTok Shop belum tersedia. Otorisasi ulang toko sebelum menyinkronkan GMV Max Ads.',
+            );
+        }
+
+        $gmvDailyRecords = $this->api->gmvMaxReport(
+            $account->connection,
+            $account->advertiser_id,
+            $platformStoreId,
+            ['stat_time_day'],
+            ['cost'],
+            $startDate,
+            $endDate,
+        );
+        $gmvCampaignRecords = $this->api->gmvMaxReport(
+            $account->connection,
+            $account->advertiser_id,
+            $platformStoreId,
+            ['campaign_id', 'stat_time_day'],
+            ['campaign_name', 'cost', 'product_impressions', 'product_clicks'],
+            $startDate,
+            $endDate,
+        );
+
+        $dailyRecords = [...$dailyRecords, ...$gmvDailyRecords];
+        $campaignRecords = [...$campaignRecords, ...$gmvCampaignRecords];
+
         $dailyByDate = collect($dailyRecords)->groupBy(fn (array $record) => $this->recordDate($record));
         $campaignsByDate = collect($campaignRecords)->groupBy(fn (array $record) => $this->recordDate($record));
         $syncedAt = now();
@@ -80,7 +109,7 @@ class TiktokAdsSpendSyncService
                 $date = $cursor->toDateString();
                 $dailyRecords = $dailyByDate->get($date, collect());
                 $dailyAmount = (float) $dailyRecords->sum(
-                    fn (array $record) => $this->number(data_get($record, 'metrics.spend', 0)),
+                    fn (array $record) => $this->recordSpend($record),
                 );
 
                 $spend = MarketplaceAdSpend::query()->updateOrCreate(
@@ -117,9 +146,15 @@ class TiktokAdsSpendSyncService
                         'tiktok_ad_account_id' => $account->id,
                         'campaign_id' => $campaignId,
                         'campaign_name' => trim((string) data_get($record, 'metrics.campaign_name')) ?: null,
-                        'amount' => $this->number(data_get($record, 'metrics.spend', 0)),
-                        'impressions' => (int) $this->number(data_get($record, 'metrics.impressions', 0)),
-                        'clicks' => (int) $this->number(data_get($record, 'metrics.clicks', 0)),
+                        'amount' => $this->recordSpend($record),
+                        'impressions' => (int) $this->number(
+                            data_get($record, 'metrics.impressions')
+                                ?? data_get($record, 'metrics.product_impressions', 0),
+                        ),
+                        'clicks' => (int) $this->number(
+                            data_get($record, 'metrics.clicks')
+                                ?? data_get($record, 'metrics.product_clicks', 0),
+                        ),
                         'raw_data' => $record,
                         'synced_at' => $syncedAt,
                     ]);
@@ -165,5 +200,14 @@ class TiktokAdsSpendSyncService
         }
 
         return is_numeric($value) ? (float) $value : 0.0;
+    }
+
+    /** @param array<string, mixed> $record */
+    private function recordSpend(array $record): float
+    {
+        return $this->number(
+            data_get($record, 'metrics.spend')
+                ?? data_get($record, 'metrics.cost', 0),
+        );
     }
 }
