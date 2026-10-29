@@ -378,7 +378,7 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
     ];
 
     return (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div className="relative z-20 overflow-visible rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
             <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-700">
