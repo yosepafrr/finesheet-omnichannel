@@ -57,7 +57,10 @@ return [
     'tiktok_ads' => [
         'app_id' => env('TIKTOK_ADS_APP_ID'),
         'app_secret' => env('TIKTOK_ADS_APP_SECRET'),
-        'authorization_url' => env('TIKTOK_ADS_AUTHORIZATION_URL'),
+        'authorization_url' => env(
+            'TIKTOK_ADS_AUTHORIZATION_URL',
+            'https://business-api.tiktok.com/portal/auth',
+        ),
         'redirect_uri' => env(
             'TIKTOK_ADS_REDIRECT_URI',
             rtrim((string) env('APP_URL'), '/').'/tiktok-ads/callback',

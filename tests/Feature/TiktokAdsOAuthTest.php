@@ -22,7 +22,7 @@ class TiktokAdsOAuthTest extends TestCase
         config()->set('services.tiktok_ads', [
             'app_id' => '123456789',
             'app_secret' => 'marketing-api-secret',
-            'authorization_url' => 'https://business-api.tiktok.com/portal/auth?redirect_uri=https%3A%2F%2Ffinesheet.test%2Ftiktok-ads%2Fcallback',
+            'authorization_url' => 'https://business-api.tiktok.com/portal/auth',
             'redirect_uri' => 'https://finesheet.test/tiktok-ads/callback',
             'api_url' => 'https://business-api.tiktok.com/open_api',
             'api_version' => 'v2.0',
@@ -40,6 +40,8 @@ class TiktokAdsOAuthTest extends TestCase
         parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
 
         $this->assertStringStartsWith('https://business-api.tiktok.com/portal/auth?', $location);
+        $this->assertSame('123456789', $query['app_id'] ?? null);
+        $this->assertSame('https://finesheet.test/tiktok-ads/callback', $query['redirect_uri'] ?? null);
         $this->assertNotEmpty($query['state'] ?? null);
         $this->assertSame(
             hash('sha256', (string) $query['state']),

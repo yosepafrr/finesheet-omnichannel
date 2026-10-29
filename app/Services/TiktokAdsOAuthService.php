@@ -23,9 +23,15 @@ class TiktokAdsOAuthService
     public function authorizationUrl(string $state): string
     {
         $url = trim((string) config('services.tiktok_ads.authorization_url'));
+        $appId = trim((string) config('services.tiktok_ads.app_id'));
+        $redirectUri = trim((string) config('services.tiktok_ads.redirect_uri'));
 
         if ($url === '') {
             throw new RuntimeException('TikTok Ads authorization URL belum dikonfigurasi.');
+        }
+
+        if ($appId === '' || $redirectUri === '') {
+            throw new RuntimeException('TikTok Ads App ID atau redirect URI belum dikonfigurasi.');
         }
 
         $parts = parse_url($url);
@@ -34,6 +40,8 @@ class TiktokAdsOAuthService
         }
 
         parse_str($parts['query'] ?? '', $query);
+        $query['app_id'] = $appId;
+        $query['redirect_uri'] = $redirectUri;
         $query['state'] = $state;
 
         $authority = $parts['scheme'].'://';
