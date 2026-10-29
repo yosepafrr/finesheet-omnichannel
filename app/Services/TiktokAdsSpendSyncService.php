@@ -33,10 +33,17 @@ class TiktokAdsSpendSyncService
         $startDate = $start->toDateString();
         $endDate = $end->toDateString();
         $info = $this->api->advertiserInfo($account->connection, $account->advertiser_id);
+
+        $currency = trim((string) ($info['currency'] ?? $account->currency ?? 'IDR')) ?: 'IDR';
+        $account->update([
+            'advertiser_name' => trim((string) ($info['name'] ?? '')) ?: $account->advertiser_name,
+            'currency' => $currency,
+            'timezone' => trim((string) ($info['timezone'] ?? '')) ?: $account->timezone,
+        ]);
+
         $dailyRecords = $this->api->report(
             $account->connection,
             $account->advertiser_id,
-            'AUCTION_ADVERTISER',
             ['stat_time_day'],
             ['spend'],
             $startDate,
@@ -45,14 +52,12 @@ class TiktokAdsSpendSyncService
         $campaignRecords = $this->api->report(
             $account->connection,
             $account->advertiser_id,
-            'AUCTION_CAMPAIGN',
             ['campaign_id', 'stat_time_day'],
             ['campaign_name', 'spend', 'impressions', 'clicks'],
             $startDate,
             $endDate,
         );
 
-        $currency = trim((string) ($info['currency'] ?? $account->currency ?? 'IDR')) ?: 'IDR';
         $dailyByDate = collect($dailyRecords)->groupBy(fn (array $record) => $this->recordDate($record));
         $campaignsByDate = collect($campaignRecords)->groupBy(fn (array $record) => $this->recordDate($record));
         $syncedAt = now();
@@ -130,9 +135,6 @@ class TiktokAdsSpendSyncService
         });
 
         $account->update([
-            'advertiser_name' => trim((string) ($info['name'] ?? '')) ?: $account->advertiser_name,
-            'currency' => $currency,
-            'timezone' => trim((string) ($info['timezone'] ?? '')) ?: $account->timezone,
             'last_synced_at' => $syncedAt,
             'last_error' => null,
         ]);

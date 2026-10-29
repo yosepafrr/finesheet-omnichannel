@@ -338,6 +338,24 @@ class TiktokAdsController extends Controller
         ]);
     }
 
+    public function destroyAccount(Request $request, int $accountId): JsonResponse
+    {
+        $account = TiktokAdAccount::query()
+            ->where('user_id', $request->user()->id)
+            ->whereKey($accountId)
+            ->firstOrFail();
+
+        $account->update([
+            'store_id' => null,
+            'is_active' => false,
+            'last_error' => null,
+        ]);
+
+        return response()->json([
+            'message' => 'Advertiser account dihapus dari Finesheet. Otorisasi di TikTok tidak dicabut.',
+        ]);
+    }
+
     private function hasValidState(mixed $oauthSession, string $state): bool
     {
         if (! is_array($oauthSession) || $state === '') {

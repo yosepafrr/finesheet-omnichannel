@@ -31,7 +31,6 @@ class TiktokAdsApiService
     public function report(
         TiktokAdsConnection $connection,
         string $advertiserId,
-        string $dataLevel,
         array $dimensions,
         array $metrics,
         string $startDate,
@@ -42,10 +41,7 @@ class TiktokAdsApiService
 
         do {
             $payload = $this->get($connection, '/report/integrated/get/', [
-                'advertiser_id' => $advertiserId,
-                'service_type' => 'AUCTION',
-                'report_type' => 'BASIC',
-                'data_level' => $dataLevel,
+                'advertiser_ids' => [$advertiserId],
                 'dimensions' => $dimensions,
                 'metrics' => $metrics,
                 'start_date' => $startDate,

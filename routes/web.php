@@ -110,6 +110,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/tiktok-ads/sync', [TiktokAdsController::class, 'sync']);
         Route::get('/tiktok-ads/campaigns', [TiktokAdsController::class, 'campaigns']);
         Route::put('/tiktok-ads/accounts/{accountId}/store', [TiktokAdsController::class, 'updateStore']);
+        Route::delete('/tiktok-ads/accounts/{accountId}', [TiktokAdsController::class, 'destroyAccount']);
 
         // Payable Routes
         Route::get('/payable/config', [PayableController::class, 'getConfig']);

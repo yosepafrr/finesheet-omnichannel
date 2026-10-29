@@ -49,7 +49,8 @@ class TiktokAdsSpendSyncTest extends TestCase
                 ]);
             }
 
-            if ($request['data_level'] === 'AUCTION_ADVERTISER') {
+            $dimensions = json_decode((string) $request['dimensions'], true);
+            if (! in_array('campaign_id', $dimensions, true)) {
                 return Http::response([
                     'code' => 0,
                     'message' => 'OK',
@@ -120,6 +121,20 @@ class TiktokAdsSpendSyncTest extends TestCase
         $this->assertSame('IDR', $account->currency);
         $this->assertNotNull($account->last_synced_at);
         $this->assertSame(2, MarketplaceAdSpend::query()->count());
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/report/integrated/get/')) {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return json_decode((string) $data['advertiser_ids'], true) === ['7001']
+                && ! array_key_exists('advertiser_id', $data)
+                && ! array_key_exists('service_type', $data)
+                && ! array_key_exists('report_type', $data)
+                && ! array_key_exists('data_level', $data);
+        });
     }
 
     public function test_manual_sync_queues_mapped_accounts_and_campaign_endpoint_aggregates_data(): void
@@ -157,6 +172,21 @@ class TiktokAdsSpendSyncTest extends TestCase
             ->assertJsonPath('campaigns.0.campaign_id', 'campaign-1')
             ->assertJsonPath('campaigns.0.campaign_name', 'Produk Utama')
             ->assertJsonPath('campaigns.0.amount', '120000.00');
+    }
+
+    public function test_user_can_remove_an_unused_advertiser_account_without_revoking_connection(): void
+    {
+        [$user, , $account] = $this->connectedAccount();
+
+        $this->actingAs($user)
+            ->deleteJson("/api/tiktok-ads/accounts/{$account->id}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Advertiser account dihapus dari Finesheet. Otorisasi di TikTok tidak dicabut.');
+
+        $account->refresh();
+        $this->assertFalse($account->is_active);
+        $this->assertNull($account->store_id);
+        $this->assertDatabaseCount('tiktok_ads_connections', 1);
     }
 
     /** @return array{User, Store, TiktokAdAccount} */

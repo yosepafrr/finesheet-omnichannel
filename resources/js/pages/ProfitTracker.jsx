@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Link2, LoaderCircle, RefreshCw, Store, TriangleAlert } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Link2, LoaderCircle, RefreshCw, Store, Trash2, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import ProfitBreakdownModal from "@/components/ProfitBreakdownModal";
@@ -281,6 +281,7 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
+    const [removingAccountId, setRemovingAccountId] = useState(null);
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
     const syncPollRef = useRef(null);
@@ -325,6 +326,22 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
             setMessage("Pemetaan advertiser account diperbarui.");
         } catch (requestError) {
             setError(requestError.response?.data?.message || "Pemetaan toko gagal diperbarui.");
+        }
+    };
+
+    const removeAccount = async (account) => {
+        if (!window.confirm(`Hapus advertiser ${account.advertiser_name || account.advertiser_id} dari Finesheet? Data otorisasi di TikTok tidak akan dicabut.`)) return;
+
+        setRemovingAccountId(account.id);
+        setError("");
+        try {
+            const response = await axios.delete(`/api/tiktok-ads/accounts/${account.id}`);
+            await loadStatus();
+            setMessage(response.data.message);
+        } catch (requestError) {
+            setError(requestError.response?.data?.message || "Advertiser account gagal dihapus.");
+        } finally {
+            setRemovingAccountId(null);
         }
     };
 
@@ -415,6 +432,9 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
             ) : status?.connected && (
                 <div className="grid gap-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
                     <div className="divide-y divide-slate-100 dark:divide-slate-700 lg:border-r lg:border-slate-100 dark:lg:border-slate-700">
+                        <div className="bg-slate-50/70 px-4 py-2 text-[10px] leading-relaxed text-slate-500 dark:bg-slate-900/30 dark:text-slate-400">
+                            Cocokkan Advertiser ID dengan ID akun pada pemilih akun di TikTok Ads Manager, lalu petakan hanya akun yang digunakan toko tersebut.
+                        </div>
                         {(status.accounts || []).map((account) => (
                             <div key={account.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
                                 <div className="min-w-0">
@@ -422,15 +442,27 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
                                     <p className="truncate text-[10px] text-slate-400">ID {account.advertiser_id}{account.currency ? ` / ${account.currency}` : ""}</p>
                                     {account.last_error && <p className="mt-1 line-clamp-2 text-[10px] font-medium text-red-600 dark:text-red-400">{account.last_error}</p>}
                                 </div>
-                                <FilterDropdown
-                                    id={`tiktok-account-store-${account.id}`}
-                                    label="Toko"
-                                    value={account.store?.id ? String(account.store.id) : ""}
-                                    onChange={(value) => updateStore(account.id, value)}
-                                    options={tiktokStoreOptions}
-                                    icon={Store}
-                                    className="w-full"
-                                />
+                                <div className="flex items-center gap-2">
+                                    <FilterDropdown
+                                        id={`tiktok-account-store-${account.id}`}
+                                        label="Toko"
+                                        value={account.store?.id ? String(account.store.id) : ""}
+                                        onChange={(value) => updateStore(account.id, value)}
+                                        options={tiktokStoreOptions}
+                                        icon={Store}
+                                        className="min-w-0 flex-1"
+                                    />
+                                    <button
+                                        type="button"
+                                        title="Hapus advertiser dari Finesheet"
+                                        aria-label={`Hapus advertiser ${account.advertiser_name || account.advertiser_id}`}
+                                        disabled={removingAccountId === account.id}
+                                        onClick={() => removeAccount(account)}
+                                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/40 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
+                                    >
+                                        {removingAccountId === account.id ? <LoaderCircle size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
