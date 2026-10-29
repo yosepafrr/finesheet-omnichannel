@@ -156,7 +156,11 @@ class ProfitController extends Controller
                 $financialSummaries,
                 $analyticsPeriod,
                 $analyticsAdSpends,
-                $analyticsStores->filter(fn ($store) => strtolower((string) $store->platform) === 'shopee')->count(),
+                $analyticsStores->filter(fn ($store) => in_array(
+                    strtolower((string) $store->platform),
+                    ['shopee', 'tiktokshop'],
+                    true,
+                ))->count(),
             );
         }
 
@@ -351,10 +355,9 @@ class ProfitController extends Controller
     private function analyticsAdSpends(int $userId, $storeIds, Carbon $start, Carbon $end)
     {
         return MarketplaceAdSpend::query()
-            ->with('store')
+            ->with(['store', 'campaigns'])
             ->where('user_id', $userId)
             ->whereIn('store_id', $storeIds)
-            ->whereRaw('LOWER(platform) = ?', ['shopee'])
             ->whereDate('spend_date', '>=', $start->toDateString())
             ->whereDate('spend_date', '<=', $end->toDateString())
             ->orderBy('spend_date')

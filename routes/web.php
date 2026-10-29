@@ -107,6 +107,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/cashflow/transactions/{id}', [CashflowController::class, 'updateTransaction']);
         Route::delete('/cashflow/transactions/{id}', [CashflowController::class, 'destroyTransaction']);
         Route::get('/tiktok-ads/status', [TiktokAdsController::class, 'status']);
+        Route::post('/tiktok-ads/sync', [TiktokAdsController::class, 'sync']);
+        Route::get('/tiktok-ads/campaigns', [TiktokAdsController::class, 'campaigns']);
         Route::put('/tiktok-ads/accounts/{accountId}/store', [TiktokAdsController::class, 'updateStore']);
 
         // Payable Routes

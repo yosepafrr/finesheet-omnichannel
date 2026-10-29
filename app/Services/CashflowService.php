@@ -140,15 +140,15 @@ class CashflowService
             'end' => $end,
             'granularity' => 'day',
         ];
-        $shopeeStoreCount = $stores
-            ->filter(fn ($store) => str_contains(strtolower((string) $store->platform), 'shopee'))
+        $adStoreCount = $stores
+            ->filter(fn ($store) => in_array(strtolower((string) $store->platform), ['shopee', 'tiktokshop'], true))
             ->count();
         $analytics = $this->profitAnalyticsService->build(
             $orders,
             $financialSummaries,
             $period,
             $adSpends,
-            $shopeeStoreCount,
+            $adStoreCount,
         );
 
         return collect($analytics['points'])

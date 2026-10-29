@@ -32,7 +32,7 @@ class ProfitAnalyticsService
         Collection $financialSummaries,
         array $period,
         Collection $adSpends,
-        int $shopeeStoreCount,
+        int $adStoreCount,
     ): array {
         $events = $this->financialEvents($orders, $financialSummaries, $period);
         $potentialAdjustments = $this->potentialAdjustments($orders, $financialSummaries, $period);
@@ -74,7 +74,7 @@ class ProfitAnalyticsService
             $bucketDayCount = (int) floor(
                 $bucketStart->copy()->startOfDay()->diffInDays($bucketEnd->copy()->startOfDay()),
             ) + 1;
-            $expectedAdSpendRecords = $shopeeStoreCount * $bucketDayCount;
+            $expectedAdSpendRecords = $adStoreCount * $bucketDayCount;
 
             $points->push([
                 'key' => $bucketKey,
@@ -119,11 +119,14 @@ class ProfitAnalyticsService
             'ad_spend' => [
                 'available' => $adSpends->isNotEmpty(),
                 'amount' => (float) $points->sum('ad_spend_amount'),
-                'platforms_included' => ['Shopee'],
-                'platforms_pending' => ['Tiktokshop'],
-                'is_partial' => true,
-                'coverage_complete' => $shopeeStoreCount > 0
-                    && $adSpends->count() >= ($shopeeStoreCount * (
+                'platforms_included' => $adSpends->pluck('platform')->unique()->values()->all(),
+                'platforms_pending' => collect(['Shopee', 'Tiktokshop'])
+                    ->reject(fn (string $platform) => $adSpends->pluck('platform')->contains($platform))
+                    ->values()
+                    ->all(),
+                'is_partial' => $adSpends->pluck('platform')->unique()->count() < 2,
+                'coverage_complete' => $adStoreCount > 0
+                    && $adSpends->count() >= ($adStoreCount * (
                         (int) floor(
                             $period['start']->copy()->startOfDay()->diffInDays(
                                 $period['end']->copy()->startOfDay(),
@@ -161,7 +164,7 @@ class ProfitAnalyticsService
                 'id' => 'ad-spend:'.$spend->id,
                 'kind' => 'ad_spend',
                 'type' => 'ad_spend',
-                'label' => 'Iklan Shopee',
+                'label' => 'Iklan '.$spend->platform,
                 'occurred_at' => $spend->spend_date->copy()->startOfDay()->toIso8601String(),
                 'order_id' => null,
                 'order_sn' => null,
@@ -178,6 +181,15 @@ class ProfitAnalyticsService
                 'escrow_sample_size' => 0,
                 'reason' => 'Pengeluaran iklan harian toko',
                 'item_summary' => null,
+                'campaigns' => $spend->campaigns
+                    ->sortByDesc(fn ($campaign) => (float) $campaign->amount)
+                    ->map(fn ($campaign) => [
+                        'id' => $campaign->campaign_id,
+                        'name' => $campaign->campaign_name,
+                        'amount' => (float) $campaign->amount,
+                        'impressions' => (int) $campaign->impressions,
+                        'clicks' => (int) $campaign->clicks,
+                    ])->values()->all(),
             ];
         });
         $events = $financialEvents

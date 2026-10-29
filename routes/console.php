@@ -83,3 +83,8 @@ Schedule::command('sync:shopee-ads --days=2 --queue=orders-low')
     ->hourlyAt(35)
     ->name('dispatch-shopee-ads-spend-sync')
     ->withoutOverlapping(55);
+
+Schedule::command('sync:tiktok-ads --days=3 --queue=orders-low')
+    ->hourlyAt(45)
+    ->name('dispatch-tiktok-ads-spend-sync')
+    ->withoutOverlapping(55);

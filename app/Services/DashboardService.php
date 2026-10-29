@@ -54,7 +54,6 @@ class DashboardService
         $adSpends = MarketplaceAdSpend::query()
             ->where('user_id', $user->id)
             ->whereIn('store_id', $storeIds)
-            ->whereRaw('LOWER(platform) = ?', ['shopee'])
             ->whereDate('spend_date', '>=', $start->toDateString())
             ->whereDate('spend_date', '<=', $end->toDateString())
             ->orderBy('spend_date')
@@ -70,7 +69,11 @@ class DashboardService
             $financialSummaries,
             $period,
             $adSpends,
-            $stores->filter(fn (Store $store) => strtolower((string) $store->platform) === 'shopee')->count(),
+            $stores->filter(fn (Store $store) => in_array(
+                strtolower((string) $store->platform),
+                ['shopee', 'tiktokshop'],
+                true,
+            ))->count(),
         );
 
         $todayKey = $today->toDateString();

@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SyncTiktokAdsSpendJob;
 use App\Models\TiktokAdAccount;
+use App\Models\TiktokAdCampaignSpend;
 use App\Models\TiktokAdsConnection;
 use App\Services\TiktokAdsOAuthService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -193,12 +196,97 @@ class TiktokAdsController extends Controller
                 'advertiser_name' => $account->advertiser_name,
                 'currency' => $account->currency,
                 'timezone' => $account->timezone,
+                'last_synced_at' => $account->last_synced_at?->toIso8601String(),
+                'last_error' => $account->last_error,
                 'store' => $account->store ? [
                     'id' => $account->store->id,
                     'name' => $account->store->store_name,
                     'platform' => $account->store->platform,
                 ] : null,
             ])->values()->all() ?? [],
+        ]);
+    }
+
+    public function sync(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'account_id' => ['nullable', 'integer'],
+            'days' => ['nullable', 'integer', 'min:1', 'max:366'],
+        ]);
+        $days = (int) ($validated['days'] ?? 30);
+        $accounts = TiktokAdAccount::query()
+            ->where('user_id', $request->user()->id)
+            ->where('is_active', true)
+            ->whereNotNull('store_id')
+            ->when(
+                $validated['account_id'] ?? null,
+                fn ($query, $accountId) => $query->whereKey((int) $accountId),
+            )
+            ->whereHas('connection', fn ($query) => $query->where('status', 'active'))
+            ->get(['id']);
+
+        if ($accounts->isEmpty()) {
+            throw ValidationException::withMessages([
+                'account_id' => 'Petakan minimal satu advertiser account ke toko TikTok Shop terlebih dahulu.',
+            ]);
+        }
+
+        $end = Carbon::today('Asia/Jakarta');
+        $start = $end->copy()->subDays($days - 1);
+
+        foreach ($accounts as $account) {
+            SyncTiktokAdsSpendJob::dispatch(
+                (int) $account->id,
+                $start->toDateString(),
+                $end->toDateString(),
+            )->onQueue('orders-low');
+        }
+
+        return response()->json([
+            'message' => sprintf(
+                '%d sinkronisasi spend dan campaign TikTok Ads dimasukkan ke antrean.',
+                $accounts->count(),
+            ),
+            'queued_accounts' => $accounts->count(),
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+        ], 202);
+    }
+
+    public function campaigns(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'start' => ['nullable', 'date_format:Y-m-d'],
+            'end' => ['nullable', 'date_format:Y-m-d'],
+            'store_id' => ['nullable', 'integer'],
+        ]);
+        $end = isset($validated['end'])
+            ? Carbon::createFromFormat('!Y-m-d', $validated['end'], 'Asia/Jakarta')
+            : Carbon::today('Asia/Jakarta');
+        $start = isset($validated['start'])
+            ? Carbon::createFromFormat('!Y-m-d', $validated['start'], 'Asia/Jakarta')
+            : $end->copy()->subDays(29);
+
+        $campaigns = TiktokAdCampaignSpend::query()
+            ->whereHas('adAccount', fn ($query) => $query
+                ->where('user_id', $request->user()->id)
+                ->when(
+                    $validated['store_id'] ?? null,
+                    fn ($accountQuery, $storeId) => $accountQuery->where('store_id', (int) $storeId),
+                ))
+            ->whereHas('adSpend', fn ($query) => $query
+                ->whereDate('spend_date', '>=', $start->toDateString())
+                ->whereDate('spend_date', '<=', $end->toDateString()))
+            ->selectRaw('campaign_id, MAX(campaign_name) as campaign_name, SUM(amount) as amount, SUM(impressions) as impressions, SUM(clicks) as clicks')
+            ->groupBy('campaign_id')
+            ->orderByDesc('amount')
+            ->limit(100)
+            ->get();
+
+        return response()->json([
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'campaigns' => $campaigns,
         ]);
     }
 
@@ -223,6 +311,19 @@ class TiktokAdsController extends Controller
             if (! $store) {
                 throw ValidationException::withMessages([
                     'store_id' => 'Pilih toko TikTok Shop milik akun ini.',
+                ]);
+            }
+
+            $alreadyMapped = TiktokAdAccount::query()
+                ->where('user_id', $request->user()->id)
+                ->where('store_id', $storeId)
+                ->where('is_active', true)
+                ->whereKeyNot($account->id)
+                ->exists();
+
+            if ($alreadyMapped) {
+                throw ValidationException::withMessages([
+                    'store_id' => 'Toko ini sudah dipetakan ke advertiser account lain.',
                 ]);
             }
         }

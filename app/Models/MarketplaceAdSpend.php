@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MarketplaceAdSpend extends Model
 {
@@ -36,5 +37,10 @@ class MarketplaceAdSpend extends Model
     public function store(): BelongsTo
     {
         return $this->belongsTo(Store::class);
+    }
+
+    public function campaigns(): HasMany
+    {
+        return $this->hasMany(TiktokAdCampaignSpend::class);
     }
 }

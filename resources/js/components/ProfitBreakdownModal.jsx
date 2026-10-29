@@ -108,6 +108,17 @@ function EventRow({ event, onOpenOrder }) {
                             {event.reason}
                         </p>
                     )}
+                    {event.kind === "ad_spend" && event.campaigns?.length > 0 && (
+                        <div className="mt-2 space-y-1 border-l-2 border-orange-200 pl-2 dark:border-orange-500/30">
+                            {event.campaigns.slice(0, 3).map((campaign) => (
+                                <div key={campaign.id} className="flex min-w-0 items-center justify-between gap-3 text-[10px]">
+                                    <span className="truncate text-slate-500 dark:text-slate-400" title={campaign.name || campaign.id}>{campaign.name || campaign.id}</span>
+                                    <span className="shrink-0 font-bold text-orange-600 dark:text-orange-400">{formatRp(campaign.amount)}</span>
+                                </div>
+                            ))}
+                            {event.campaigns.length > 3 && <p className="text-[10px] font-semibold text-slate-400">+{event.campaigns.length - 3} campaign lainnya</p>}
+                        </div>
+                    )}
                 </div>
             </div>
 

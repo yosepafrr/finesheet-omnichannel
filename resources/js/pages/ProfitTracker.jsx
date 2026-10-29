@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { CalendarDays, Check, ChevronDown, ChevronRight, Store, TriangleAlert } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Link2, LoaderCircle, RefreshCw, Store, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import ProfitBreakdownModal from "@/components/ProfitBreakdownModal";
@@ -259,6 +259,206 @@ function MetricCard({ label, value, orders, icon, tone }) {
                     {Number(orders || 0).toLocaleString("id-ID")} pesanan
                 </span>
             </div>
+        </div>
+    );
+}
+
+function formatSyncTime(value) {
+    if (!value) return "Belum pernah disinkronkan";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat("id-ID", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(date);
+}
+
+function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
+    const [status, setStatus] = useState(null);
+    const [campaigns, setCampaigns] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
+    const [message, setMessage] = useState("");
+    const [error, setError] = useState("");
+    const syncPollRef = useRef(null);
+
+    useEffect(() => () => {
+        if (syncPollRef.current) {
+            window.clearInterval(syncPollRef.current);
+        }
+    }, []);
+
+    const loadStatus = useCallback(async () => {
+        const response = await axios.get("/api/tiktok-ads/status");
+        setStatus(response.data);
+        return response.data;
+    }, []);
+
+    const loadCampaigns = useCallback(async () => {
+        if (!analytics?.start_date || !analytics?.end_date) return;
+        const params = { start: analytics.start_date, end: analytics.end_date };
+        if (selectedStore) params.store_id = selectedStore;
+        const response = await axios.get("/api/tiktok-ads/campaigns", { params });
+        setCampaigns(response.data.campaigns || []);
+    }, [analytics?.end_date, analytics?.start_date, selectedStore]);
+
+    useEffect(() => {
+        let active = true;
+        Promise.all([loadStatus(), loadCampaigns()])
+            .catch((requestError) => {
+                if (active) setError(requestError.response?.data?.message || "Status TikTok Ads belum dapat dimuat.");
+            })
+            .finally(() => active && setLoading(false));
+        return () => { active = false; };
+    }, [loadCampaigns, loadStatus]);
+
+    const updateStore = async (accountId, storeId) => {
+        setError("");
+        try {
+            await axios.put(`/api/tiktok-ads/accounts/${accountId}/store`, {
+                store_id: storeId ? Number(storeId) : null,
+            });
+            await loadStatus();
+            setMessage("Pemetaan advertiser account diperbarui.");
+        } catch (requestError) {
+            setError(requestError.response?.data?.message || "Pemetaan toko gagal diperbarui.");
+        }
+    };
+
+    const sync = async () => {
+        if (syncPollRef.current) {
+            window.clearInterval(syncPollRef.current);
+            syncPollRef.current = null;
+        }
+
+        setSyncing(true);
+        setError("");
+        setMessage("");
+        const previousSync = status?.connection?.last_synced_at;
+
+        try {
+            const response = await axios.post("/api/tiktok-ads/sync", { days: 30 });
+            setMessage(response.data.message);
+
+            let attempts = 0;
+            syncPollRef.current = window.setInterval(async () => {
+                attempts += 1;
+                try {
+                    const nextStatus = await loadStatus();
+                    const nextSync = nextStatus?.connection?.last_synced_at;
+                    if ((nextSync && nextSync !== previousSync) || attempts >= 24) {
+                        window.clearInterval(syncPollRef.current);
+                        syncPollRef.current = null;
+                        setSyncing(false);
+                        await loadCampaigns();
+                        if (nextSync && nextSync !== previousSync) onSynced?.();
+                    }
+                } catch {
+                    if (attempts >= 24) {
+                        window.clearInterval(syncPollRef.current);
+                        syncPollRef.current = null;
+                        setSyncing(false);
+                    }
+                }
+            }, 5000);
+        } catch (requestError) {
+            setError(requestError.response?.data?.message || "Sinkronisasi TikTok Ads gagal dimulai.");
+            setSyncing(false);
+        }
+    };
+
+    const tiktokStoreOptions = [
+        { value: "", label: "Belum dipetakan" },
+        ...stores
+            .filter((store) => String(store.platform).toLowerCase() === "tiktokshop")
+            .map((store) => ({ value: String(store.id), label: store.store_name })),
+    ];
+
+    return (
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-700">
+                        <img src="/Marketplace-logo/tts.png" alt="" className="h-5 w-5 object-contain" />
+                    </span>
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-bold text-slate-800 dark:text-white">TikTok Ads</h3>
+                            <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${status?.connected ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
+                                {status?.connected ? "Terhubung" : "Belum terhubung"}
+                            </span>
+                        </div>
+                        <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                            {status?.connected ? `Sinkron terakhir ${formatSyncTime(status.connection?.last_synced_at)}` : "Hubungkan akun iklan untuk memasukkan spend ke profit."}
+                        </p>
+                    </div>
+                </div>
+
+                {status?.connected ? (
+                    <button type="button" onClick={sync} disabled={syncing} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white transition-colors hover:bg-[#26385e] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
+                        {syncing ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+                        {syncing ? "Menyinkronkan..." : "Sinkronkan 30 hari"}
+                    </button>
+                ) : (
+                    <a href="/connect/tiktok-ads" className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white transition-colors hover:bg-[#26385e] dark:bg-blue-600 dark:hover:bg-blue-500">
+                        <Link2 size={15} aria-hidden="true" />
+                        Hubungkan TikTok Ads
+                    </a>
+                )}
+            </div>
+
+            {loading ? (
+                <div className="flex items-center gap-2 px-4 py-4 text-xs text-slate-500"><LoaderCircle size={15} className="animate-spin" /> Memuat akun iklan...</div>
+            ) : status?.connected && (
+                <div className="grid gap-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700 lg:border-r lg:border-slate-100 dark:lg:border-slate-700">
+                        {(status.accounts || []).map((account) => (
+                            <div key={account.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
+                                <div className="min-w-0">
+                                    <p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{account.advertiser_name || `Advertiser ${account.advertiser_id}`}</p>
+                                    <p className="truncate text-[10px] text-slate-400">ID {account.advertiser_id}{account.currency ? ` / ${account.currency}` : ""}</p>
+                                    {account.last_error && <p className="mt-1 line-clamp-2 text-[10px] font-medium text-red-600 dark:text-red-400">{account.last_error}</p>}
+                                </div>
+                                <FilterDropdown
+                                    id={`tiktok-account-store-${account.id}`}
+                                    label="Toko"
+                                    value={account.store?.id ? String(account.store.id) : ""}
+                                    onChange={(value) => updateStore(account.id, value)}
+                                    options={tiktokStoreOptions}
+                                    icon={Store}
+                                    className="w-full"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                            <p className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><BarChart3 size={14} /> Campaign teratas</p>
+                            <span className="text-[10px] text-slate-400">{analytics?.start_date} - {analytics?.end_date}</span>
+                        </div>
+                        {campaigns.length > 0 ? (
+                            <div className="space-y-2">
+                                {campaigns.slice(0, 5).map((campaign) => (
+                                    <div key={campaign.campaign_id} className="flex items-center justify-between gap-3 text-xs">
+                                        <span className="min-w-0 truncate text-slate-600 dark:text-slate-300" title={campaign.campaign_name || campaign.campaign_id}>{campaign.campaign_name || campaign.campaign_id}</span>
+                                        <span className="shrink-0 font-bold text-orange-600 dark:text-orange-400">{formatRp(campaign.amount)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : <p className="text-[11px] leading-5 text-slate-400">Belum ada data campaign pada rentang ini.</p>}
+                    </div>
+                </div>
+            )}
+
+            {(message || error) && (
+                <div className={`border-t px-4 py-2 text-[11px] font-medium ${error ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300" : "border-blue-100 bg-blue-50 text-[#304674] dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300"}`}>
+                    {error || message}
+                </div>
+            )}
         </div>
     );
 }
@@ -580,7 +780,7 @@ export default function ProfitTracker() {
                                     <div>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
-                                            <span className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold uppercase text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">Iklan Shopee</span>
+                                            <span className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold uppercase text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">Shopee + TikTok Ads</span>
                                         </div>
                                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia. Pesanan cancel/return ditampilkan terpisah sebagai informasi.</p>
                                     </div>
@@ -658,25 +858,32 @@ export default function ProfitTracker() {
 
                                 {analytics && (
                                     <>
-                                        <div className="flex items-start gap-3 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500 dark:bg-amber-500/10 dark:text-amber-200" role="status">
-                                            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                                            <div className="min-w-0 text-xs leading-relaxed">
-                                                <p className="font-bold">Cakupan biaya iklan belum lengkap</p>
-                                                <p>Data iklan saat ini hanya mengambil spend dari Shopee. Pengeluaran iklan TikTok Shop belum termasuk dalam perhitungan profit.</p>
-                                                {!analytics.ad_spend?.available && (
-                                                    <p className="mt-1 font-semibold">Data Shopee Ads belum tersinkronisasi untuk periode ini.</p>
-                                                )}
-                                                {analytics.ad_spend?.available && !analytics.ad_spend?.coverage_complete && (
-                                                    <p className="mt-1 font-semibold">Sebagian tanggal atau toko Shopee pada periode ini belum tersinkronisasi.</p>
-                                                )}
+                                        <TiktokAdsSyncPanel
+                                            stores={data.store_options || []}
+                                            analytics={analytics}
+                                            selectedStore={selectedStore}
+                                            onSynced={() => fetchData({ silent: true })}
+                                        />
+
+                                        {(!analytics.ad_spend?.available || analytics.ad_spend?.is_partial || !analytics.ad_spend?.coverage_complete) && (
+                                            <div className="flex items-start gap-3 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500 dark:bg-amber-500/10 dark:text-amber-200" role="status">
+                                                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                                <div className="min-w-0 text-xs leading-relaxed">
+                                                    <p className="font-bold">Cakupan biaya iklan perlu diperiksa</p>
+                                                    {!analytics.ad_spend?.available && <p>Belum ada data spend iklan pada periode ini.</p>}
+                                                    {analytics.ad_spend?.available && !analytics.ad_spend?.coverage_complete && <p>Sebagian tanggal atau toko pada periode ini belum tersinkronisasi.</p>}
+                                                    {(analytics.ad_spend?.platforms_pending || []).length > 0 && (
+                                                        <p className="mt-1 font-semibold">Platform belum tercakup: {analytics.ad_spend.platforms_pending.join(", ")}.</p>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
 
                                         <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 lg:grid-cols-4">
                                             {[
                                                 ["Total HPP", formatRp(analytics.totals.hpp_amount), "text-gray-800 dark:text-white"],
                                                 ["Total Escrow", formatRp(analytics.totals.escrow_amount), "text-[#304674] dark:text-blue-400"],
-                                                ["Iklan Shopee", formatRp(analytics.totals.ad_spend_amount), "text-orange-600 dark:text-orange-400"],
+                                                ["Iklan Marketplace", formatRp(analytics.totals.ad_spend_amount), "text-orange-600 dark:text-orange-400"],
                                                 ["Profit Setelah Iklan", formatRp(analytics.totals.profit_amount), Number(analytics.totals.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"],
                                             ].map(([label, value, tone], index) => (
                                                 <div key={label} className={`min-w-0 px-4 py-4 ${index % 2 !== 0 ? "border-l" : ""} ${index >= 2 ? "border-t lg:border-t-0" : ""} lg:border-l lg:first:border-l-0 border-slate-100 dark:border-slate-700`}>
@@ -707,7 +914,7 @@ export default function ProfitTracker() {
                                                             <th className="px-5 py-3 text-right font-semibold">Pesanan</th>
                                                             <th className="px-5 py-3 text-right font-semibold">HPP</th>
                                                             <th className="px-5 py-3 text-right font-semibold">Escrow</th>
-                                                            <th className="px-5 py-3 text-right font-semibold">Iklan Shopee</th>
+                                                            <th className="px-5 py-3 text-right font-semibold">Iklan Marketplace</th>
                                                             <th className="px-5 py-3 text-right font-semibold">Profit Bersih</th>
                                                             <th className="w-28 px-3 py-3 text-center font-semibold">Rincian</th>
                                                         </tr>
@@ -796,7 +1003,7 @@ export default function ProfitTracker() {
                                                     <div className="mt-3 grid grid-cols-2 gap-3">
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">HPP</p><p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{formatRp(point.hpp_amount)}</p></div>
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Escrow</p><p className="truncate text-xs font-bold text-[#304674] dark:text-blue-400">{formatRp(point.escrow_amount)}</p></div>
-                                                        <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Iklan Shopee</p><p className="truncate text-xs font-bold text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</p></div>
+                                                        <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Iklan Marketplace</p><p className="truncate text-xs font-bold text-orange-600 dark:text-orange-400">{formatRp(point.ad_spend_amount)}</p></div>
                                                         <div className="min-w-0"><p className="text-[10px] uppercase text-slate-400">Profit Bersih</p><p className={`truncate text-xs font-bold ${Number(point.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(point.profit_amount)}</p></div>
                                                     </div>
                                                 </button>
