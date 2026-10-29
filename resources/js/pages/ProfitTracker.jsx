@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Link2, LoaderCircle, RefreshCw, Store, Trash2, TriangleAlert } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Link2, LoaderCircle, Plus, RefreshCw, Store, Trash2, TriangleAlert } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import OnboardingTour from "@/components/OnboardingTour";
 import ProfitBreakdownModal from "@/components/ProfitBreakdownModal";
@@ -276,11 +276,10 @@ function formatSyncTime(value) {
     }).format(date);
 }
 
-function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
+function TiktokAdsAccountManagement({ stores, onSynced }) {
     const [status, setStatus] = useState(null);
-    const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
+    const [syncingTarget, setSyncingTarget] = useState(null);
     const [removingAccountId, setRemovingAccountId] = useState(null);
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
@@ -298,23 +297,15 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
         return response.data;
     }, []);
 
-    const loadCampaigns = useCallback(async () => {
-        if (!analytics?.start_date || !analytics?.end_date) return;
-        const params = { start: analytics.start_date, end: analytics.end_date };
-        if (selectedStore) params.store_id = selectedStore;
-        const response = await axios.get("/api/tiktok-ads/campaigns", { params });
-        setCampaigns(response.data.campaigns || []);
-    }, [analytics?.end_date, analytics?.start_date, selectedStore]);
-
     useEffect(() => {
         let active = true;
-        Promise.all([loadStatus(), loadCampaigns()])
+        loadStatus()
             .catch((requestError) => {
                 if (active) setError(requestError.response?.data?.message || "Status TikTok Ads belum dapat dimuat.");
             })
             .finally(() => active && setLoading(false));
         return () => { active = false; };
-    }, [loadCampaigns, loadStatus]);
+    }, [loadStatus]);
 
     const updateStore = async (accountId, storeId) => {
         setError("");
@@ -345,45 +336,62 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
         }
     };
 
-    const sync = async () => {
+    const sync = async (account = null) => {
         if (syncPollRef.current) {
             window.clearInterval(syncPollRef.current);
             syncPollRef.current = null;
         }
 
-        setSyncing(true);
+        const target = account?.id || "all";
+        setSyncingTarget(target);
         setError("");
         setMessage("");
-        const previousSync = status?.connection?.last_synced_at;
+        const previousAccounts = new Map(
+            (status?.accounts || []).map((item) => [item.id, {
+                lastSyncedAt: item.last_synced_at,
+                lastError: item.last_error,
+            }]),
+        );
 
         try {
-            const response = await axios.post("/api/tiktok-ads/sync", { days: 30 });
+            const payload = { days: 30 };
+            if (account?.id) payload.account_id = account.id;
+            const response = await axios.post("/api/tiktok-ads/sync", payload);
             setMessage(response.data.message);
+            const queuedAccountIds = response.data.account_ids || (account?.id ? [account.id] : []);
 
             let attempts = 0;
             syncPollRef.current = window.setInterval(async () => {
                 attempts += 1;
                 try {
                     const nextStatus = await loadStatus();
-                    const nextSync = nextStatus?.connection?.last_synced_at;
-                    if ((nextSync && nextSync !== previousSync) || attempts >= 24) {
+                    const nextAccounts = nextStatus?.accounts || [];
+                    const finished = queuedAccountIds.length > 0 && queuedAccountIds.every((accountId) => {
+                        const nextAccount = nextAccounts.find((item) => item.id === accountId);
+                        const previous = previousAccounts.get(accountId);
+                        return Boolean(nextAccount && (
+                            (nextAccount.last_synced_at && nextAccount.last_synced_at !== previous?.lastSyncedAt)
+                            || (nextAccount.last_error && nextAccount.last_error !== previous?.lastError)
+                        ));
+                    });
+
+                    if (finished || attempts >= 24) {
                         window.clearInterval(syncPollRef.current);
                         syncPollRef.current = null;
-                        setSyncing(false);
-                        await loadCampaigns();
-                        if (nextSync && nextSync !== previousSync) onSynced?.();
+                        setSyncingTarget(null);
+                        if (finished) onSynced?.();
                     }
                 } catch {
                     if (attempts >= 24) {
                         window.clearInterval(syncPollRef.current);
                         syncPollRef.current = null;
-                        setSyncing(false);
+                        setSyncingTarget(null);
                     }
                 }
             }, 5000);
         } catch (requestError) {
             setError(requestError.response?.data?.message || "Sinkronisasi TikTok Ads gagal dimulai.");
-            setSyncing(false);
+            setSyncingTarget(null);
         }
     };
 
@@ -393,65 +401,82 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
             .filter((store) => String(store.platform).toLowerCase() === "tiktokshop")
             .map((store) => ({ value: String(store.id), label: store.store_name })),
     ];
+    const accounts = status?.accounts || [];
+    const mappedAccounts = accounts.filter((account) => account.store?.id);
 
     return (
-        <div className="relative z-20 overflow-visible rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-            <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-700">
-                        <img src="/Marketplace-logo/tts.png" alt="" className="h-5 w-5 object-contain" />
-                    </span>
-                    <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-sm font-bold text-slate-800 dark:text-white">TikTok Ads</h3>
-                            <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${status?.connected ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
-                                {status?.connected ? "Terhubung" : "Belum terhubung"}
-                            </span>
-                        </div>
-                        <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                            {status?.connected ? `Sinkron terakhir ${formatSyncTime(status.connection?.last_synced_at)}` : "Hubungkan akun iklan untuk memasukkan spend ke profit."}
-                        </p>
+        <section className="relative z-20 space-y-4 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="tiktok-advertiser-management-title">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h2 id="tiktok-advertiser-management-title" className="font-bold text-gray-800 dark:text-white">Manajemen Akun TikTok Advertiser</h2>
+                        <span className={`rounded-md px-2 py-1 text-[10px] font-bold ${status?.connected ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
+                            {status?.connected ? `${accounts.length} akun terhubung` : "Belum terhubung"}
+                        </span>
                     </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Tambahkan advertiser, petakan ke toko TikTok Shop, lalu sinkronkan spend dan campaign.</p>
                 </div>
 
-                {status?.connected ? (
-                    <button type="button" onClick={sync} disabled={syncing} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white transition-colors hover:bg-[#26385e] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
-                        {syncing ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
-                        {syncing ? "Menyinkronkan..." : "Sinkronkan 30 hari"}
-                    </button>
-                ) : (
-                    <a href="/connect/tiktok-ads" className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white transition-colors hover:bg-[#26385e] dark:bg-blue-600 dark:hover:bg-blue-500">
-                        <Link2 size={15} aria-hidden="true" />
-                        Hubungkan TikTok Ads
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <a href="/connect/tiktok-ads" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-[#304674] transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-300 dark:hover:bg-slate-700">
+                        {status?.connected ? <Plus size={15} aria-hidden="true" /> : <Link2 size={15} aria-hidden="true" />}
+                        {status?.connected ? "Tambah akun" : "Hubungkan TikTok Ads"}
                     </a>
-                )}
+                    <button
+                        type="button"
+                        onClick={() => sync()}
+                        disabled={!status?.connected || mappedAccounts.length === 0 || syncingTarget !== null}
+                        className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white transition-colors hover:bg-[#26385e] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
+                    >
+                        {syncingTarget === "all" ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+                        {syncingTarget === "all" ? "Menyinkronkan..." : "Sinkron semua"}
+                    </button>
+                </div>
             </div>
 
-            {loading ? (
-                <div className="flex items-center gap-2 px-4 py-4 text-xs text-slate-500"><LoaderCircle size={15} className="animate-spin" /> Memuat akun iklan...</div>
-            ) : status?.connected && (
-                <div className="grid gap-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-                    <div className="divide-y divide-slate-100 dark:divide-slate-700 lg:border-r lg:border-slate-100 dark:lg:border-slate-700">
-                        <div className="bg-slate-50/70 px-4 py-2 text-[10px] leading-relaxed text-slate-500 dark:bg-slate-900/30 dark:text-slate-400">
-                            Cocokkan Advertiser ID dengan ID akun pada pemilih akun di TikTok Ads Manager, lalu petakan hanya akun yang digunakan toko tersebut.
-                        </div>
-                        {(status.accounts || []).map((account) => (
-                            <div key={account.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
+            <div className="overflow-visible rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-2 text-[10px] leading-relaxed text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                    Business Center ID bukan advertiser ID. Cocokkan ID akun dengan akun utama atau akun GMV Max pada TikTok Shop sebelum memetakannya.
+                </div>
+                {loading ? (
+                    <div className="flex items-center gap-2 px-4 py-5 text-xs text-slate-500"><LoaderCircle size={15} className="animate-spin" /> Memuat akun advertiser...</div>
+                ) : accounts.length > 0 ? (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {accounts.map((account) => {
+                            const isSyncing = syncingTarget === account.id;
+                            return (
+                            <div key={account.id} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_240px_auto] lg:items-center">
                                 <div className="min-w-0">
-                                    <p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{account.advertiser_name || `Advertiser ${account.advertiser_id}`}</p>
-                                    <p className="truncate text-[10px] text-slate-400">ID {account.advertiser_id}{account.currency ? ` / ${account.currency}` : ""}</p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{account.advertiser_name || `Advertiser ${account.advertiser_id}`}</p>
+                                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${account.store?.id ? "bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>
+                                            {account.store?.id ? "Terpetakan" : "Belum dipetakan"}
+                                        </span>
+                                    </div>
+                                    <p className="truncate text-[10px] text-slate-400">Advertiser ID {account.advertiser_id}{account.currency ? ` / ${account.currency}` : ""}</p>
+                                    <p className="mt-1 text-[10px] text-slate-400">Sinkron terakhir {formatSyncTime(account.last_synced_at)}</p>
                                     {account.last_error && <p className="mt-1 line-clamp-2 text-[10px] font-medium text-red-600 dark:text-red-400">{account.last_error}</p>}
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <FilterDropdown
-                                        id={`tiktok-account-store-${account.id}`}
-                                        label="Toko"
-                                        value={account.store?.id ? String(account.store.id) : ""}
-                                        onChange={(value) => updateStore(account.id, value)}
-                                        options={tiktokStoreOptions}
-                                        icon={Store}
-                                        className="min-w-0 flex-1"
-                                    />
+                                <FilterDropdown
+                                    id={`tiktok-account-store-${account.id}`}
+                                    label="Toko"
+                                    value={account.store?.id ? String(account.store.id) : ""}
+                                    onChange={(value) => updateStore(account.id, value)}
+                                    options={tiktokStoreOptions}
+                                    icon={Store}
+                                    className="min-w-0"
+                                />
+                                <div className="flex items-center gap-2 lg:justify-end">
+                                    <button
+                                        type="button"
+                                        title={account.store?.id ? "Sinkronkan advertiser ini" : "Petakan toko sebelum sinkronisasi"}
+                                        aria-label={`Sinkronkan advertiser ${account.advertiser_name || account.advertiser_id}`}
+                                        disabled={!account.store?.id || syncingTarget !== null}
+                                        onClick={() => sync(account)}
+                                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-[#304674] transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-300 dark:hover:bg-slate-700"
+                                    >
+                                        {isSyncing ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                                    </button>
                                     <button
                                         type="button"
                                         title="Hapus advertiser dari Finesheet"
@@ -464,33 +489,74 @@ function TiktokAdsSyncPanel({ stores, analytics, selectedStore, onSynced }) {
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
+                ) : (
+                    <div className="flex flex-col items-start gap-3 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Belum ada advertiser account yang ditambahkan ke Finesheet.</p>
+                        <a href="/connect/tiktok-ads" className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#304674] px-3 text-xs font-bold text-white hover:bg-[#26385e] dark:bg-blue-600 dark:hover:bg-blue-500">
+                            <Plus size={15} /> Tambah akun
+                        </a>
+                    </div>
+                )}
 
-                    <div className="px-4 py-3">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                            <p className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><BarChart3 size={14} /> Campaign teratas</p>
-                            <span className="text-[10px] text-slate-400">{analytics?.start_date} - {analytics?.end_date}</span>
+                {(message || error) && (
+                    <div className={`border-t px-4 py-2 text-[11px] font-medium ${error ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300" : "border-blue-100 bg-blue-50 text-[#304674] dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300"}`}>
+                        {error || message}
+                    </div>
+                )}
+            </div>
+        </section>
+    );
+}
+
+function TiktokAdsCampaignSummary({ analytics, selectedStore, refreshKey }) {
+    const [campaigns, setCampaigns] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        let active = true;
+        if (!analytics?.start_date || !analytics?.end_date) return undefined;
+
+        setLoading(true);
+        const params = { start: analytics.start_date, end: analytics.end_date };
+        if (selectedStore) params.store_id = selectedStore;
+        axios.get("/api/tiktok-ads/campaigns", { params })
+            .then((response) => {
+                if (!active) return;
+                setCampaigns(response.data.campaigns || []);
+                setError("");
+            })
+            .catch((requestError) => {
+                if (active) setError(requestError.response?.data?.message || "Data campaign TikTok Ads belum dapat dimuat.");
+            })
+            .finally(() => active && setLoading(false));
+
+        return () => { active = false; };
+    }, [analytics?.end_date, analytics?.start_date, refreshKey, selectedStore]);
+
+    return (
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><BarChart3 size={14} /> Campaign TikTok Ads teratas</p>
+                <span className="text-[10px] text-slate-400">{analytics?.start_date} - {analytics?.end_date}</span>
+            </div>
+            {loading ? (
+                <p className="flex items-center gap-2 py-2 text-[11px] text-slate-400"><LoaderCircle size={14} className="animate-spin" /> Memuat campaign...</p>
+            ) : error ? (
+                <p className="py-2 text-[11px] font-medium text-red-600 dark:text-red-400">{error}</p>
+            ) : campaigns.length > 0 ? (
+                <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                    {campaigns.slice(0, 6).map((campaign) => (
+                        <div key={campaign.campaign_id} className="flex items-center justify-between gap-3 text-xs">
+                            <span className="min-w-0 truncate text-slate-600 dark:text-slate-300" title={campaign.campaign_name || campaign.campaign_id}>{campaign.campaign_name || campaign.campaign_id}</span>
+                            <span className="shrink-0 font-bold text-orange-600 dark:text-orange-400">{formatRp(campaign.amount)}</span>
                         </div>
-                        {campaigns.length > 0 ? (
-                            <div className="space-y-2">
-                                {campaigns.slice(0, 5).map((campaign) => (
-                                    <div key={campaign.campaign_id} className="flex items-center justify-between gap-3 text-xs">
-                                        <span className="min-w-0 truncate text-slate-600 dark:text-slate-300" title={campaign.campaign_name || campaign.campaign_id}>{campaign.campaign_name || campaign.campaign_id}</span>
-                                        <span className="shrink-0 font-bold text-orange-600 dark:text-orange-400">{formatRp(campaign.amount)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : <p className="text-[11px] leading-5 text-slate-400">Belum ada data campaign pada rentang ini.</p>}
-                    </div>
+                    ))}
                 </div>
-            )}
-
-            {(message || error) && (
-                <div className={`border-t px-4 py-2 text-[11px] font-medium ${error ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300" : "border-blue-100 bg-blue-50 text-[#304674] dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300"}`}>
-                    {error || message}
-                </div>
-            )}
+            ) : <p className="py-2 text-[11px] leading-5 text-slate-400">Belum ada data campaign pada rentang ini.</p>}
         </div>
     );
 }
@@ -521,6 +587,7 @@ export default function ProfitTracker() {
         year: today.slice(0, 4),
     });
     const [selectedBreakdownPoint, setSelectedBreakdownPoint] = useState(null);
+    const [tiktokAdsRefreshKey, setTiktokAdsRefreshKey] = useState(0);
 
     const fetchData = useCallback(async ({ silent = false } = {}) => {
         const requestSequence = ++requestSequenceRef.current;
@@ -807,6 +874,14 @@ export default function ProfitTracker() {
                                 </div>
                             </section>
 
+                            <TiktokAdsAccountManagement
+                                stores={data.store_options || []}
+                                onSynced={() => {
+                                    setTiktokAdsRefreshKey((value) => value + 1);
+                                    fetchData({ silent: true });
+                                }}
+                            />
+
                             <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                                     <div>
@@ -890,11 +965,10 @@ export default function ProfitTracker() {
 
                                 {analytics && (
                                     <>
-                                        <TiktokAdsSyncPanel
-                                            stores={data.store_options || []}
+                                        <TiktokAdsCampaignSummary
                                             analytics={analytics}
                                             selectedStore={selectedStore}
-                                            onSynced={() => fetchData({ silent: true })}
+                                            refreshKey={tiktokAdsRefreshKey}
                                         />
 
                                         {(!analytics.ad_spend?.available || analytics.ad_spend?.is_partial || !analytics.ad_spend?.coverage_complete) && (

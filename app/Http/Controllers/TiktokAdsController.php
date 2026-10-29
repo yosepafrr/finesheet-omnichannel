@@ -248,6 +248,7 @@ class TiktokAdsController extends Controller
                 $accounts->count(),
             ),
             'queued_accounts' => $accounts->count(),
+            'account_ids' => $accounts->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
         ], 202);

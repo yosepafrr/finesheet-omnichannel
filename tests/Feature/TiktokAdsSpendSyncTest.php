@@ -167,6 +167,13 @@ class TiktokAdsSpendSyncTest extends TestCase
         Queue::assertPushed(SyncTiktokAdsSpendJob::class, 1);
 
         $this->actingAs($user)
+            ->postJson('/api/tiktok-ads/sync', ['days' => 7, 'account_id' => $account->id])
+            ->assertAccepted()
+            ->assertJsonPath('queued_accounts', 1)
+            ->assertJsonPath('account_ids.0', $account->id);
+        Queue::assertPushed(SyncTiktokAdsSpendJob::class, 2);
+
+        $this->actingAs($user)
             ->getJson('/api/tiktok-ads/campaigns?start=2026-10-01&end=2026-10-31')
             ->assertOk()
             ->assertJsonPath('campaigns.0.campaign_id', 'campaign-1')
