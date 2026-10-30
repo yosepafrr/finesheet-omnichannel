@@ -29,47 +29,28 @@ class ProfitCorrectionService
      */
     public function forOrder(Order $order, array $financialSummary): ?array
     {
-        $failedPackages = $this->escrowService->failedDeliveryPackages($order);
-        $activeReturns = $this->escrowService->activeReturns($order);
-
-        if ($failedPackages->isEmpty() && $activeReturns->isEmpty()) {
+        $descriptor = $this->describeOrder($order);
+        if (! $descriptor) {
             return null;
         }
+
+        $failedPackages = $this->escrowService->failedDeliveryPackages($order);
+        $activeReturns = $this->escrowService->activeReturns($order);
 
         $saleEscrowAmount = max(0, (float) ($financialSummary['sale_escrow_amount'] ?? 0));
         $fullHppAmount = max(0, (float) ($financialSummary['hpp_amount'] ?? 0));
 
-        if ($failedPackages->isNotEmpty()) {
-            $occurredAt = $failedPackages
-                ->map(fn ($package) => $this->date($package->failed_at ?? $package->updated_at))
-                ->filter()
-                ->sortBy(fn (Carbon $date) => $date->getTimestamp())
-                ->first();
-
-            if (! $occurredAt) {
-                return null;
-            }
-
+        if ($descriptor['type'] === 'failed_delivery') {
             return $this->correction(
                 $order,
-                'failed_delivery',
-                'Pengantaran Gagal',
-                $occurredAt,
+                $descriptor['type'],
+                $descriptor['label'],
+                $descriptor['occurred_at'],
                 1.0,
                 $fullHppAmount,
                 $saleEscrowAmount,
-                $this->failedDeliveryReason($failedPackages),
+                $descriptor['reason'],
             );
-        }
-
-        $occurredAt = $activeReturns
-            ->map(fn ($return) => $this->date($return->created_at_platform ?? $return->created_at))
-            ->filter()
-            ->sortBy(fn (Carbon $date) => $date->getTimestamp())
-            ->first();
-
-        if (! $occurredAt) {
-            return null;
         }
 
         [$affectedRatio, $returnedHppAmount] = $this->returnAmounts(
@@ -77,20 +58,66 @@ class ProfitCorrectionService
             $activeReturns,
             $fullHppAmount,
         );
+
+        return $this->correction(
+            $order,
+            $descriptor['type'],
+            $descriptor['label'],
+            $descriptor['occurred_at'],
+            $affectedRatio,
+            $returnedHppAmount,
+            $saleEscrowAmount,
+            $descriptor['reason'],
+        );
+    }
+
+    /**
+     * Return correction metadata without calculating HPP or historical escrow.
+     *
+     * @return array{type: string, label: string, occurred_at: Carbon, reason: string|null}|null
+     */
+    public function describeOrder(Order $order): ?array
+    {
+        $failedPackages = $this->escrowService->failedDeliveryPackages($order);
+        if ($failedPackages->isNotEmpty()) {
+            $occurredAt = $failedPackages
+                ->map(fn ($package) => $this->date($package->failed_at ?? $package->updated_at))
+                ->filter()
+                ->sortBy(fn (Carbon $date) => $date->getTimestamp())
+                ->first();
+
+            return $occurredAt ? [
+                'type' => 'failed_delivery',
+                'label' => 'Pengantaran Gagal',
+                'occurred_at' => $occurredAt,
+                'reason' => $this->failedDeliveryReason($failedPackages),
+            ] : null;
+        }
+
+        $activeReturns = $this->escrowService->activeReturns($order);
+        if ($activeReturns->isEmpty()) {
+            return null;
+        }
+
+        $occurredAt = $activeReturns
+            ->map(fn ($return) => $this->date($return->created_at_platform ?? $return->created_at))
+            ->filter()
+            ->sortBy(fn (Carbon $date) => $date->getTimestamp())
+            ->first();
+        if (! $occurredAt) {
+            return null;
+        }
+
         $firstReturn = $activeReturns->sortBy(
             fn ($return) => $this->date($return->created_at_platform ?? $return->created_at)?->getTimestamp() ?? PHP_INT_MAX,
         )->first();
 
-        return $this->correction(
-            $order,
-            'return',
-            'Pengembalian',
-            $occurredAt,
-            $affectedRatio,
-            $returnedHppAmount,
-            $saleEscrowAmount,
-            $firstReturn?->text_reason ?: $firstReturn?->return_reason,
-        );
+        return [
+            'type' => 'return',
+            'label' => 'Pengembalian',
+            'occurred_at' => $occurredAt,
+            'reason' => $firstReturn?->text_reason ?: $firstReturn?->return_reason,
+        ];
     }
 
     private function correction(

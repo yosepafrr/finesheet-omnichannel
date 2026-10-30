@@ -968,20 +968,6 @@ export default function ProfitTracker() {
                                             refreshKey={tiktokAdsRefreshKey}
                                         />
 
-                                        {(!analytics.ad_spend?.available || analytics.ad_spend?.is_partial || !analytics.ad_spend?.coverage_complete) && (
-                                            <div className="flex items-start gap-3 border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-500 dark:bg-amber-500/10 dark:text-amber-200" role="status">
-                                                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                                                <div className="min-w-0 text-xs leading-relaxed">
-                                                    <p className="font-bold">Cakupan biaya iklan perlu diperiksa</p>
-                                                    {!analytics.ad_spend?.available && <p>Belum ada data spend iklan pada periode ini.</p>}
-                                                    {analytics.ad_spend?.available && !analytics.ad_spend?.coverage_complete && <p>Sebagian tanggal atau toko pada periode ini belum tersinkronisasi.</p>}
-                                                    {(analytics.ad_spend?.platforms_pending || []).length > 0 && (
-                                                        <p className="mt-1 font-semibold">Platform belum tercakup: {analytics.ad_spend.platforms_pending.join(", ")}.</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
                                         <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 lg:grid-cols-4">
                                             {[
                                                 ["Total HPP", formatRp(analytics.totals.hpp_amount), "text-gray-800 dark:text-white"],

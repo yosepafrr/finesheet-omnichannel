@@ -35,7 +35,7 @@ class ProfitAnalyticsService
         int $adStoreCount,
     ): array {
         $events = $this->financialEvents($orders, $financialSummaries, $period);
-        $potentialAdjustments = $this->potentialAdjustments($orders, $financialSummaries, $period);
+        $potentialAdjustments = $this->potentialAdjustments($orders, $period);
         $groupedEvents = $events->groupBy('bucket_key');
         $groupedPotentialAdjustments = $potentialAdjustments->groupBy('bucket_key');
         $groupedAdSpends = $adSpends->groupBy(function (MarketplaceAdSpend $spend) use ($period) {
@@ -153,7 +153,7 @@ class ProfitAnalyticsService
     ): array {
         $financialEvents = $this->financialEvents($orders, $financialSummaries, $period)
             ->map(fn (array $event) => collect($event)->except('bucket_key')->all());
-        $potentialAdjustments = $this->potentialAdjustments($orders, $financialSummaries, $period)
+        $potentialAdjustments = $this->potentialAdjustments($orders, $period)
             ->map(fn (array $event) => collect($event)->except('bucket_key')->all())
             ->sortByDesc(fn (array $event) => $event['occurred_at'])
             ->values();
@@ -283,26 +283,19 @@ class ProfitAnalyticsService
 
     /**
      * @param  Collection<int, Order>  $orders
-     * @param  Collection<int, array<string, mixed>>  $financialSummaries
      * @param  array{key: string, start: Carbon, end: Carbon, granularity: string}  $period
      * @return Collection<int, array<string, mixed>>
      */
     private function potentialAdjustments(
         Collection $orders,
-        Collection $financialSummaries,
         array $period,
     ): Collection {
-        return $orders->map(function (Order $order) use ($financialSummaries, $period) {
+        return $orders->map(function (Order $order) use ($period) {
             if ($this->escrowService->isPreShipmentCancellation($order)) {
                 return null;
             }
 
-            $summary = $financialSummaries->get($order->id);
-            if (! $summary) {
-                return null;
-            }
-
-            $correction = $this->correctionService->forOrder($order, $summary);
+            $correction = $this->correctionService->describeOrder($order);
             if (! $correction || ! $this->within($correction['occurred_at'], $period)) {
                 return null;
             }

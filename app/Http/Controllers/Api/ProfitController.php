@@ -55,7 +55,8 @@ class ProfitController extends Controller
             ->whereIn('order_status', $escrowService->realtimeStatuses())
             ->orderByDesc('order_time')
             ->get();
-        $analyticsOrders = $includeAnalytics
+        $chunkAnnualAnalytics = $includeAnalytics && $analyticsPeriod['key'] === 'year';
+        $analyticsOrders = $includeAnalytics && ! $chunkAnnualAnalytics
             ? $this->analyticsOrders(
                 $analyticsStoreIds,
                 $analyticsPeriod['start'],
@@ -63,7 +64,7 @@ class ProfitController extends Controller
                 $escrowService->profitAnalyticsStatuses(),
             )
             : collect();
-        $analyticsAdSpends = $includeAnalytics
+        $analyticsAdSpends = $includeAnalytics && ! $chunkAnnualAnalytics
             ? $this->analyticsAdSpends(
                 $user->id,
                 $analyticsStoreIds,
@@ -72,8 +73,14 @@ class ProfitController extends Controller
             )
             : collect();
 
+        // Return and failed-delivery orders are informational in profit analytics.
+        // Avoid the expensive historical escrow reconstruction for old corrections,
+        // while retaining realtime orders needed by the escrow cards.
+        $analyticsFinancialOrders = $analyticsOrders->reject(
+            fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order),
+        );
         $allOrders = $realtimeOrders
-            ->concat($analyticsOrders)
+            ->concat($analyticsFinancialOrders)
             ->unique('id')
             ->values();
         $financialSummaries = $profitService->summaries($allOrders);
@@ -152,17 +159,29 @@ class ProfitController extends Controller
         ];
 
         if ($includeAnalytics) {
-            $response['analytics'] = $profitAnalyticsService->build(
-                $analyticsOrders,
-                $financialSummaries,
-                $analyticsPeriod,
-                $analyticsAdSpends,
-                $analyticsStores->filter(fn ($store) => in_array(
-                    strtolower((string) $store->platform),
-                    ['shopee', 'tiktokshop'],
-                    true,
-                ))->count(),
-            );
+            $adStoreCount = $analyticsStores->filter(fn ($store) => in_array(
+                strtolower((string) $store->platform),
+                ['shopee', 'tiktokshop'],
+                true,
+            ))->count();
+
+            $response['analytics'] = $chunkAnnualAnalytics
+                ? $this->yearlyAnalytics(
+                    $user->id,
+                    $analyticsStoreIds,
+                    $analyticsPeriod,
+                    $escrowService,
+                    $profitService,
+                    $profitAnalyticsService,
+                    $adStoreCount,
+                )
+                : $profitAnalyticsService->build(
+                    $analyticsOrders,
+                    $financialSummaries,
+                    $analyticsPeriod,
+                    $analyticsAdSpends,
+                    $adStoreCount,
+                );
         }
 
         return response()->json($response);
@@ -205,6 +224,7 @@ class ProfitController extends Controller
             $stores->pluck('id'),
             $period['start'],
             $period['end'],
+            true,
         );
 
         return response()->json($profitAnalyticsService->breakdown(
@@ -376,15 +396,120 @@ class ProfitController extends Controller
             ->get();
     }
 
-    private function analyticsAdSpends(int $userId, $storeIds, Carbon $start, Carbon $end)
-    {
+    private function analyticsAdSpends(
+        int $userId,
+        $storeIds,
+        Carbon $start,
+        Carbon $end,
+        bool $includeCampaigns = false,
+    ) {
         return MarketplaceAdSpend::query()
-            ->with(['store', 'campaigns'])
+            ->with($includeCampaigns ? ['store', 'campaigns'] : ['store'])
             ->where('user_id', $userId)
             ->whereIn('store_id', $storeIds)
             ->whereDate('spend_date', '>=', $start->toDateString())
             ->whereDate('spend_date', '<=', $end->toDateString())
             ->orderBy('spend_date')
             ->get();
+    }
+
+    /**
+     * Build annual analytics one month at a time so PHP-FPM never needs to
+     * hydrate a full year of orders and ad campaign relations in one request.
+     *
+     * @param  array{key: string, start: Carbon, end: Carbon, granularity: string}  $period
+     */
+    private function yearlyAnalytics(
+        int $userId,
+        $storeIds,
+        array $period,
+        OrderEscrowService $escrowService,
+        OrderProfitService $profitService,
+        ProfitAnalyticsService $profitAnalyticsService,
+        int $adStoreCount,
+    ): array {
+        $points = collect();
+        $platformsIncluded = collect();
+        $syncedRecords = 0;
+        $lastSyncedAt = null;
+        $coverageComplete = $adStoreCount > 0;
+        $cursor = $period['start']->copy()->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($period['end'])) {
+            $chunkStart = $cursor->copy()->startOfMonth()->max($period['start']);
+            $chunkEnd = $cursor->copy()->endOfMonth()->min($period['end']);
+            $chunkPeriod = [
+                'key' => $period['key'],
+                'start' => $chunkStart,
+                'end' => $chunkEnd,
+                'granularity' => 'month',
+            ];
+            $orders = $this->analyticsOrders(
+                $storeIds,
+                $chunkStart,
+                $chunkEnd,
+                $escrowService->profitAnalyticsStatuses(),
+            );
+            $financialOrders = $orders->reject(
+                fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order),
+            );
+            $financialSummaries = $profitService->summaries($financialOrders);
+            $adSpends = $this->analyticsAdSpends($userId, $storeIds, $chunkStart, $chunkEnd);
+            $chunk = $profitAnalyticsService->build(
+                $orders,
+                $financialSummaries,
+                $chunkPeriod,
+                $adSpends,
+                $adStoreCount,
+            );
+
+            $points = $points->concat($chunk['points']);
+            $platformsIncluded = $platformsIncluded
+                ->concat($chunk['ad_spend']['platforms_included'])
+                ->unique()
+                ->values();
+            $syncedRecords += (int) $chunk['ad_spend']['synced_records'];
+            $coverageComplete = $coverageComplete && (bool) $chunk['ad_spend']['coverage_complete'];
+            if ($chunk['ad_spend']['last_synced_at']
+                && ($lastSyncedAt === null || $chunk['ad_spend']['last_synced_at'] > $lastSyncedAt)) {
+                $lastSyncedAt = $chunk['ad_spend']['last_synced_at'];
+            }
+
+            unset($orders, $financialOrders, $financialSummaries, $adSpends, $chunk);
+            $cursor->addMonthNoOverflow()->startOfMonth();
+        }
+
+        return [
+            'period' => $period['key'],
+            'start_date' => $period['start']->toDateString(),
+            'end_date' => $period['end']->toDateString(),
+            'granularity' => 'month',
+            'totals' => [
+                'order_count' => (int) $points->sum('order_count'),
+                'correction_count' => 0,
+                'potential_adjustment_count' => (int) $points->sum('potential_adjustment_count'),
+                'estimated_escrow_count' => (int) $points->sum('estimated_escrow_count'),
+                'hpp_amount' => (float) $points->sum('hpp_amount'),
+                'escrow_amount' => (float) $points->sum('escrow_amount'),
+                'gross_profit_amount' => (float) $points->sum('gross_profit_amount'),
+                'correction_profit_amount' => 0.0,
+                'ad_spend_amount' => (float) $points->sum('ad_spend_amount'),
+                'profit_amount' => (float) $points->sum('profit_amount'),
+            ],
+            'points' => $points->values(),
+            'ad_spend' => [
+                'available' => $syncedRecords > 0,
+                'amount' => (float) $points->sum('ad_spend_amount'),
+                'platforms_included' => $platformsIncluded->all(),
+                'platforms_pending' => collect(['Shopee', 'Tiktokshop'])
+                    ->reject(fn (string $platform) => $platformsIncluded->contains($platform))
+                    ->values()
+                    ->all(),
+                'is_partial' => $platformsIncluded->count() < 2,
+                'coverage_complete' => $coverageComplete,
+                'synced_records' => $syncedRecords,
+                'last_synced_at' => $lastSyncedAt,
+            ],
+        ];
     }
 }
