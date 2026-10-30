@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use App\Models\VariantProduct;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -144,6 +145,57 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonCount(30, 'analytics.points')
             ->assertJsonPath('analytics.totals.order_count', 4)
             ->assertJsonPath('analytics.totals.escrow_amount', 410_000);
+    }
+
+    public function test_yearly_profit_analytics_stops_at_today_and_groups_results_by_month(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-30 12:00:00', 'Asia/Jakarta'));
+
+        try {
+            $user = User::factory()->create();
+            $store = $this->createStore($user, 'Shopee', 'Shopee Tahunan', 'shop-yearly');
+
+            $januaryOrder = $this->createOrder($store, 'JANUARY-ORDER', 'COMPLETED', 100_000);
+            $januaryOrder->forceFill([
+                'order_time' => Carbon::parse('2026-01-15 10:00:00', 'Asia/Jakarta'),
+            ])->saveQuietly();
+            $this->createOrder($store, 'OCTOBER-ORDER', 'COMPLETED', 150_000);
+            $cancelledOrder = $this->createOrder(
+                $store,
+                'CANCELLED-BEFORE-SHIPMENT',
+                'CANCELLED',
+                900_000,
+            );
+            $cancelledOrder->forceFill([
+                'order_time' => Carbon::parse('2026-02-01 10:00:00', 'Asia/Jakarta'),
+                'stock_sync_reverted_at' => Carbon::parse('2026-02-01 11:00:00', 'Asia/Jakarta'),
+            ])->saveQuietly();
+
+            MarketplaceAdSpend::create([
+                'user_id' => $user->id,
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'spend_date' => '2026-10-30',
+                'amount' => 25_000,
+                'currency' => 'IDR',
+                'synced_at' => now(),
+            ]);
+
+            $this->actingAs($user)
+                ->getJson('/api/profit-tracker?analytics_period=year&analytics_year=2026')
+                ->assertOk()
+                ->assertJsonPath('analytics.period', 'year')
+                ->assertJsonPath('analytics.start_date', '2026-01-01')
+                ->assertJsonPath('analytics.end_date', '2026-10-30')
+                ->assertJsonPath('analytics.granularity', 'month')
+                ->assertJsonCount(10, 'analytics.points')
+                ->assertJsonPath('analytics.totals.order_count', 2)
+                ->assertJsonPath('analytics.totals.escrow_amount', 250_000)
+                ->assertJsonPath('analytics.totals.ad_spend_amount', 25_000)
+                ->assertJsonPath('analytics.totals.profit_amount', 225_000);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_store_filter_only_applies_to_analytics_and_ads_while_realtime_keeps_all_stores(): void

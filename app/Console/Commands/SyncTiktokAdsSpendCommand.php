@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 class SyncTiktokAdsSpendCommand extends Command
 {
     protected $signature = 'sync:tiktok-ads
-        {--days=30 : Number of calendar days to sync, including today}
+        {--days=366 : Number of calendar days to sync, including today}
         {--account_id= : Only sync one internal TikTok ad account ID}
         {--queue=orders-low : Queue used for ads spend jobs}';
 

@@ -236,7 +236,7 @@ class TiktokAdsController extends Controller
             'account_id' => ['nullable', 'integer'],
             'days' => ['nullable', 'integer', 'min:1', 'max:366'],
         ]);
-        $days = (int) ($validated['days'] ?? 30);
+        $days = (int) ($validated['days'] ?? 366);
         $accounts = TiktokAdAccount::query()
             ->where('user_id', $request->user()->id)
             ->where('is_active', true)

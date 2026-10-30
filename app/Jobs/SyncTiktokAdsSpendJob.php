@@ -21,7 +21,7 @@ class SyncTiktokAdsSpendJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 180;
+    public int $timeout = 300;
 
     public int $uniqueFor = 600;
 

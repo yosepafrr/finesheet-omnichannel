@@ -38,27 +38,38 @@ class TiktokAdsApiService
         string $endDate,
     ): array {
         $records = [];
-        $page = 1;
+        $chunkStart = Carbon::createFromFormat('!Y-m-d', $startDate);
+        $lastDate = Carbon::createFromFormat('!Y-m-d', $endDate);
+        $chunkDays = in_array('stat_time_day', $dimensions, true) ? 30 : null;
 
-        do {
-            $payload = $this->get($connection, '/report/integrated/get/', [
-                'advertiser_ids' => [$advertiserId],
-                'dimensions' => $dimensions,
-                'metrics' => $metrics,
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-                'page' => $page,
-                'page_size' => 1000,
-            ]);
+        while ($chunkStart->lessThanOrEqualTo($lastDate)) {
+            $chunkEnd = $chunkDays
+                ? $chunkStart->copy()->addDays($chunkDays - 1)->min($lastDate)
+                : $lastDate->copy();
+            $page = 1;
 
-            $pageRecords = data_get($payload, 'data.list', []);
-            if (is_array($pageRecords)) {
-                array_push($records, ...array_values(array_filter($pageRecords, 'is_array')));
-            }
+            do {
+                $payload = $this->get($connection, '/report/integrated/get/', [
+                    'advertiser_ids' => [$advertiserId],
+                    'dimensions' => $dimensions,
+                    'metrics' => $metrics,
+                    'start_date' => $chunkStart->toDateString(),
+                    'end_date' => $chunkEnd->toDateString(),
+                    'page' => $page,
+                    'page_size' => 1000,
+                ]);
 
-            $totalPages = max(1, (int) data_get($payload, 'data.page_info.total_page', 1));
-            $page++;
-        } while ($page <= $totalPages);
+                $pageRecords = data_get($payload, 'data.list', []);
+                if (is_array($pageRecords)) {
+                    array_push($records, ...array_values(array_filter($pageRecords, 'is_array')));
+                }
+
+                $totalPages = max(1, (int) data_get($payload, 'data.page_info.total_page', 1));
+                $page++;
+            } while ($page <= $totalPages);
+
+            $chunkStart = $chunkEnd->copy()->addDay();
+        }
 
         return $records;
     }

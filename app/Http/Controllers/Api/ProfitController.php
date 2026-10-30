@@ -60,6 +60,7 @@ class ProfitController extends Controller
                 $analyticsStoreIds,
                 $analyticsPeriod['start'],
                 $analyticsPeriod['end'],
+                $escrowService->profitAnalyticsStatuses(),
             )
             : collect();
         $analyticsAdSpends = $includeAnalytics
@@ -169,6 +170,7 @@ class ProfitController extends Controller
 
     public function breakdown(
         Request $request,
+        OrderEscrowService $escrowService,
         OrderProfitService $profitService,
         ProfitAnalyticsService $profitAnalyticsService,
     ) {
@@ -191,7 +193,12 @@ class ProfitController extends Controller
             ? $allStores
             : $allStores->where('id', $selectedStoreId)->values();
         $period = $this->breakdownPeriod($validated['bucket'], $validated['granularity']);
-        $orders = $this->analyticsOrders($stores->pluck('id'), $period['start'], $period['end']);
+        $orders = $this->analyticsOrders(
+            $stores->pluck('id'),
+            $period['start'],
+            $period['end'],
+            $escrowService->profitAnalyticsStatuses(),
+        );
         $financialSummaries = $profitService->summaries($orders);
         $adSpends = $this->analyticsAdSpends(
             $user->id,
@@ -294,8 +301,14 @@ class ProfitController extends Controller
     private function yearPeriod(int $year, string $timezone): array
     {
         $start = Carbon::create($year, 1, 1, 0, 0, 0, $timezone)->startOfYear();
+        $end = $start->copy()->endOfYear();
+        $today = now($timezone);
 
-        return [$start, $start->copy()->endOfYear(), 'month'];
+        if ($year === (int) $today->year) {
+            $end = $today->copy()->endOfDay();
+        }
+
+        return [$start, $end, 'month'];
     }
 
     private function breakdownPeriod(string $bucket, string $granularity): array
@@ -322,10 +335,21 @@ class ProfitController extends Controller
         ];
     }
 
-    private function analyticsOrders($storeIds, Carbon $start, Carbon $end)
-    {
+    /** @param array<int, string> $saleStatuses */
+    private function analyticsOrders(
+        $storeIds,
+        Carbon $start,
+        Carbon $end,
+        array $saleStatuses,
+    ) {
         return Order::with(['returns.items', 'packages', 'orderProducts', 'store'])
             ->whereIn('store_id', $storeIds)
+            ->where(function ($eligibilityQuery) use ($saleStatuses) {
+                $eligibilityQuery->whereIn('order_status', $saleStatuses)
+                    ->orWhereHas('returns')
+                    ->orWhereHas('packages', fn ($packageQuery) => $packageQuery
+                        ->where('normalized_logistics_status', 'DELIVERY_FAILED'));
+            })
             ->where(function ($query) use ($start, $end) {
                 $query->whereBetween('order_time', [$start, $end])
                     ->orWhereHas('returns', function ($returnQuery) use ($start, $end) {

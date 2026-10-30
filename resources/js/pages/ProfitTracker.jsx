@@ -354,7 +354,7 @@ function TiktokAdsAccountManagement({ stores, onSynced }) {
         );
 
         try {
-            const payload = { days: 30 };
+            const payload = { days: 366 };
             if (account?.id) payload.account_id = account.id;
             const response = await axios.post("/api/tiktok-ads/sync", payload);
             setMessage(response.data.message);
@@ -885,10 +885,7 @@ export default function ProfitTracker() {
                             <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                                     <div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
-                                            <span className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold uppercase text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">Shopee + TikTok Ads</span>
-                                        </div>
+                                        <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
                                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Profit bersih dihitung dari escrow dikurangi HPP dan pengeluaran iklan yang tersedia. Pesanan cancel/return ditampilkan terpisah sebagai informasi.</p>
                                     </div>
 

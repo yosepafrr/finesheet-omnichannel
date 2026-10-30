@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Models\TiktokAdAccount;
 use App\Models\TiktokAdsConnection;
 use App\Models\User;
+use App\Services\TiktokAdsApiService;
 use App\Services\TiktokAdsSpendSyncService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -31,6 +32,37 @@ class TiktokAdsSpendSyncTest extends TestCase
             'api_url' => 'https://business-api.tiktok.com/open_api',
             'api_version' => 'v2.0',
         ]);
+    }
+
+    public function test_daily_ad_reports_are_split_into_thirty_day_api_ranges(): void
+    {
+        Http::fake(fn () => Http::response([
+            'code' => 0,
+            'data' => [
+                'list' => [],
+                'page_info' => ['total_page' => 1],
+            ],
+        ]));
+        [, , $account] = $this->connectedAccount();
+
+        app(TiktokAdsApiService::class)->report(
+            $account->connection,
+            $account->advertiser_id,
+            ['stat_time_day'],
+            ['spend'],
+            '2026-01-01',
+            '2026-03-01',
+        );
+
+        $requests = Http::recorded(
+            fn ($request) => str_contains($request->url(), '/report/integrated/get/'),
+        );
+
+        $this->assertCount(2, $requests);
+        $this->assertSame('2026-01-01', $requests[0][0]->data()['start_date']);
+        $this->assertSame('2026-01-30', $requests[0][0]->data()['end_date']);
+        $this->assertSame('2026-01-31', $requests[1][0]->data()['start_date']);
+        $this->assertSame('2026-03-01', $requests[1][0]->data()['end_date']);
     }
 
     public function test_it_syncs_advertiser_daily_spend_and_campaign_breakdown(): void
@@ -178,6 +210,7 @@ class TiktokAdsSpendSyncTest extends TestCase
     public function test_manual_sync_queues_mapped_accounts_and_campaign_endpoint_aggregates_data(): void
     {
         Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-10-30 12:00:00', 'Asia/Jakarta'));
         [$user, $store, $account] = $this->connectedAccount();
 
         $spend = MarketplaceAdSpend::create([
@@ -199,10 +232,14 @@ class TiktokAdsSpendSyncTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->postJson('/api/tiktok-ads/sync', ['days' => 30])
+            ->postJson('/api/tiktok-ads/sync')
             ->assertAccepted()
             ->assertJsonPath('queued_accounts', 1);
-        Queue::assertPushed(SyncTiktokAdsSpendJob::class, 1);
+        Queue::assertPushed(
+            SyncTiktokAdsSpendJob::class,
+            fn (SyncTiktokAdsSpendJob $job) => $job->uniqueId()
+                === "{$account->id}:2025-10-30:2026-10-30",
+        );
 
         $this->actingAs($user)
             ->postJson('/api/tiktok-ads/sync', ['days' => 7, 'account_id' => $account->id])
@@ -217,6 +254,8 @@ class TiktokAdsSpendSyncTest extends TestCase
             ->assertJsonPath('campaigns.0.campaign_id', 'campaign-1')
             ->assertJsonPath('campaigns.0.campaign_name', 'Produk Utama')
             ->assertJsonPath('campaigns.0.amount', '120000.00');
+
+        Carbon::setTestNow();
     }
 
     public function test_user_can_remove_an_unused_advertiser_account_without_revoking_connection(): void
