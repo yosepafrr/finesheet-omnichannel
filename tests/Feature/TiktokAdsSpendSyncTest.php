@@ -50,22 +50,6 @@ class TiktokAdsSpendSyncTest extends TestCase
             }
 
             if (str_contains($request->url(), '/gmv_max/report/get/')) {
-                $dimensions = json_decode((string) $request['dimensions'], true);
-
-                if (! in_array('campaign_id', $dimensions, true)) {
-                    return Http::response([
-                        'code' => 0,
-                        'message' => 'OK',
-                        'data' => [
-                            'list' => [[
-                                'dimensions' => ['stat_time_day' => '2026-10-29'],
-                                'metrics' => ['cost' => '25000'],
-                            ]],
-                            'page_info' => ['total_page' => 1],
-                        ],
-                    ]);
-                }
-
                 return Http::response([
                     'code' => 0,
                     'message' => 'OK',
@@ -187,6 +171,7 @@ class TiktokAdsSpendSyncTest extends TestCase
 
             return $data['advertiser_id'] === '7001'
                 && json_decode((string) $data['store_ids'], true) === ['tiktok-store-id-1']
+                && json_decode((string) $data['dimensions'], true) === ['campaign_id', 'stat_time_day']
                 && ! array_key_exists('advertiser_ids', $data);
         });
     }

@@ -65,15 +65,6 @@ class TiktokAdsSpendSyncService
             );
         }
 
-        $gmvDailyRecords = $this->api->gmvMaxReport(
-            $account->connection,
-            $account->advertiser_id,
-            $platformStoreId,
-            ['stat_time_day'],
-            ['cost'],
-            $startDate,
-            $endDate,
-        );
         $gmvCampaignRecords = $this->api->gmvMaxReport(
             $account->connection,
             $account->advertiser_id,
@@ -84,7 +75,7 @@ class TiktokAdsSpendSyncService
             $endDate,
         );
 
-        $dailyRecords = [...$dailyRecords, ...$gmvDailyRecords];
+        $dailyRecords = [...$dailyRecords, ...$gmvCampaignRecords];
         $campaignRecords = [...$campaignRecords, ...$gmvCampaignRecords];
 
         $dailyByDate = collect($dailyRecords)->groupBy(fn (array $record) => $this->recordDate($record));
