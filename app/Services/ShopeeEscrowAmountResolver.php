@@ -23,13 +23,17 @@ class ShopeeEscrowAmountResolver
      *
      * @return array<string, mixed>
      */
-    public function updates(Order $order, array $income, array $escrow = []): array
-    {
+    public function updates(
+        Order $order,
+        array $income,
+        array $escrow = [],
+        bool $allowTerminalZero = false,
+    ): array {
         $preservePositive = in_array(
             strtoupper((string) $order->order_status),
             self::ACTIVE_STATUSES,
             true
-        );
+        ) || ! $allowTerminalZero;
         $feeDetails = $income;
         $returnOrderSns = $this->returnOrderSns($escrow);
         if ($returnOrderSns === []) {
@@ -110,7 +114,9 @@ class ShopeeEscrowAmountResolver
             return $existing;
         }
 
-        if ($preservePositive && (float) $incoming <= 0 && (float) $existing > 0) {
+        if ($preservePositive
+            && abs((float) $incoming) < 0.0001
+            && (float) $existing > 0) {
             return $existing;
         }
 

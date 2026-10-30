@@ -96,8 +96,15 @@ class OrderEscrowService
             return false;
         }
 
+        $status = strtoupper(trim((string) $order->order_status));
+
+        if ($status === 'COMPLETED') {
+            return ! $this->hasReturnOrFailedDelivery($order)
+                && ! $this->isPreShipmentCancellation($order);
+        }
+
         return in_array(
-            strtoupper(trim((string) $order->order_status)),
+            $status,
             [...self::NEEDS_SHIPPING_STATUSES, ...self::SHIPPED_STATUSES],
             true,
         );

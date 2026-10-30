@@ -122,7 +122,10 @@ class HistoricalSaleEscrowEstimator
 
     private function needsEstimate(Order $order, bool $recalculateEstimated): bool
     {
-        if (! $this->escrowService->hasReturnOrFailedDelivery($order)) {
+        $hasCorrection = $this->escrowService->hasReturnOrFailedDelivery($order);
+        $isCompleted = strtoupper(trim((string) $order->order_status)) === 'COMPLETED';
+
+        if (! $hasCorrection && ! $isCompleted) {
             return false;
         }
 

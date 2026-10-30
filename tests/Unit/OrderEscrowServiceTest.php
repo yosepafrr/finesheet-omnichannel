@@ -51,6 +51,27 @@ class OrderEscrowServiceTest extends TestCase
         $this->assertTrue($this->service->needsShopeeFinanceRefresh($order));
     }
 
+    public function test_zero_shopee_escrow_on_a_clean_completed_order_requests_a_refresh(): void
+    {
+        $order = $this->order('COMPLETED', 0);
+        $order->platform = 'Shopee';
+        $order->fee_details = ['escrow_amount' => 0];
+
+        $this->assertTrue($this->service->needsShopeeFinanceRefresh($order));
+    }
+
+    public function test_zero_shopee_escrow_after_a_return_is_not_retried_as_a_missing_sale(): void
+    {
+        $order = $this->order('COMPLETED', 0);
+        $order->platform = 'Shopee';
+        $order->fee_details = ['escrow_amount' => 0];
+        $order->setRelation('returns', new Collection([
+            new OrderReturn(['normalized_status' => 'RETURN_COMPLETED']),
+        ]));
+
+        $this->assertFalse($this->service->needsShopeeFinanceRefresh($order));
+    }
+
     public function test_adjusted_escrow_is_used_when_the_original_amount_is_missing(): void
     {
         $order = $this->order('READY_TO_SHIP', null, 82_500);

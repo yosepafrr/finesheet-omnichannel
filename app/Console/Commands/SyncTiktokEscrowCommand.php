@@ -6,6 +6,7 @@ use App\Jobs\SyncTiktokEscrowJob;
 use App\Jobs\SyncTiktokUnsettledJob;
 use App\Models\Order;
 use App\Models\Store;
+use App\Services\OrderEscrowService;
 use App\Services\TiktokEscrowAmountResolver;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Console\Command;
@@ -22,8 +23,10 @@ class SyncTiktokEscrowCommand extends Command
 
     protected $description = 'Queue TikTok unsettled and settled escrow synchronization';
 
-    public function handle(TiktokEscrowAmountResolver $resolver): int
-    {
+    public function handle(
+        TiktokEscrowAmountResolver $resolver,
+        OrderEscrowService $escrowService,
+    ): int {
         $force = (bool) $this->option('force');
         $orderSn = $this->option('order_sn');
         $query = Order::query()
@@ -31,7 +34,7 @@ class SyncTiktokEscrowCommand extends Command
             ->where('order_time', '>=', now()->subDays(max(1, (int) $this->option('days'))))
             ->when($this->option('store_id'), fn ($q, $storeId) => $q->where('store_id', (int) $storeId))
             ->when($orderSn, fn ($q, $value) => $q->where('order_sn', $value))
-            ->with('orderProducts')
+            ->with(['orderProducts', 'returns', 'packages'])
             ->orderBy('id');
 
         if ($orderSn) {
@@ -45,7 +48,8 @@ class SyncTiktokEscrowCommand extends Command
             if (! $force && ! $resolver->needsRefresh(
                 $order->fee_details,
                 $order->order_status,
-                $order->escrow_amount
+                $order->escrow_amount,
+                $escrowService->hasReturnOrFailedDelivery($order),
             )) {
                 $this->info('Escrow pesanan sudah memiliki data finance yang valid. Gunakan --force untuk sinkronisasi ulang.');
 
@@ -85,12 +89,13 @@ class SyncTiktokEscrowCommand extends Command
 
         $settledQueued = 0;
         $query->where('order_status', 'COMPLETED')
-            ->chunkById(100, function ($orders) use ($resolver, $force, &$settledQueued) {
+            ->chunkById(100, function ($orders) use ($resolver, $escrowService, $force, &$settledQueued) {
                 foreach ($orders as $order) {
                     if (! $force && ! $resolver->needsRefresh(
                         $order->fee_details,
                         $order->order_status,
-                        $order->escrow_amount
+                        $order->escrow_amount,
+                        $escrowService->hasReturnOrFailedDelivery($order),
                     )) {
                         continue;
                     }

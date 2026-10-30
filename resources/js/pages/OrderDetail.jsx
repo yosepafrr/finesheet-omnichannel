@@ -406,6 +406,15 @@ export default function OrderDetail({ routeParams }) {
                                         Nilai ini ditandai sebagai estimasi karena platform hanya mengembalikan saldo akhir setelah koreksi.
                                     </div>
                                 )}
+                                {!financialBreakdown.has_financial_correction
+                                    && Number(financialBreakdown.escrow_amount || 0) === 0
+                                    && Number(financialBreakdown.sale_escrow_amount || 0) > 0
+                                    && (
+                                        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                                            Escrow final tidak lagi tersedia dari platform. Nilai yang ditampilkan dipulihkan dari histori finansial
+                                            {financialBreakdown.sale_escrow_is_estimated ? " dan ditandai sebagai estimasi" : ""}.
+                                        </div>
+                                    )}
                                 <div className="flex items-start justify-between gap-4 py-2 text-gray-700 dark:text-slate-300">
                                     <span className="font-semibold">Penghasilan kotor</span>
                                     <span className="font-semibold tabular-nums">{formatRp(financialBreakdown.gross_amount)}</span>
@@ -463,7 +472,7 @@ export default function OrderDetail({ routeParams }) {
                                             </p>
                                         </div>
                                         <span className="text-base font-bold tabular-nums text-[#304674] dark:text-blue-300">
-                                            {formatRp(financialBreakdown.escrow_amount)}
+                                            {formatRp(financialBreakdown.display_escrow_amount ?? financialBreakdown.escrow_amount)}
                                         </span>
                                     </div>
                                 </div>

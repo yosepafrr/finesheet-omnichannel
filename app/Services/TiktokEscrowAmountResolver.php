@@ -22,8 +22,18 @@ class TiktokEscrowAmountResolver
         return in_array(strtoupper((string) $status), ['DELIVERED', 'COMPLETED'], true);
     }
 
-    public function needsRefresh(?array $financeDetails, ?string $status, $storedAmount = null): bool
-    {
+    public function needsRefresh(
+        ?array $financeDetails,
+        ?string $status,
+        $storedAmount = null,
+        bool $allowTerminalZero = false,
+    ): bool {
+        if (! $allowTerminalZero
+            && strtoupper((string) $status) === 'COMPLETED'
+            && (! is_numeric($storedAmount) || (float) $storedAmount <= 0)) {
+            return true;
+        }
+
         if ($this->isProvisionalZeroStatus($status)
             && (! is_numeric($storedAmount) || (float) $storedAmount <= 0)) {
             return true;
@@ -96,9 +106,12 @@ class TiktokEscrowAmountResolver
         );
     }
 
-    public function amountForOrder(Order $order, float $financeAmount): float
-    {
-        if ($financeAmount > 0 || ! $this->isProvisionalZeroStatus($order->order_status)) {
+    public function amountForOrder(
+        Order $order,
+        float $financeAmount,
+        bool $allowTerminalZero = false,
+    ): float {
+        if ($financeAmount > 0 || $allowTerminalZero) {
             return $financeAmount;
         }
 
@@ -106,7 +119,13 @@ class TiktokEscrowAmountResolver
             return (float) $order->escrow_amount;
         }
 
-        return $this->fallbackForOrder($order);
+        if (is_numeric($order->sale_escrow_amount) && (float) $order->sale_escrow_amount > 0) {
+            return (float) $order->sale_escrow_amount;
+        }
+
+        return $this->isProvisionalZeroStatus($order->order_status)
+            ? $this->fallbackForOrder($order)
+            : $financeAmount;
     }
 
     /** @param array{amount?: mixed, details?: array<string, mixed>}|null $financeResult */
@@ -173,9 +192,13 @@ class TiktokEscrowAmountResolver
         }
 
         $data = $response['data'];
-        if ($this->hasNumericAmount($data, 'settlement_amount')) {
+        $topLevelAmount = $this->hasNumericAmount($data, 'settlement_amount')
+            ? $this->numericAmount($data['settlement_amount'])
+            : null;
+
+        if ($topLevelAmount !== null && $topLevelAmount > 0) {
             return $this->result(
-                $this->numericAmount($data['settlement_amount']),
+                $topLevelAmount,
                 'settled',
                 $data,
                 $data['sku_transactions'] ?? []
@@ -185,16 +208,31 @@ class TiktokEscrowAmountResolver
         $transactions = $data['statement_transactions'] ?? [];
         $amounts = $this->transactionAmounts($transactions, 'settlement_amount');
 
-        if ($amounts === []) {
-            return null;
+        if ($amounts !== []) {
+            return $this->result(
+                array_sum($amounts),
+                'settled',
+                $data,
+                $transactions
+            );
         }
 
-        return $this->result(
-            array_sum($amounts),
-            'settled',
-            $data,
-            $transactions
-        );
+        $skuTransactions = is_array($data['sku_transactions'] ?? null)
+            ? $data['sku_transactions']
+            : [];
+        $skuAmounts = $this->transactionAmounts($skuTransactions, 'settlement_amount');
+        if ($skuAmounts !== []) {
+            return $this->result(
+                array_sum($skuAmounts),
+                'settled',
+                $data,
+                $skuTransactions
+            );
+        }
+
+        return $topLevelAmount !== null
+            ? $this->result($topLevelAmount, 'settled', $data, $skuTransactions)
+            : null;
     }
 
     private function result(float $amount, string $source, array $data, array $transactions): array

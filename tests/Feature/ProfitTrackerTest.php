@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\VariantProduct;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class ProfitTrackerTest extends TestCase
@@ -886,6 +887,8 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('potential_adjustments.0.type', 'failed_delivery')
             ->assertJsonPath('potential_adjustments.0.order_sn', 'LEGACY-ZERO-ESCROW');
 
+        Queue::fake();
+
         $this->actingAs($user)
             ->getJson("/api/orders/{$order->id}")
             ->assertOk()
@@ -960,12 +963,81 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('potential_adjustments.0.type', 'failed_delivery')
             ->assertJsonPath('potential_adjustments.0.order_sn', 'TIKTOK-POSITIVE-SALE-LEG');
 
+        Queue::fake();
+
         $this->actingAs($user)
             ->getJson("/api/orders/{$order->id}")
             ->assertOk()
             ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 140_000)
             ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'platform_history')
             ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', false);
+    }
+
+    public function test_completed_order_with_missing_escrow_is_reconstructed_for_profit_history(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Missing Escrow', 'shop-missing-escrow');
+
+        foreach ([80_000, 82_000, 84_000] as $index => $escrowAmount) {
+            $candidate = $this->createOrder(
+                $store,
+                'COMPLETED-ESCROW-CANDIDATE-'.$index,
+                'COMPLETED',
+                $escrowAmount,
+            );
+            $candidate->forceFill([
+                'order_time' => now('Asia/Jakarta')->subDays(30 + $index),
+                'order_selling_price' => 100_000,
+                'fee_details' => ['escrow_amount' => $escrowAmount],
+            ])->saveQuietly();
+            $this->attachHppItem($candidate, 50_000);
+            $candidate->orderProducts()->update([
+                'sku' => 'COMPLETED-SHARED-SKU',
+                'price' => 100_000,
+            ]);
+        }
+
+        $order = $this->createOrder($store, 'COMPLETED-MISSING-ESCROW', 'COMPLETED', 0);
+        $order->forceFill([
+            'order_time' => now('Asia/Jakarta')->setTime(10, 0),
+            'order_selling_price' => 200_000,
+            'fee_details' => ['escrow_amount' => 0],
+        ])->saveQuietly();
+        $this->attachHppItem($order, 120_000);
+        $order->orderProducts()->update([
+            'sku' => 'COMPLETED-SHARED-SKU',
+            'price' => 200_000,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=last_3_days')
+            ->assertOk()
+            ->assertJsonPath('analytics.points.2.escrow_amount', 164_000)
+            ->assertJsonPath('analytics.points.2.profit_amount', 44_000)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 1);
+
+        Queue::fake();
+
+        $this->actingAs($user)
+            ->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('order.financial_breakdown.escrow_amount', 0)
+            ->assertJsonPath('order.financial_breakdown.display_escrow_amount', 164_000)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', true);
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=COMPLETED')
+            ->assertOk()
+            ->assertJsonPath('orders.0.escrow_amount', 164_000)
+            ->assertJsonPath('orders.0.profit_amount', 44_000);
+
+        $this->artisan('profit:backfill-sale-escrow', [
+            '--order_sn' => $order->order_sn,
+        ])->assertSuccessful();
+
+        $order->refresh();
+        $this->assertSame(164_000.0, $order->sale_escrow_amount);
+        $this->assertSame('estimated_sku_ratio', $order->sale_escrow_source);
     }
 
     public function test_old_order_return_is_loaded_into_the_current_information_period(): void

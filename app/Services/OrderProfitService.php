@@ -49,11 +49,16 @@ class OrderProfitService
                 $escrowAmount,
                 $historicalEstimates->get($order->id),
             );
+            $displayEscrowAmount = ! $this->escrowService->hasReturnOrFailedDelivery($order)
+                && abs($escrowAmount) < 0.0001
+                && $saleEscrow['amount'] > 0
+                    ? $saleEscrow['amount']
+                    : $escrowAmount;
 
             return [$order->id => [
                 'hpp_amount' => $hppAmount,
-                'escrow_amount' => $escrowAmount,
-                'profit_amount' => $escrowAmount - $hppAmount,
+                'escrow_amount' => $displayEscrowAmount,
+                'profit_amount' => $displayEscrowAmount - $hppAmount,
                 'sale_escrow_amount' => $saleEscrow['amount'],
                 'sale_profit_amount' => $saleEscrow['amount'] - $hppAmount,
                 'sale_escrow_source' => $saleEscrow['source'],
@@ -73,7 +78,9 @@ class OrderProfitService
         float $currentEscrowAmount,
         ?array $historicalEstimate,
     ): array {
-        if (! $this->escrowService->hasReturnOrFailedDelivery($order)) {
+        $hasCorrection = $this->escrowService->hasReturnOrFailedDelivery($order);
+
+        if (! $hasCorrection && $currentEscrowAmount > 0) {
             return $this->saleEscrowResult(
                 $currentEscrowAmount,
                 'current_platform',
@@ -89,6 +96,19 @@ class OrderProfitService
                 (bool) $order->sale_escrow_is_estimated,
                 (int) ($order->sale_escrow_sample_size ?? 0),
             );
+        }
+
+        if (! $hasCorrection && $historicalEstimate !== null) {
+            return $this->saleEscrowResult(
+                (float) $historicalEstimate['amount'],
+                (string) $historicalEstimate['source'],
+                (bool) $historicalEstimate['is_estimated'],
+                (int) $historicalEstimate['sample_size'],
+            );
+        }
+
+        if (! $hasCorrection) {
+            return $this->saleEscrowResult(0, 'unavailable', true);
         }
 
         // Some marketplaces keep the positive sale settlement on the order

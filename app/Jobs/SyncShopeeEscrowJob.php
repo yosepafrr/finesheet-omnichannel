@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Models\Store;
+use App\Services\OrderEscrowService;
 use App\Services\ShopeeEscrowAmountResolver;
 use App\Services\ShopeeEscrowReturnService;
 use App\Services\ShopeeService;
@@ -51,6 +52,7 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
             ->first();
 
         $order = Order::query()
+            ->with(['returns', 'packages'])
             ->where('store_id', $this->storeId)
             ->where('order_sn', $this->orderSn)
             ->first();
@@ -81,6 +83,14 @@ class SyncShopeeEscrowJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $order->update($resolver->updates($order, $income, $escrow));
+        $allowTerminalZero = app(OrderEscrowService::class)
+            ->hasReturnOrFailedDelivery($order);
+
+        $order->update($resolver->updates(
+            $order,
+            $income,
+            $escrow,
+            $allowTerminalZero,
+        ));
     }
 }

@@ -59,6 +59,12 @@ class OrderFinancialBreakdownService
     {
         $details = is_array($order->fee_details) ? $order->fee_details : [];
         $grossAmount = (float) ($order->order_selling_price ?? 0);
+        if ($grossAmount <= 0 && $order->relationLoaded('orderProducts')) {
+            $grossAmount = (float) $order->orderProducts->sum(
+                fn ($item) => (float) ($item->price ?? 0)
+                    * max(1, (int) ($item->quantity_purchased ?? 0))
+            );
+        }
         $escrowAmount = $this->escrowService->amount($order);
         $isShopee = strtolower((string) $order->platform) === 'shopee';
         $source = $isShopee
@@ -247,8 +253,7 @@ class OrderFinancialBreakdownService
         float $escrow,
         bool $hasDetails,
         ?string $source
-    ): array
-    {
+    ): array {
         $computed = $gross;
         foreach ($components as $component) {
             $computed += $component['operator'] === '+'

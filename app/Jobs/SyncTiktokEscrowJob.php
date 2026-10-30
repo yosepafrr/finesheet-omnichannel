@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Models\Store;
+use App\Services\OrderEscrowService;
 use App\Services\TiktokEscrowAmountResolver;
 use App\Services\TiktokService;
 use Illuminate\Bus\Queueable;
@@ -69,7 +70,8 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
      */
     public function handle(
         TiktokService $tiktok,
-        TiktokEscrowAmountResolver $resolver
+        TiktokEscrowAmountResolver $resolver,
+        OrderEscrowService $escrowService,
     ): void {
         $store = Store::find($this->storeId);
         if (! $store || $store->platform !== 'Tiktokshop') {
@@ -79,7 +81,7 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
         }
 
         $orderModel = Order::query()
-            ->with('orderProducts')
+            ->with(['orderProducts', 'returns', 'packages'])
             ->where('store_id', $store->id)
             ->where('platform', 'Tiktokshop')
             ->where('order_sn', $this->orderId)
@@ -108,6 +110,7 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
         $financeResult = null;
         $financeResponse = null;
         $currentStatus = strtoupper((string) ($orderModel->order_status ?: $this->status));
+        $allowTerminalZero = $escrowService->hasReturnOrFailedDelivery($orderModel);
 
         try {
             if ($resolver->shouldTryStatement($currentStatus)) {
@@ -133,7 +136,8 @@ class SyncTiktokEscrowJob implements ShouldBeUnique, ShouldQueue
         if ($financeResult !== null) {
             $escrowAmount = $resolver->amountForOrder(
                 $orderModel,
-                (float) $financeResult['amount']
+                (float) $financeResult['amount'],
+                $allowTerminalZero,
             );
         } else {
             Log::warning('TikTok finance data is not available; keeping the best fallback', [

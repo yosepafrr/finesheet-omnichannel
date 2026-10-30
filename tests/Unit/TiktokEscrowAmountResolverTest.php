@@ -128,7 +128,7 @@ class TiktokEscrowAmountResolverTest extends TestCase
         ], 'IN_TRANSIT', 0));
     }
 
-    public function test_completed_order_accepts_a_final_zero_amount(): void
+    public function test_completed_order_does_not_erase_a_positive_escrow_with_zero(): void
     {
         $order = new Order([
             'order_status' => 'COMPLETED',
@@ -136,7 +136,34 @@ class TiktokEscrowAmountResolverTest extends TestCase
         ]);
         $order->setRelation('orderProducts', new Collection);
 
-        $this->assertSame(0.0, $this->resolver->amountForOrder($order, 0));
+        $this->assertSame(125_000.0, $this->resolver->amountForOrder($order, 0));
+    }
+
+    public function test_completed_correction_can_accept_a_final_zero_amount(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => 125_000,
+        ]);
+        $order->setRelation('orderProducts', new Collection);
+
+        $this->assertSame(0.0, $this->resolver->amountForOrder($order, 0, true));
+    }
+
+    public function test_settled_uses_sku_transactions_when_top_level_amount_is_zero(): void
+    {
+        $result = $this->resolver->settled([
+            'code' => 0,
+            'data' => [
+                'settlement_amount' => 0,
+                'sku_transactions' => [
+                    ['settlement_amount' => 80_000],
+                    ['settlement_amount' => 25_000],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(105_000.0, $result['amount']);
     }
 
     public function test_sale_snapshot_uses_the_existing_valid_net_escrow_before_it_is_replaced(): void
@@ -203,6 +230,14 @@ class TiktokEscrowAmountResolverTest extends TestCase
         $this->assertTrue($this->resolver->needsRefresh($unsettled, 'DELIVERED', 125078));
         $this->assertTrue($this->resolver->needsRefresh($unsettled, 'COMPLETED', 125078));
         $this->assertFalse($this->resolver->needsRefresh($settled, 'COMPLETED', 120500));
+        $this->assertTrue($this->resolver->needsRefresh([
+            'source' => 'settled',
+            'summary' => ['settlement_amount' => 0],
+        ], 'COMPLETED', 0));
+        $this->assertFalse($this->resolver->needsRefresh([
+            'source' => 'settled',
+            'summary' => ['settlement_amount' => 0],
+        ], 'COMPLETED', 0, true));
     }
 
     public function test_delivered_and_completed_orders_can_use_statement_data(): void

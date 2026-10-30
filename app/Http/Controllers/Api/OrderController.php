@@ -331,7 +331,8 @@ class OrderController extends Controller
             && $tiktokEscrowResolver->needsRefresh(
                 $order->fee_details,
                 $order->order_status,
-                $order->escrow_amount
+                $order->escrow_amount,
+                $escrowService->hasReturnOrFailedDelivery($order),
             )
         ) {
             SyncTiktokEscrowJob::dispatch(
@@ -359,6 +360,11 @@ class OrderController extends Controller
         $financialBreakdown['sale_escrow_sample_size'] = (int) (
             $financialSummary['sale_escrow_sample_size'] ?? 0
         );
+        $financialBreakdown['display_escrow_amount'] = ! $financialBreakdown['has_financial_correction']
+            && abs((float) $financialBreakdown['escrow_amount']) < 0.0001
+            && (float) $financialBreakdown['sale_escrow_amount'] > 0
+                ? (float) $financialBreakdown['sale_escrow_amount']
+                : (float) $financialBreakdown['escrow_amount'];
 
         $orderData = [
             'id' => $order->id,

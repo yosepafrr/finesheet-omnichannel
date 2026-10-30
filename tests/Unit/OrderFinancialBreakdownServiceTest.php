@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\Order;
+use App\Models\OrderProduct;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
 use PHPUnit\Framework\TestCase;
@@ -114,6 +115,22 @@ class OrderFinancialBreakdownServiceTest extends TestCase
         $this->assertSame('unsettled', $breakdown['source']);
         $this->assertSame('Estimasi total biaya platform', $adjustment['label']);
         $this->assertSame(88809.0, $adjustment['amount']);
+    }
+
+    public function test_it_uses_order_items_when_the_stored_gross_amount_is_missing(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_selling_price' => 0,
+            'escrow_amount' => 210000,
+        ]);
+        $order->setRelation('orderProducts', collect([
+            new OrderProduct(['price' => 135000, 'quantity_purchased' => 2]),
+        ]));
+
+        $breakdown = $this->service()->forOrder($order);
+
+        $this->assertSame(270000.0, $breakdown['gross_amount']);
     }
 
     private function service(): OrderFinancialBreakdownService

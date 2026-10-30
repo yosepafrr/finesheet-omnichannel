@@ -16,7 +16,7 @@ class BackfillSaleEscrowCommand extends Command
         {--dry-run : Tampilkan hasil tanpa menyimpan}
         {--force : Hitung ulang snapshot yang sebelumnya masih berupa estimasi}';
 
-    protected $description = 'Reconstruct missing pre-return sale escrow snapshots for historical orders';
+    protected $description = 'Reconstruct missing sale escrow snapshots for completed and corrected historical orders';
 
     public function handle(
         HistoricalSaleEscrowEstimator $estimator,
@@ -31,7 +31,8 @@ class BackfillSaleEscrowCommand extends Command
             ->when($this->option('order_sn'), fn ($query, $orderSn) => $query
                 ->where('order_sn', trim((string) $orderSn)))
             ->where(function ($query) {
-                $query->whereHas('returns')
+                $query->where('order_status', 'COMPLETED')
+                    ->orWhereHas('returns')
                     ->orWhereHas('packages', fn ($packageQuery) => $packageQuery
                         ->where('normalized_logistics_status', 'DELIVERY_FAILED'));
             });
@@ -50,8 +51,7 @@ class BackfillSaleEscrowCommand extends Command
         }
 
         $orders = $query->orderBy('id')->get()
-            ->filter(fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order)
-                && ! $escrowService->isPreShipmentCancellation($order))
+            ->filter(fn (Order $order) => ! $escrowService->isPreShipmentCancellation($order))
             ->values();
 
         if ($orders->isEmpty()) {

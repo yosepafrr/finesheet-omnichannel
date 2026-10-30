@@ -43,7 +43,7 @@ class ShopeeEscrowAmountResolverTest extends TestCase
         $this->assertSame(141_132.0, $updates['sale_escrow_amount']);
     }
 
-    public function test_terminal_order_can_accept_zero_from_platform(): void
+    public function test_terminal_order_does_not_erase_positive_escrow_without_a_correction(): void
     {
         $order = new Order([
             'order_status' => 'COMPLETED',
@@ -53,6 +53,23 @@ class ShopeeEscrowAmountResolverTest extends TestCase
         $updates = (new ShopeeEscrowAmountResolver)->updates($order, [
             'escrow_amount' => 0,
         ]);
+
+        $this->assertSame(141_132.0, $updates['escrow_amount']);
+    }
+
+    public function test_terminal_correction_can_accept_zero_from_platform(): void
+    {
+        $order = new Order([
+            'order_status' => 'COMPLETED',
+            'escrow_amount' => 141_132,
+        ]);
+
+        $updates = (new ShopeeEscrowAmountResolver)->updates(
+            $order,
+            ['escrow_amount' => 0],
+            [],
+            true,
+        );
 
         $this->assertSame(0, $updates['escrow_amount']);
     }
