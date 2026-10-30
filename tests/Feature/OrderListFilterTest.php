@@ -125,10 +125,42 @@ class OrderListFilterTest extends TestCase
             ->assertOk()
             ->assertJsonPath('orders.0.order_sn', 'SHOPEE-AFFILIATE')
             ->assertJsonPath('orders.0.is_affiliate', true)
-            ->assertJsonPath('orders.0.affiliate_percentage', 10.0)
+            ->assertJsonPath('orders.0.affiliate_percentage', 10)
             ->assertJsonPath('orders.1.order_sn', 'SHOPEE-REGULAR')
             ->assertJsonPath('orders.1.is_affiliate', false)
             ->assertJsonPath('orders.1.affiliate_percentage', null);
+    }
+
+    public function test_order_list_paginates_and_searches_on_the_server(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Utama', 'shop-page');
+
+        foreach (range(1, 35) as $index) {
+            $this->createOrder(
+                $store,
+                sprintf('ORDER-%02d', $index),
+                'COMPLETED',
+                now()->subMinutes($index),
+            );
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=COMPLETED&per_page=10&page=2')
+            ->assertOk()
+            ->assertJsonCount(10, 'orders')
+            ->assertJsonPath('pagination.current_page', 2)
+            ->assertJsonPath('pagination.per_page', 10)
+            ->assertJsonPath('pagination.total', 35)
+            ->assertJsonPath('pagination.last_page', 4)
+            ->assertJsonPath('totals_scope', 'page');
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=COMPLETED&search=ORDER-35')
+            ->assertOk()
+            ->assertJsonCount(1, 'orders')
+            ->assertJsonPath('orders.0.order_sn', 'ORDER-35')
+            ->assertJsonPath('pagination.total', 1);
     }
 
     private function createStore(User $user, string $platform, string $name, string $shopId): Store

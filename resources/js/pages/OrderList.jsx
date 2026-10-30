@@ -312,27 +312,6 @@ const formatDate = (dateString) => {
     }).format(date);
 };
 
-const isReturnOrCancel = (order) => {
-    if (!order) return false;
-    
-    if (order.order_status) {
-        const status = String(order.order_status).toUpperCase().trim();
-        if (['CANCEL', 'CANCELLED', 'IN_CANCEL', 'TO_RETURN', 'RETURNED'].includes(status)) {
-            return true;
-        }
-    }
-
-    if (order.returns && order.returns.length > 0) {
-        return true;
-    }
-
-    if (order.packages && order.packages.some(p => p.normalized_logistics_status === 'DELIVERY_FAILED')) {
-        return true;
-    }
-
-    return false;
-};
-
 export default function OrderList() {
     const savedStateRef = useRef(getSavedOrderListState());
     const initialSaved = savedStateRef.current;
@@ -360,6 +339,7 @@ export default function OrderList() {
     const [searchQuery, setSearchQuery] = useState(
         () => initialNavigation ? "" : initialSaved?.searchQuery || ""
     );
+    const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
     const [expandedOrders, setExpandedOrders] = useState(
         () => initialNavigation ? {} : initialSaved?.expandedOrders || {}
     );
@@ -382,6 +362,9 @@ export default function OrderList() {
         refresh: refreshSyncStatus,
     } = useOrderSyncStatus();
     const isSyncBusy = syncing || syncingStoreId !== null || isAnySyncing;
+    const paginationKey = selectedStore || "all";
+    const requestedPage = pageByStore[paginationKey] || 1;
+    const requestedPerPage = limitByStore[paginationKey] || 30;
 
     const isInitialMount = useRef(true);
     const scrollRestoredRef = useRef(false);
@@ -476,7 +459,13 @@ export default function OrderList() {
         setPageByStore({});
         scrollPosRef.current = 0;
         setScrollTop(0);
-    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess]);
+    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, excludeReturns]);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 300);
+
+        return () => clearTimeout(timeout);
+    }, [searchQuery]);
 
     // Persist state changes
     useEffect(() => {
@@ -595,6 +584,12 @@ export default function OrderList() {
             }
             if (selectedStore) params.store_id = selectedStore;
             if (selectedPlatform !== "all") params.platform = selectedPlatform;
+            if (debouncedSearchQuery) params.search = debouncedSearchQuery;
+            if (selectedFilterId === "dikirim" && excludeReturns) {
+                params.exclude_returns = "true";
+            }
+            params.page = requestedPage;
+            params.per_page = requestedPerPage;
             
             const res = await axios.get("/api/orders", { 
                 params,
@@ -612,7 +607,17 @@ export default function OrderList() {
                 setLoading(false);
             }
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess]);
+    }, [
+        selectedFilterId,
+        selectedCancelCategory,
+        selectedStore,
+        selectedPlatform,
+        selectedShippingProcess,
+        debouncedSearchQuery,
+        excludeReturns,
+        requestedPage,
+        requestedPerPage,
+    ]);
 
     useEffect(() => {
         fetchData();
@@ -741,21 +746,6 @@ export default function OrderList() {
     const visibleOrders = [];
     if (data?.orders) {
         data.orders.forEach((order) => {
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                const matchOrderId = order.order_sn?.toLowerCase().includes(q);
-                const matchItemName =
-                    order.products?.some((item) =>
-                        item.product_name?.toLowerCase().includes(q),
-                    ) ||
-                    order.first_product?.product_name
-                        ?.toLowerCase()
-                        .includes(q);
-                if (!matchOrderId && !matchItemName) {
-                    return;
-                }
-            }
-
             visibleOrders.push(order);
         });
     }
@@ -772,7 +762,7 @@ export default function OrderList() {
         ordersByStore.all = visibleOrders;
     }
 
-    const totalOrdersCount = visibleOrders.length;
+    const totalOrdersCount = Number(data?.pagination?.total ?? visibleOrders.length);
 
     const handleResetFilter = () => {
         setSearchQuery("");
@@ -1273,47 +1263,14 @@ export default function OrderList() {
                             const storeOrders = ordersByStore[store.id] || [];
                             if (storeOrders.length === 0) return null;
 
-                            const totalOrders = storeOrders.length;
-                            const hasClientOnlyEscrowFilter = Boolean(searchQuery)
-                                || (selectedFilterId === 'dikirim' && excludeReturns);
-                            const ordersForTotals = hasClientOnlyEscrowFilter
-                                ? storeOrders.filter((order) => !(
-                                    selectedFilterId === 'dikirim'
-                                    && excludeReturns
-                                    && isReturnOrCancel(order)
-                                ))
-                                : storeOrders;
-                            const totalHpp = hasClientOnlyEscrowFilter
-                                ? ordersForTotals.reduce(
-                                    (sum, order) => sum + Number(order.hpp_amount || 0),
-                                    0,
-                                )
-                                : Number(data?.totals?.hpp_amount || 0);
-                            const totalEscrow = hasClientOnlyEscrowFilter
-                                ? ordersForTotals.reduce(
-                                    (sum, order) => sum + Number(order.escrow_amount || 0),
-                                    0,
-                                )
-                                : Number(data?.totals?.escrow_amount || 0);
-                            const totalProfit = hasClientOnlyEscrowFilter
-                                ? ordersForTotals.reduce(
-                                    (sum, order) => sum + Number(order.profit_amount || 0),
-                                    0,
-                                )
-                                : Number(data?.totals?.profit_amount || 0);
-                            const itemsPerPage = limitByStore[store.id] || 30;
-                            const totalPages = Math.ceil(
-                                totalOrders / itemsPerPage,
-                            );
-                            const currentPage = pageByStore[store.id] || 1;
-                            const validPage = Math.min(
-                                currentPage,
-                                totalPages > 0 ? totalPages : 1,
-                            );
-                            const paginatedOrders = storeOrders.slice(
-                                (validPage - 1) * itemsPerPage,
-                                validPage * itemsPerPage,
-                            );
+                            const totalOrders = Number(data?.pagination?.total ?? storeOrders.length);
+                            const totalHpp = Number(data?.totals?.hpp_amount || 0);
+                            const totalEscrow = Number(data?.totals?.escrow_amount || 0);
+                            const totalProfit = Number(data?.totals?.profit_amount || 0);
+                            const itemsPerPage = Number(data?.pagination?.per_page ?? requestedPerPage);
+                            const totalPages = Math.max(Number(data?.pagination?.last_page ?? 1), 1);
+                            const validPage = Number(data?.pagination?.current_page ?? requestedPage);
+                            const paginatedOrders = storeOrders;
 
                             const theme = store.isCombined ? {
                                 bg: "bg-slate-100 dark:bg-slate-700",
@@ -1670,7 +1627,7 @@ export default function OrderList() {
                                                         colSpan={5}
                                                         className="px-6 py-3 font-bold text-gray-500 dark:text-slate-400 text-right"
                                                     >
-                                                        Total:
+                                                        Total halaman:
                                                     </td>
                                                     <td className="px-6 py-3 font-bold text-gray-800 dark:text-white text-right">
                                                         {formatRp(totalHpp)}
@@ -1925,15 +1882,15 @@ export default function OrderList() {
                                         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
                                             <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-slate-700">
                                                 <div className="min-w-0 px-3 py-3">
-                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total HPP</p>
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">HPP halaman</p>
                                                     <p className="mt-1 truncate text-xs font-bold text-gray-800 dark:text-white">{formatRp(totalHpp)}</p>
                                                 </div>
                                                 <div className="min-w-0 px-3 py-3">
-                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total Escrow</p>
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Escrow halaman</p>
                                                     <p className="mt-1 truncate text-xs font-bold text-[#304674] dark:text-blue-400">{formatRp(totalEscrow)}</p>
                                                 </div>
                                                 <div className="min-w-0 px-3 py-3">
-                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Total Profit</p>
+                                                    <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Profit halaman</p>
                                                     <p className={`mt-1 truncate text-xs font-bold ${totalProfit < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatRp(totalProfit)}</p>
                                                 </div>
                                             </div>
@@ -1967,14 +1924,9 @@ export default function OrderList() {
                                             </div>
                                             <span className="text-sm text-gray-500 dark:text-slate-400">
                                                 Menampilkan{" "}
-                                                {(validPage - 1) *
-                                                    itemsPerPage +
-                                                    1}{" "}
+                                                {data?.pagination?.from ?? 0}{" "}
                                                 -{" "}
-                                                {Math.min(
-                                                    validPage * itemsPerPage,
-                                                    totalOrders,
-                                                )}{" "}
+                                                {data?.pagination?.to ?? 0}{" "}
                                                 dari {totalOrders} pesanan
                                             </span>
                                         </div>

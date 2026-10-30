@@ -20,76 +20,100 @@ class ProductController extends Controller
     {
         $user = Auth::user();
         $stores = $user->stores()->get();
-        $storeIds = $stores->pluck('id');
+        $pages = $this->paginationMap($request->input('pages', []));
+        $limits = $this->paginationMap($request->input('limits', []));
+        $search = trim((string) $request->input('search', ''));
 
-        $products = Product::whereIn('store_id', $storeIds)
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('product_name', 'ilike', '%'.$request->search.'%')
-                        ->orWhere('product_sku', 'ilike', '%'.$request->search.'%')
-                        ->orWhereHas('variantProducts', function ($vq) use ($request) {
-                            $vq->where('model_sku', 'ilike', '%'.$request->search.'%');
-                        });
-                });
-            })
-            ->with([
-                'store',
-                'supplier',
-                'skuSyncMember.group.masterVariant',
-                'variantProducts' => fn ($query) => $query->with([
-                    'product.store',
-                    'skuSyncMember.group.masterVariant',
-                ]),
-            ])
-            ->latest()
-            ->get();
+        $serializeProduct = function (Product $product) use ($hppService) {
+            $hpp = $hppService->productDetails($product);
+
+            return [
+                'id' => $product->id,
+                'platform_product_id' => $product->product_id,
+                'product_name' => $product->product_name,
+                'product_sku' => $product->product_sku,
+                'stock' => $product->stock,
+                'price' => $product->price,
+                'hpp' => $hpp['hpp'],
+                'hpp_source' => $hpp['source'],
+                'master_product_variant_id' => $hpp['master_variant_id'],
+                'supplier_id' => $product->supplier_id,
+                'supplier_name' => $product->supplier?->name,
+                'image' => $product->image,
+                'variants' => $product->variantProducts->map(function ($variant) use ($hppService) {
+                    $hpp = $hppService->variantDetails($variant);
+
+                    return [
+                        'id' => $variant->id,
+                        'platform_variant_id' => $variant->model_id,
+                        'model_name' => $variant->model_name,
+                        'variant_name' => $variant->variant_name ?? $variant->model_name,
+                        'variant_image' => $variant->variant_image,
+                        'tier_index' => $variant->tier_index,
+                        'variant_options' => $variant->variant_options,
+                        'model_sku' => $variant->model_sku,
+                        'stock' => $variant->stock,
+                        'price' => $variant->price,
+                        'hpp' => $hpp['hpp'],
+                        'hpp_source' => $hpp['source'],
+                        'master_product_variant_id' => $hpp['master_variant_id'],
+                    ];
+                }),
+            ];
+        };
 
         return response()->json([
-            'stores' => $stores->map(function ($store) use ($products, $hppService) {
-                $storeProducts = $products->where('store_id', $store->id)->values();
+            'stores' => $stores->map(function ($store) use ($pages, $limits, $search, $serializeProduct) {
+                $page = max((int) ($pages[(string) $store->id] ?? 1), 1);
+                $perPage = min(max((int) ($limits[(string) $store->id] ?? 30), 1), 100);
+
+                $query = Product::query()
+                    ->where('store_id', $store->id)
+                    ->when($search !== '', function ($productQuery) use ($search) {
+                        $searchPattern = '%'.mb_strtolower($search).'%';
+                        $productQuery->where(function ($searchQuery) use ($searchPattern) {
+                            $searchQuery
+                                ->whereRaw('LOWER(product_name) LIKE ?', [$searchPattern])
+                                ->orWhereRaw('LOWER(product_sku) LIKE ?', [$searchPattern])
+                                ->orWhereHas('variantProducts', function ($variantQuery) use ($searchPattern) {
+                                    $variantQuery
+                                        ->whereRaw('LOWER(model_sku) LIKE ?', [$searchPattern])
+                                        ->orWhereRaw('LOWER(model_name) LIKE ?', [$searchPattern]);
+                                });
+                        });
+                    })
+                    ->with([
+                        'store',
+                        'supplier',
+                        'skuSyncMember.group.masterVariant',
+                        'variantProducts' => fn ($variantQuery) => $variantQuery->with([
+                            'product.store',
+                            'skuSyncMember.group.masterVariant',
+                        ]),
+                    ])
+                    ->latest();
+
+                $productCount = (clone $query)->count();
+                $lastPage = max((int) ceil($productCount / $perPage), 1);
+                $page = min($page, $lastPage);
+                $storeProducts = $query
+                    ->forPage($page, $perPage)
+                    ->get();
 
                 return [
                     'id' => $store->id,
                     'store_name' => $store->store_name,
                     'platform' => $store->platform,
-                    'product_count' => $storeProducts->count(),
-                    'products' => $storeProducts->map(function ($product) use ($hppService) {
-                        $hpp = $hppService->productDetails($product);
-
-                        return [
-                            'id' => $product->id,
-                            'platform_product_id' => $product->product_id,
-                            'product_name' => $product->product_name,
-                            'product_sku' => $product->product_sku,
-                            'stock' => $product->stock,
-                            'price' => $product->price,
-                            'hpp' => $hpp['hpp'],
-                            'hpp_source' => $hpp['source'],
-                            'master_product_variant_id' => $hpp['master_variant_id'],
-                            'supplier_id' => $product->supplier_id,
-                            'supplier_name' => $product->supplier?->name,
-                            'image' => $product->image,
-                            'variants' => $product->variantProducts->map(function ($v) use ($hppService) {
-                                $hpp = $hppService->variantDetails($v);
-
-                                return [
-                                    'id' => $v->id,
-                                    'platform_variant_id' => $v->model_id,
-                                    'model_name' => $v->model_name,
-                                    'variant_name' => $v->variant_name ?? $v->model_name,
-                                    'variant_image' => $v->variant_image,
-                                    'tier_index' => $v->tier_index,
-                                    'variant_options' => $v->variant_options,
-                                    'model_sku' => $v->model_sku,
-                                    'stock' => $v->stock,
-                                    'price' => $v->price,
-                                    'hpp' => $hpp['hpp'],
-                                    'hpp_source' => $hpp['source'],
-                                    'master_product_variant_id' => $hpp['master_variant_id'],
-                                ];
-                            }),
-                        ];
-                    }),
+                    'product_count' => $productCount,
+                    'pagination' => [
+                        'current_page' => $page,
+                        'last_page' => $lastPage,
+                        'per_page' => $perPage,
+                        'total' => $productCount,
+                        'from' => $productCount === 0 ? null : (($page - 1) * $perPage) + 1,
+                        'to' => $productCount === 0 ? null : min($page * $perPage, $productCount),
+                    ],
+                    'products' => $storeProducts->map($serializeProduct),
                 ];
             }),
             'suppliers' => Supplier::query()
@@ -97,6 +121,17 @@ class ProductController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name']),
         ]);
+    }
+
+    private function paginationMap(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return is_array($value) ? $value : [];
     }
 
     public function updateSuppliers(Request $request)

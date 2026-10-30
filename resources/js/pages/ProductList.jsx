@@ -35,7 +35,7 @@ const PRODUCT_TOUR_STEPS = [
     },
 ];
 
-const POLLING_INTERVAL = 10000;
+const POLLING_INTERVAL = 60000;
 
 function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -312,7 +312,11 @@ export default function ProductList() {
     const fetchData = useCallback(async () => {
         try {
             const res = await axios.get("/api/products", {
-                params: { search },
+                params: {
+                    search,
+                    pages: JSON.stringify(pageByStore),
+                    limits: JSON.stringify(limitByStore),
+                },
             });
             setData(res.data);
 
@@ -334,7 +338,7 @@ export default function ProductList() {
         } finally {
             setLoading(false);
         }
-    }, [search]);
+    }, [search, pageByStore, limitByStore]);
 
     const loadManagedSuppliers = useCallback(async () => {
         try {
@@ -799,24 +803,20 @@ export default function ProductList() {
                                                 </div>
                                             ) : (
                                                 (() => {
-                                                    const totalProducts =
-                                                        store.products.length;
-                                                    const itemsPerPage =
-                                                        limitByStore[store.id] || 30;
-                                                    const totalPages = Math.ceil(
-                                                        totalProducts / itemsPerPage,
+                                                    const totalProducts = Number(
+                                                        store.pagination?.total ?? store.product_count ?? store.products.length,
                                                     );
-                                                    const currentPage =
-                                                        pageByStore[store.id] || 1;
-                                                    const validPage = Math.min(
-                                                        currentPage,
-                                                        totalPages > 0 ? totalPages : 1,
+                                                    const itemsPerPage = Number(
+                                                        store.pagination?.per_page ?? limitByStore[store.id] ?? 30,
                                                     );
-                                                    const paginatedProducts =
-                                                        store.products.slice(
-                                                            (validPage - 1) * itemsPerPage,
-                                                            validPage * itemsPerPage,
-                                                        );
+                                                    const totalPages = Math.max(
+                                                        Number(store.pagination?.last_page ?? 1),
+                                                        1,
+                                                    );
+                                                    const validPage = Number(
+                                                        store.pagination?.current_page ?? pageByStore[store.id] ?? 1,
+                                                    );
+                                                    const paginatedProducts = store.products;
 
                                                     return (
                                                         <>
@@ -1692,15 +1692,9 @@ export default function ProductList() {
                                                                     </div>
                                                                     <span className="text-sm text-gray-500 dark:text-slate-400">
                                                                         Menampilkan{" "}
-                                                                        {(validPage - 1) *
-                                                                            itemsPerPage +
-                                                                            1}{" "}
+                                                                        {store.pagination?.from ?? 0}{" "}
                                                                         -{" "}
-                                                                        {Math.min(
-                                                                            validPage *
-                                                                            itemsPerPage,
-                                                                            totalProducts,
-                                                                        )}{" "}
+                                                                        {store.pagination?.to ?? 0}{" "}
                                                                         dari {totalProducts}{" "}
                                                                         produk
                                                                     </span>

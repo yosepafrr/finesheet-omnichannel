@@ -43,7 +43,9 @@ class OrderController extends Controller
         };
 
         if ($platform) {
-            $baseQuery->whereRaw('LOWER(platform) = ?', [strtolower($platform)]);
+            $baseQuery->whereIn('platform', $platform === 'Shopee'
+                ? ['Shopee', 'shopee', 'SHOPEE']
+                : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok']);
         }
 
         $shippingProcessFilters = [
@@ -68,7 +70,9 @@ class OrderController extends Controller
                 foreach ($statuses as $statusPlatform => $status) {
                     $statusQuery->orWhere(function ($platformQuery) use ($statusPlatform, $status) {
                         $platformQuery
-                            ->whereRaw('LOWER(platform) = ?', [strtolower($statusPlatform)])
+                            ->whereIn('platform', $statusPlatform === 'Shopee'
+                                ? ['Shopee', 'shopee', 'SHOPEE']
+                                : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok'])
                             ->where('order_status', $status);
                     });
                 }
@@ -99,27 +103,43 @@ class OrderController extends Controller
                 $q->where('normalized_logistics_status', 'DELIVERY_FAILED');
             });
 
-        foreach (['CANCEL', 'CANCELLED', 'IN_CANCEL'] as $cancelStatus) {
-            $statusCounts[$cancelStatus] = (clone $cancelBase)
-                ->where('order_status', $cancelStatus)
-                ->count();
-        }
+        $cancelCounts = (clone $cancelBase)
+            ->selectRaw('COUNT(*) AS total')
+            ->selectRaw("SUM(CASE WHEN order_status = 'CANCEL' THEN 1 ELSE 0 END) AS cancel_count")
+            ->selectRaw("SUM(CASE WHEN order_status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled_count")
+            ->selectRaw("SUM(CASE WHEN order_status = 'IN_CANCEL' THEN 1 ELSE 0 END) AS in_cancel_count")
+            ->selectRaw("SUM(CASE WHEN normalized_cancel_category = 'SELLER_LATE_SHIPMENT' THEN 1 ELSE 0 END) AS seller_late_count")
+            ->selectRaw("SUM(CASE WHEN normalized_cancel_category = 'BUYER_SIDE' THEN 1 ELSE 0 END) AS buyer_side_count")
+            ->first();
+
+        $statusCounts['CANCEL'] = (int) ($cancelCounts->cancel_count ?? 0);
+        $statusCounts['CANCELLED'] = (int) ($cancelCounts->cancelled_count ?? 0);
+        $statusCounts['IN_CANCEL'] = (int) ($cancelCounts->in_cancel_count ?? 0);
 
         $cancelSubCounts = [
-            'all' => (clone $cancelBase)->count(),
-            'SELLER_LATE_SHIPMENT' => (clone $cancelBase)->where('normalized_cancel_category', 'SELLER_LATE_SHIPMENT')->count(),
-            'BUYER_SIDE' => (clone $cancelBase)->where('normalized_cancel_category', 'BUYER_SIDE')->count(),
+            'all' => (int) ($cancelCounts->total ?? 0),
+            'SELLER_LATE_SHIPMENT' => (int) ($cancelCounts->seller_late_count ?? 0),
+            'BUYER_SIDE' => (int) ($cancelCounts->buyer_side_count ?? 0),
         ];
 
+        $shippingCounts = (clone $baseQuery)
+            ->selectRaw("SUM(CASE WHEN (platform IN ('Shopee', 'shopee', 'SHOPEE') AND order_status = 'READY_TO_SHIP') OR (platform IN ('Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok') AND order_status = 'AWAITING_SHIPMENT') THEN 1 ELSE 0 END) AS needs_processing_count")
+            ->selectRaw("SUM(CASE WHEN (platform IN ('Shopee', 'shopee', 'SHOPEE') AND order_status = 'PROCESSED') OR (platform IN ('Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok') AND order_status = 'AWAITING_COLLECTION') THEN 1 ELSE 0 END) AS processed_count")
+            ->first();
         $shippingProcessCounts = [
-            'needs_processing' => $applyShippingProcessFilter((clone $baseQuery), 'needs_processing')->count(),
-            'processed' => $applyShippingProcessFilter((clone $baseQuery), 'processed')->count(),
+            'needs_processing' => (int) ($shippingCounts->needs_processing_count ?? 0),
+            'processed' => (int) ($shippingCounts->processed_count ?? 0),
         ];
         $shippingProcessCounts['all'] = $shippingProcessCounts['needs_processing']
             + $shippingProcessCounts['processed'];
 
         $query = (clone $baseQuery)
-            ->with(['orderProducts', 'returns', 'packages', 'store'])
+            ->with([
+                'orderProducts.product.variantProducts',
+                'returns',
+                'packages',
+                'store',
+            ])
             ->orderByDesc('order_time')
             ->orderByDesc('id');
 
@@ -162,7 +182,33 @@ class OrderController extends Controller
             $query->where('normalized_cancel_category', $request->cancel_category);
         }
 
-        $orders = $query->get();
+        if ($request->boolean('exclude_returns')) {
+            $query
+                ->whereNotIn('order_status', ['CANCEL', 'CANCELLED', 'IN_CANCEL', 'TO_RETURN', 'RETURNED'])
+                ->whereDoesntHave('returns')
+                ->whereDoesntHave('packages', function ($packageQuery) {
+                    $packageQuery->where('normalized_logistics_status', 'DELIVERY_FAILED');
+                });
+        }
+
+        $search = trim((string) $request->input('search', ''));
+        if ($search !== '') {
+            $searchPattern = '%'.mb_strtolower($search).'%';
+            $query->where(function ($searchQuery) use ($searchPattern) {
+                $searchQuery
+                    ->whereRaw('LOWER(order_sn) LIKE ?', [$searchPattern])
+                    ->orWhereHas('orderProducts', function ($productQuery) use ($searchPattern) {
+                        $productQuery
+                            ->whereRaw('LOWER(product_name) LIKE ?', [$searchPattern])
+                            ->orWhereRaw('LOWER(model_name) LIKE ?', [$searchPattern])
+                            ->orWhereRaw('LOWER(sku) LIKE ?', [$searchPattern]);
+                    });
+            });
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 30), 1), 100);
+        $paginator = $query->paginate($perPage);
+        $orders = collect($paginator->items());
 
         $financialSummaries = $profitService->summaries($orders);
 
@@ -186,6 +232,15 @@ class OrderController extends Controller
                 'escrow_amount' => (float) $financialSummaries->sum('escrow_amount'),
                 'profit_amount' => (float) $financialSummaries->sum('profit_amount'),
                 'has_missing_hpp' => $financialSummaries->contains('has_missing_hpp', true),
+            ],
+            'totals_scope' => 'page',
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
             ],
             'orders' => $orders->map(function ($order) use ($financialBreakdownService, $financialSummaries) {
                 $firstProduct = $order->orderProducts->first();
@@ -218,9 +273,13 @@ class OrderController extends Controller
                     'normalized_cancel_category' => $order->normalized_cancel_category,
                     'first_product' => $firstProduct ? (function () use ($firstProduct) {
                         $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $firstProduct->model_name);
-                        $variant = VariantProduct::where('product_id', $firstProduct->product?->id)
-                            ->where('model_name', $normalizedModelName)
-                            ->first();
+                        $variant = $firstProduct->product?->variantProducts->first(
+                            fn (VariantProduct $candidate) => in_array(
+                                (string) $candidate->model_name,
+                                [$firstProduct->model_name, $normalizedModelName],
+                                true,
+                            ),
+                        );
 
                         return [
                             'product_name' => $firstProduct->product_name,
@@ -233,9 +292,13 @@ class OrderController extends Controller
                     'product_count' => $order->orderProducts->count(),
                     'products' => $order->orderProducts->map(function ($product) {
                         $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $product->model_name);
-                        $variant = VariantProduct::where('product_id', $product->product?->id)
-                            ->where('model_name', $normalizedModelName)
-                            ->first();
+                        $variant = $product->product?->variantProducts->first(
+                            fn (VariantProduct $candidate) => in_array(
+                                (string) $candidate->model_name,
+                                [$product->model_name, $normalizedModelName],
+                                true,
+                            ),
+                        );
 
                         return [
                             'product_name' => $product->product_name,

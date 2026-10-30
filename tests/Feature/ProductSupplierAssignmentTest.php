@@ -115,6 +115,38 @@ class ProductSupplierAssignmentTest extends TestCase
         $this->assertDatabaseHas('products', ['id' => $otherProduct->id, 'supplier_id' => null]);
     }
 
+    public function test_marketplace_products_are_paginated_per_store(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'SHOP-PAGINATION');
+
+        foreach (range(1, 35) as $index) {
+            Product::create([
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'product_id' => 'PLATFORM-'.$index,
+                'product_name' => 'Produk '.$index,
+                'product_sku' => 'SKU-'.$index,
+                'stock' => $index,
+                'price' => 50000,
+            ]);
+        }
+
+        $query = http_build_query([
+            'pages' => json_encode([(string) $store->id => 2]),
+            'limits' => json_encode([(string) $store->id => 10]),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/products?'.$query)
+            ->assertOk()
+            ->assertJsonCount(10, 'stores.0.products')
+            ->assertJsonPath('stores.0.product_count', 35)
+            ->assertJsonPath('stores.0.pagination.current_page', 2)
+            ->assertJsonPath('stores.0.pagination.per_page', 10)
+            ->assertJsonPath('stores.0.pagination.last_page', 4);
+    }
+
     private function createStore(User $user, string $shopId): Store
     {
         return Store::create([
