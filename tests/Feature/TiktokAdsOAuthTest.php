@@ -128,6 +128,85 @@ class TiktokAdsOAuthTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_authorizing_another_login_keeps_previous_connections_and_advertisers(): void
+    {
+        Http::fake([
+            'https://business-api.tiktok.com/open_api/v2.0/oauth2/access_token/' => Http::sequence()
+                ->push([
+                    'code' => 0,
+                    'message' => 'OK',
+                    'data' => [
+                        'access_token' => 'first-login-token',
+                        'advertiser_ids' => ['7001', '7002'],
+                        'scope' => ['reporting'],
+                    ],
+                ])
+                ->push([
+                    'code' => 0,
+                    'message' => 'OK',
+                    'data' => [
+                        'access_token' => 'second-login-token',
+                        'advertiser_ids' => ['8001'],
+                        'scope' => ['reporting'],
+                    ],
+                ]),
+        ]);
+
+        $user = User::factory()->create();
+
+        foreach ([
+            ['state' => 'first-state', 'code' => 'first-code'],
+            ['state' => 'second-state', 'code' => 'second-code'],
+        ] as $authorization) {
+            $this->actingAs($user)
+                ->withSession([
+                    'tiktok_ads.oauth' => [
+                        'state_hash' => hash('sha256', $authorization['state']),
+                        'expires_at' => now()->addMinutes(5)->timestamp,
+                    ],
+                ])
+                ->get('/tiktok-ads/callback?'.http_build_query([
+                    'auth_code' => $authorization['code'],
+                    'state' => $authorization['state'],
+                ]))
+                ->assertRedirect('/#/profit-tracker');
+        }
+
+        $this->assertDatabaseCount('tiktok_ads_connections', 2);
+        $this->assertDatabaseCount('tiktok_ad_accounts', 3);
+        $this->assertSame(
+            ['7001', '7002', '8001'],
+            TiktokAdAccount::query()
+                ->where('user_id', $user->id)
+                ->where('is_active', true)
+                ->orderBy('advertiser_id')
+                ->pluck('advertiser_id')
+                ->all(),
+        );
+        $firstConnectionId = TiktokAdAccount::query()
+            ->where('advertiser_id', '7001')
+            ->value('tiktok_ads_connection_id');
+        $this->assertSame(
+            $firstConnectionId,
+            TiktokAdAccount::query()
+                ->where('advertiser_id', '7002')
+                ->value('tiktok_ads_connection_id'),
+        );
+        $this->assertNotSame(
+            $firstConnectionId,
+            TiktokAdAccount::query()
+                ->where('advertiser_id', '8001')
+                ->value('tiktok_ads_connection_id'),
+        );
+
+        $this->actingAs($user)
+            ->getJson('/api/tiktok-ads/status')
+            ->assertOk()
+            ->assertJsonPath('connected', true)
+            ->assertJsonPath('connection_count', 2)
+            ->assertJsonCount(3, 'accounts');
+    }
+
     public function test_an_ad_account_cannot_be_mapped_to_another_users_store(): void
     {
         $user = User::factory()->create();

@@ -92,25 +92,41 @@ class TiktokAdsController extends Controller
             $token = $oauth->exchangeAuthorizationCode($authorizationCode);
             $accountCount = DB::transaction(function () use ($request, $token): int {
                 $user = $request->user();
-                $connection = TiktokAdsConnection::query()->updateOrCreate(
-                    ['user_id' => $user->id],
-                    [
-                        'access_token' => $token['access_token'],
-                        'advertiser_ids' => $token['advertiser_ids'],
-                        'scopes' => $token['scopes'],
-                        'status' => 'active',
-                        'authorized_at' => now(),
-                        'last_error' => null,
-                    ],
-                );
+                $advertiserIds = collect($token['advertiser_ids'])
+                    ->map(fn ($advertiserId) => trim((string) $advertiserId))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+                $connection = TiktokAdsConnection::query()
+                    ->where('user_id', $user->id)
+                    ->lockForUpdate()
+                    ->get()
+                    ->first(fn (TiktokAdsConnection $candidate) => count(array_intersect(
+                        $advertiserIds,
+                        array_map('strval', $candidate->advertiser_ids ?? []),
+                    )) > 0);
+
+                if (! $connection) {
+                    $connection = new TiktokAdsConnection(['user_id' => $user->id]);
+                }
+
+                $connection->fill([
+                    'access_token' => $token['access_token'],
+                    'advertiser_ids' => $advertiserIds,
+                    'scopes' => $token['scopes'],
+                    'status' => 'active',
+                    'authorized_at' => now(),
+                    'last_error' => null,
+                ])->save();
 
                 TiktokAdAccount::query()
-                    ->where('user_id', $user->id)
-                    ->whereNotIn('advertiser_id', $token['advertiser_ids'])
+                    ->where('tiktok_ads_connection_id', $connection->id)
+                    ->whereNotIn('advertiser_id', $advertiserIds)
                     ->update(['is_active' => false]);
 
                 $automaticStoreId = null;
-                if (count($token['advertiser_ids']) === 1) {
+                if (count($advertiserIds) === 1) {
                     $tiktokStores = $user->stores()
                         ->whereRaw('LOWER(platform) = ?', ['tiktokshop'])
                         ->pluck('id');
@@ -120,7 +136,7 @@ class TiktokAdsController extends Controller
                     }
                 }
 
-                foreach ($token['advertiser_ids'] as $advertiserId) {
+                foreach ($advertiserIds as $advertiserId) {
                     $account = TiktokAdAccount::query()->firstOrNew([
                         'user_id' => $user->id,
                         'advertiser_id' => $advertiserId,
@@ -139,7 +155,7 @@ class TiktokAdsController extends Controller
                     $account->save();
                 }
 
-                return count($token['advertiser_ids']);
+                return count($advertiserIds);
             });
 
             Log::info('TikTok Ads authorization saved', [
@@ -173,24 +189,31 @@ class TiktokAdsController extends Controller
 
     public function status(Request $request, TiktokAdsOAuthService $oauth): JsonResponse
     {
-        $connection = TiktokAdsConnection::query()
+        $connections = TiktokAdsConnection::query()
             ->where('user_id', $request->user()->id)
-            ->with(['accounts' => fn ($query) => $query
-                ->where('is_active', true)
-                ->with('store:id,store_name,platform')
-                ->orderBy('advertiser_id')])
-            ->first();
+            ->where('status', 'active')
+            ->orderByDesc('authorized_at')
+            ->get();
+        $connection = $connections->first();
+        $accounts = TiktokAdAccount::query()
+            ->where('user_id', $request->user()->id)
+            ->where('is_active', true)
+            ->whereHas('connection', fn ($query) => $query->where('status', 'active'))
+            ->with('store:id,store_name,platform')
+            ->orderBy('advertiser_id')
+            ->get();
 
         return response()->json([
             'configured' => $oauth->isConfigured(),
-            'connected' => $connection?->status === 'active',
+            'connected' => $connections->isNotEmpty(),
             'connection' => $connection ? [
                 'status' => $connection->status,
                 'authorized_at' => $connection->authorized_at?->toIso8601String(),
                 'last_synced_at' => $connection->last_synced_at?->toIso8601String(),
                 'last_error' => $connection->last_error,
             ] : null,
-            'accounts' => $connection?->accounts->map(fn (TiktokAdAccount $account) => [
+            'connection_count' => $connections->count(),
+            'accounts' => $accounts->map(fn (TiktokAdAccount $account) => [
                 'id' => $account->id,
                 'advertiser_id' => $account->advertiser_id,
                 'advertiser_name' => $account->advertiser_name,
@@ -203,7 +226,7 @@ class TiktokAdsController extends Controller
                     'name' => $account->store->store_name,
                     'platform' => $account->store->platform,
                 ] : null,
-            ])->values()->all() ?? [],
+            ])->values()->all(),
         ]);
     }
 

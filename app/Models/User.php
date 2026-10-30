@@ -7,7 +7,6 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -58,9 +57,9 @@ class User extends Authenticatable
         return $this->hasMany(Store::class, 'user_id');
     }
 
-    public function tiktokAdsConnection(): HasOne
+    public function tiktokAdsConnections(): HasMany
     {
-        return $this->hasOne(TiktokAdsConnection::class, 'user_id');
+        return $this->hasMany(TiktokAdsConnection::class, 'user_id');
     }
 
     public function tiktokAdAccounts(): HasMany
