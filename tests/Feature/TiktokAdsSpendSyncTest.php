@@ -59,8 +59,6 @@ class TiktokAdsSpendSyncTest extends TestCase
                             'metrics' => [
                                 'campaign_name' => 'GMV Max Toko',
                                 'cost' => '25000',
-                                'product_impressions' => '300',
-                                'product_clicks' => '20',
                             ],
                         ]],
                         'page_info' => ['total_page' => 1],
@@ -139,8 +137,8 @@ class TiktokAdsSpendSyncTest extends TestCase
             'campaign_id' => 'gmv-1',
             'campaign_name' => 'GMV Max Toko',
             'amount' => 25000,
-            'impressions' => 300,
-            'clicks' => 20,
+            'impressions' => 0,
+            'clicks' => 0,
         ]);
 
         $account->refresh();
@@ -172,6 +170,7 @@ class TiktokAdsSpendSyncTest extends TestCase
             return $data['advertiser_id'] === '7001'
                 && json_decode((string) $data['store_ids'], true) === ['tiktok-store-id-1']
                 && json_decode((string) $data['dimensions'], true) === ['campaign_id', 'stat_time_day']
+                && json_decode((string) $data['metrics'], true) === ['campaign_name', 'cost']
                 && ! array_key_exists('advertiser_ids', $data);
         });
     }

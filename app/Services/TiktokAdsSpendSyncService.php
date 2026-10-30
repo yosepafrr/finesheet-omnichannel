@@ -70,7 +70,7 @@ class TiktokAdsSpendSyncService
             $account->advertiser_id,
             $platformStoreId,
             ['campaign_id', 'stat_time_day'],
-            ['campaign_name', 'cost', 'product_impressions', 'product_clicks'],
+            ['campaign_name', 'cost'],
             $startDate,
             $endDate,
         );
