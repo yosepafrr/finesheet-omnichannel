@@ -22,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class PayableController extends Controller
 {
@@ -1023,7 +1024,7 @@ class PayableController extends Controller
     }
 
     /**
-     * Add payment to a period for current user
+     * Add supplier debt to a period for current user
      */
     public function addPayment(Request $request, $id)
     {
@@ -1031,9 +1032,12 @@ class PayableController extends Controller
         $validated = $request->validate([
             'payment_date' => 'required|date',
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'nullable|string',
-            'notes' => 'nullable|string',
-            'supplier_id' => 'nullable|integer|exists:suppliers,id',
+            'payment_method' => 'required|string|max:255',
+            'supplier_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('suppliers', 'id')->where(fn ($query) => $query->where('user_id', $userId)),
+            ],
         ]);
 
         $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
@@ -1052,8 +1056,7 @@ class PayableController extends Controller
             'payable_period_id' => $period->id,
             'payment_date' => Carbon::parse($validated['payment_date']),
             'amount' => $validated['amount'],
-            'payment_method' => $validated['payment_method'] ?? 'Transfer',
-            'notes' => $validated['notes'],
+            'payment_method' => $validated['payment_method'],
         ]);
 
         $events = PayableEvent::where('payable_period_id', $period->id)->where('user_id', $userId)->get();
@@ -1077,7 +1080,7 @@ class PayableController extends Controller
     }
 
     /**
-     * Update payment (Hutang Supplier)
+     * Update supplier debt
      */
     public function updatePayment(Request $request, $id)
     {
@@ -1085,7 +1088,12 @@ class PayableController extends Controller
         $validated = $request->validate([
             'payment_date' => 'required|date',
             'amount' => 'required|numeric|min:0.01',
-            'notes' => 'nullable|string',
+            'payment_method' => 'required|string|max:255',
+            'supplier_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('suppliers', 'id')->where(fn ($query) => $query->where('user_id', $userId)),
+            ],
         ]);
 
         $payment = PayablePayment::where('user_id', $userId)->findOrFail($id);
@@ -1094,7 +1102,8 @@ class PayableController extends Controller
         $payment->update([
             'payment_date' => Carbon::parse($validated['payment_date']),
             'amount' => $validated['amount'],
-            'notes' => $validated['notes'],
+            'payment_method' => $validated['payment_method'],
+            'supplier_id' => $validated['supplier_id'] ?? $payment->supplier_id,
         ]);
 
         $this->updatePeriodPaymentStatus($period, $userId);

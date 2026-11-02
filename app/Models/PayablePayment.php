@@ -35,7 +35,6 @@ class PayablePayment extends Model
         'amount',
         'payment_method',
         'proof_file_path',
-        'notes',
     ];
 
     protected $casts = [

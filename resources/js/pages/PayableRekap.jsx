@@ -388,9 +388,8 @@ export default function PayableRekap() {
     const [paymentForm, setPaymentForm] = useState({
         payment_date: new Date().toISOString().slice(0, 10),
         amount: '',
-        payment_method: 'Transfer Bank',
+        payment_method: '',
         supplier_id: '',
-        notes: ''
     });
     const [editingPaymentId, setEditingPaymentId] = useState(null);
     const [paymentToDelete, setPaymentToDelete] = useState(null);
@@ -553,9 +552,8 @@ export default function PayableRekap() {
         setPaymentForm({
             payment_date: new Date().toISOString().slice(0, 10),
             amount: '',
-            payment_method: 'Transfer Bank',
+            payment_method: '',
             supplier_id: defaultSupplierId,
-            notes: ''
         });
         setIsPaymentModalOpen(true);
     };
@@ -906,9 +904,8 @@ export default function PayableRekap() {
             setPaymentForm({
                 payment_date: new Date().toISOString().slice(0, 10),
                 amount: '',
-                payment_method: 'Transfer Bank',
+                payment_method: '',
                 supplier_id: '',
-                notes: ''
             });
             fetchPeriodDetails(selectedPeriodId, true);
             fetchPeriods(true);
@@ -923,9 +920,8 @@ export default function PayableRekap() {
         setPaymentForm({
             payment_date: payment.payment_date ? payment.payment_date.split('T')[0] : new Date().toISOString().slice(0, 10),
             amount: payment.amount || '',
-            payment_method: payment.payment_method || 'Transfer Bank',
+            payment_method: payment.payment_method || '',
             supplier_id: payment.supplier_id || '',
-            notes: payment.notes || ''
         });
         setIsPaymentModalOpen(true);
     };
@@ -1243,7 +1239,7 @@ export default function PayableRekap() {
             </div>`;
         card.appendChild(grid);
 
-        // ── Main Content: 2-Columns (Rincian Finansial & Riwayat Pembayaran)
+        // ── Main Content: 2-Columns (Rincian Finansial & Hutang Supplier)
         const content = document.createElement('div');
         content.style.cssText = 'padding:8px 42px 28px;display:grid;grid-template-columns:1.02fr .98fr;gap:30px;';
 
@@ -1271,7 +1267,7 @@ export default function PayableRekap() {
                             <td style="padding:9px 0;text-align:right;font-weight:900;color:#172033;font-size:12px;">${formatCurrency(dynamicNetPayable)}</td>
                         </tr>
                         <tr>
-                            <td style="padding:7px 0;color:#60677a;">Pembayaran tercatat</td>
+                            <td style="padding:7px 0;color:#60677a;">Hutang supplier tercatat</td>
                             <td style="padding:7px 0;text-align:right;font-weight:700;color:#047857;">- ${formatCurrency(p.total_paid)}</td>
                         </tr>
                     </tbody>
@@ -1288,7 +1284,7 @@ export default function PayableRekap() {
         `;
         content.appendChild(colLeft);
 
-        // Column 2: Riwayat Pembayaran
+        // Column 2: Hutang Supplier
         const colRight = document.createElement('div');
         colRight.style.cssText = 'background:#ffffff;display:flex;flex-direction:column;';
 
@@ -1297,8 +1293,8 @@ export default function PayableRekap() {
             paymentRowsHtml = `
                 <tr>
                     <td colspan="4" style="padding:28px 12px;text-align:center;color:#94a3b8;font-size:11px;">
-                        <div style="font-weight:600;margin-bottom:2px;">Belum ada pembayaran tercatat</div>
-                        <div style="font-size:10px;">Pembayaran yang dicatat akan tampil di sini</div>
+                        <div style="font-weight:600;margin-bottom:2px;">Belum ada hutang supplier</div>
+                        <div style="font-size:10px;">Hutang yang dicatat akan tampil di sini</div>
                     </td>
                 </tr>`;
         } else {
@@ -1306,7 +1302,7 @@ export default function PayableRekap() {
                 <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
                     <td style="padding:7px 8px;font-size:11px;color:#334155;border-bottom:1px solid #f1f5f9;">${formatDate(pmt.payment_date)}</td>
                     <td style="padding:7px 8px;font-size:11px;color:#334155;border-bottom:1px solid #f1f5f9;font-weight:600;">${pmt.payment_method || '-'}</td>
-                    <td style="padding:7px 8px;font-size:10px;color:#64748b;border-bottom:1px solid #f1f5f9;">${pmt.notes || '-'}</td>
+                            <td style="padding:7px 8px;font-size:10px;color:#64748b;border-bottom:1px solid #f1f5f9;">${pmt.supplier?.name || '-'}</td>
                     <td style="padding:7px 8px;font-size:11px;color:#065f46;font-weight:800;text-align:right;border-bottom:1px solid #f1f5f9;">${formatCurrency(pmt.amount)}</td>
                 </tr>
             `).join('');
@@ -1315,7 +1311,7 @@ export default function PayableRekap() {
         colRight.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px;padding:10px 12px;background:#423a91;color:#ffffff;">
                 <h3 style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.9px;margin:0;">
-                    Riwayat Pembayaran
+                    Data Hutang Supplier
                 </h3>
                 <span style="font-size:9px;font-weight:700;opacity:.8;">${paymentsList.length} transaksi</span>
             </div>
@@ -1324,8 +1320,8 @@ export default function PayableRekap() {
                     <thead>
                         <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0;">
                             <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Tanggal</th>
-                            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Metode</th>
-                            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Catatan</th>
+                            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Bentuk Hutang</th>
+                            <th style="padding:7px 8px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Supplier</th>
                             <th style="padding:7px 8px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">Nominal</th>
                         </tr>
                     </thead>
@@ -1335,7 +1331,7 @@ export default function PayableRekap() {
                     ${paymentsList.length > 0 ? `
                         <tfoot>
                             <tr style="background:#f5f4fb;border-top:1px solid #d8d5ee;">
-                                <td colspan="3" style="padding:8px 8px;font-size:10px;font-weight:900;color:#423a91;">TOTAL DIBAYAR</td>
+                                <td colspan="3" style="padding:8px 8px;font-size:10px;font-weight:900;color:#423a91;">TOTAL HUTANG SUPPLIER</td>
                                 <td style="padding:8px 8px;font-size:12px;font-weight:900;color:#423a91;text-align:right;">${formatCurrency(p.total_paid)}</td>
                             </tr>
                         </tfoot>` : ''}
@@ -1425,12 +1421,12 @@ export default function PayableRekap() {
                 ['Nilai Pesanan (HPP)', parseFloat(dynamicTotalDebt)],
                 ['Koreksi Retur & Pembatalan', parseFloat(dynamicTotalReduction)],
                 ['Tagihan Bersih', parseFloat(dynamicNetPayable)],
-                ['Pembayaran Tercatat', parseFloat(p.total_paid)],
+                ['Hutang Supplier Tercatat', parseFloat(p.total_paid)],
                 ['Total Pembayaran Akhir', Math.max(sisa, 0)],
                 [''],
                 ['Jumlah Order', filteredOrderEvents.length],
                 ['Jumlah Pengembalian', filteredReturnEvents.length],
-                ['Jumlah Pembayaran', (periodDetails.payments || []).length],
+                ['Jumlah Hutang Supplier', (periodDetails.payments || []).length],
             ]);
             // Title merge & style
             wsSum['A1'].s = { font: { bold: true, sz: 16, color: { rgb: '1E3A5F' } }, alignment: { horizontal: 'left' } };
@@ -1488,22 +1484,21 @@ export default function PayableRekap() {
 
             // ── Sheet 4: Hutang Supplier
             const paidAoa = [
-                ['RIWAYAT HUTANG SUPPLIER'],
-                ['Tanggal Bayar', 'Metode / Bank', 'Supplier', 'Nominal', 'Catatan'],
+                ['DATA HUTANG SUPPLIER'],
+                ['Tanggal', 'Bentuk Hutang', 'Supplier', 'Nominal'],
                 ...(periodDetails.payments || []).map(pmt => [
                     formatDate(pmt.payment_date),
                     pmt.payment_method,
                     pmt.supplier?.name || '-',
-                    parseFloat(pmt.amount),
-                    pmt.notes || '-'
+                    parseFloat(pmt.amount)
                 ]),
                 [],
-                ['TOTAL DIBAYAR', '', '', (periodDetails.payments || []).reduce((s, pmt) => s + parseFloat(pmt.amount || 0), 0), '']
+                ['TOTAL HUTANG SUPPLIER', '', '', (periodDetails.payments || []).reduce((s, pmt) => s + parseFloat(pmt.amount || 0), 0)]
             ];
             const wsP = XLSX.utils.aoa_to_sheet(paidAoa.length > 2 ? paidAoa : [['Belum ada hutang supplier']]);
             if (wsP['A1']) wsP['A1'].s = { font: { bold: true, sz: 14, color: { rgb: '065F46' } } };
-            if (wsP['A2']) ['A2', 'B2', 'C2', 'D2', 'E2'].forEach(a => { if (wsP[a]) wsP[a].s = subHeaderStyle; });
-            wsP['!cols'] = [{ wch: 22 }, { wch: 20 }, { wch: 22 }, { wch: 18 }, { wch: 30 }];
+            if (wsP['A2']) ['A2', 'B2', 'C2', 'D2'].forEach(a => { if (wsP[a]) wsP[a].s = subHeaderStyle; });
+            wsP['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 18 }];
             XLSX.utils.book_append_sheet(wb, wsP, '💳 Hutang Supplier');
 
             XLSX.writeFile(wb, `Rekapitulasi_Hutang_Supplier_${getPeriodName()}.xlsx`);
@@ -2291,11 +2286,6 @@ export default function PayableRekap() {
                                                         </button>
                                                     </div>
                                                 </div>
-                                                {payment.notes && (
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 bg-white/80 dark:bg-slate-800 p-2 rounded-lg italic border border-slate-100 dark:border-slate-700/50">
-                                                        "{payment.notes}"
-                                                    </p>
-                                                )}
                                             </div>
                                         ))}
                                         {periodDetails.payments.length === 0 && (
@@ -3387,24 +3377,15 @@ export default function PayableRekap() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Bentuk Hutang / Keterangan</label>
+                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Bentuk Hutang</label>
                                         <input
                                             type="text"
                                             required
                                             value={paymentForm.payment_method}
                                             onChange={e => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50"
-                                            placeholder="Contoh: Pinjaman Uang, dsb."
+                                            placeholder="Contoh: Pinjaman uang"
                                         />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Catatan</label>
-                                        <textarea
-                                            value={paymentForm.notes}
-                                            onChange={e => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none h-20"
-                                            placeholder="Opsional..."
-                                        ></textarea>
                                     </div>
                                     <div className="flex gap-3 pt-4">
                                         <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors">Batal</button>

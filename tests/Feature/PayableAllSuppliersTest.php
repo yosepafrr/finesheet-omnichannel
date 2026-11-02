@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PayableAllSuppliersTest extends TestCase
@@ -72,6 +73,43 @@ class PayableAllSuppliersTest extends TestCase
         );
         $this->assertFalse($sources->contains('PAID-ORDER'));
         $this->assertFalse($sources->contains('CLOSED-ORDER'));
+    }
+
+    public function test_supplier_debt_saves_its_type_without_a_notes_column(): void
+    {
+        $user = User::factory()->create();
+        $supplier = Supplier::create(['user_id' => $user->id, 'name' => 'Supplier A']);
+        $period = $this->createPeriod($user, $supplier, 'Current', 'UNPAID', '2026-11-01');
+
+        $response = $this->actingAs($user)->postJson("/api/payable/periods/{$period->id}/payments", [
+            'supplier_id' => $supplier->id,
+            'payment_date' => '2026-11-02',
+            'amount' => 250000,
+            'payment_method' => 'Pinjaman uang',
+        ])->assertOk();
+
+        $debtId = $response->json('data.id');
+
+        $this->assertDatabaseHas('payable_payments', [
+            'id' => $debtId,
+            'supplier_id' => $supplier->id,
+            'amount' => 250000,
+            'payment_method' => 'Pinjaman uang',
+        ]);
+        $this->assertFalse(Schema::hasColumn('payable_payments', 'notes'));
+
+        $this->actingAs($user)->putJson("/api/payable/payments/{$debtId}", [
+            'supplier_id' => $supplier->id,
+            'payment_date' => '2026-11-03',
+            'amount' => 275000,
+            'payment_method' => 'Barang dipinjam',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('payable_payments', [
+            'id' => $debtId,
+            'amount' => 275000,
+            'payment_method' => 'Barang dipinjam',
+        ]);
     }
 
     private function createPeriod(
