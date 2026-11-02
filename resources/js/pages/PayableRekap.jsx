@@ -299,6 +299,186 @@ function ReassignPeriodDropdown({ periods, currentPeriodId, value, onChange, but
     );
 }
 
+function ReassignSupplierDropdown({ suppliers, value, onChange, buttonId }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef(null);
+    const selectedSupplier = suppliers.find(supplier => String(supplier.id) === String(value));
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+
+        const handleClickOutside = event => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isOpen]);
+
+    return (
+        <div ref={dropdownRef} className="relative">
+            <button
+                id={buttonId}
+                type="button"
+                onClick={() => setIsOpen(open => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+                className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3.5 py-2.5 text-left shadow-sm outline-none transition-all cursor-pointer dark:bg-slate-900 ${isOpen
+                    ? 'border-indigo-400 ring-2 ring-indigo-500/20 dark:border-indigo-500'
+                    : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                }`}
+            >
+                <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <Building2 className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                    <span className={`block truncate text-sm font-semibold ${selectedSupplier ? 'text-slate-800 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
+                        {selectedSupplier?.name || 'Pilih supplier tujuan'}
+                    </span>
+                </span>
+                <ChevronDown className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        className="absolute left-0 top-full z-[90] mt-2 w-full origin-top overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                        <div className="border-b border-slate-100 px-3.5 py-2.5 dark:border-slate-800">
+                            <p className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">Supplier tujuan</p>
+                        </div>
+                        <div role="listbox" className="max-h-52 overflow-y-auto p-1.5">
+                            {suppliers.map(supplier => {
+                                const isSelected = String(supplier.id) === String(value);
+                                return (
+                                    <button
+                                        key={supplier.id}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={isSelected}
+                                        onClick={() => {
+                                            onChange(String(supplier.id));
+                                            setIsOpen(false);
+                                        }}
+                                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer ${isSelected
+                                            ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-500/15 dark:text-indigo-200'
+                                            : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
+                                        }`}
+                                    >
+                                        <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${isSelected ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                                            <Building2 className="h-3.5 w-3.5" />
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate text-xs font-semibold">{supplier.name}</span>
+                                        {isSelected && <Check className="h-4 w-4 flex-shrink-0 text-indigo-500" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+function ReassignDestinationFields({
+    mode,
+    onModeChange,
+    suppliers,
+    targetSupplierId,
+    onSupplierChange,
+    periods,
+    currentPeriodId,
+    targetPeriodId,
+    onPeriodChange,
+    optionsLoading,
+    recommendationStatus,
+    idPrefix,
+}) {
+    return (
+        <div className="space-y-4">
+            <div>
+                <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Jenis pemindahan</p>
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-900/70">
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('period')}
+                        className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer ${mode === 'period'
+                            ? 'bg-white text-[#304674] shadow-sm dark:bg-slate-800 dark:text-blue-300'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                        Pindah periode
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('supplier')}
+                        className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer ${mode === 'supplier'
+                            ? 'bg-white text-[#304674] shadow-sm dark:bg-slate-800 dark:text-blue-300'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        <Building2 className="h-3.5 w-3.5" />
+                        Pindah supplier
+                    </button>
+                </div>
+            </div>
+
+            {mode === 'supplier' && (
+                <div>
+                    <label htmlFor={`${idPrefix}-supplier`} className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        Supplier tujuan
+                    </label>
+                    <ReassignSupplierDropdown
+                        buttonId={`${idPrefix}-supplier`}
+                        suppliers={suppliers}
+                        value={targetSupplierId}
+                        onChange={onSupplierChange}
+                    />
+                </div>
+            )}
+
+            <div>
+                <label htmlFor={`${idPrefix}-period`} className="mb-1.5 flex items-center justify-between gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <span>Periode tujuan</span>
+                    {mode === 'supplier' && recommendationStatus === 'matched' && (
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">Dipilih otomatis</span>
+                    )}
+                </label>
+                {optionsLoading ? (
+                    <div className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-xs font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                        <RotateCcw className="h-3.5 w-3.5 animate-spin" />
+                        Mencari periode sesuai tanggal pesanan...
+                    </div>
+                ) : (
+                    <ReassignPeriodDropdown
+                        buttonId={`${idPrefix}-period`}
+                        periods={periods}
+                        currentPeriodId={mode === 'period' ? currentPeriodId : null}
+                        value={targetPeriodId}
+                        onChange={onPeriodChange}
+                    />
+                )}
+                {mode === 'supplier' && targetSupplierId && !optionsLoading && recommendationStatus === 'different_periods' && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                        Event terpilih berasal dari beberapa rentang tanggal. Pilih satu periode tujuan secara manual.
+                    </p>
+                )}
+                {mode === 'supplier' && targetSupplierId && !optionsLoading && recommendationStatus === 'not_found' && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                        Tidak ada periode yang mencakup tanggal pesanan. Pilih periode tujuan secara manual.
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function PayableRekap() {
     const tour = useOnboarding("payable", PAYABLE_TOUR_STEPS.length);
     const [periods, setPeriods] = useState([]);
@@ -344,7 +524,12 @@ export default function PayableRekap() {
     const [reassignResults, setReassignResults] = useState([]);
     const [reassignLoading, setReassignLoading] = useState(false);
     const [selectedEventIds, setSelectedEventIds] = useState([]);
+    const [reassignMode, setReassignMode] = useState('period');
+    const [reassignTargetSupplierId, setReassignTargetSupplierId] = useState('');
     const [reassignTargetPeriodId, setReassignTargetPeriodId] = useState('');
+    const [reassignSupplierPeriods, setReassignSupplierPeriods] = useState([]);
+    const [reassignRecommendationStatus, setReassignRecommendationStatus] = useState(null);
+    const [reassignOptionsLoading, setReassignOptionsLoading] = useState(false);
     const [reassignConfirmOpen, setReassignConfirmOpen] = useState(false);
     const [isReassigning, setIsReassigning] = useState(false);
     const [isBulkSelectionMode, setIsBulkSelectionMode] = useState(false);
@@ -684,38 +869,86 @@ export default function PayableRekap() {
         });
     };
 
+    const resetReassignDestination = () => {
+        setReassignMode('period');
+        setReassignTargetSupplierId('');
+        setReassignTargetPeriodId('');
+        setReassignSupplierPeriods([]);
+        setReassignRecommendationStatus(null);
+        setReassignOptionsLoading(false);
+    };
+
     const startBulkSelection = () => {
         setSelectedEventIds([]);
-        setReassignTargetPeriodId('');
+        resetReassignDestination();
         setIsBulkSelectionMode(true);
     };
 
     const cancelBulkSelection = () => {
         setSelectedEventIds([]);
-        setReassignTargetPeriodId('');
+        resetReassignDestination();
         setIsBulkSelectionMode(false);
     };
 
     const openQuickReassign = (eventIds) => {
         setSelectedEventIds(eventIds);
-        setReassignTargetPeriodId('');
+        resetReassignDestination();
         setIsQuickReassignOpen(true);
     };
 
     const closeQuickReassign = () => {
         setIsQuickReassignOpen(false);
-        setReassignTargetPeriodId('');
+        resetReassignDestination();
         if (!isBulkSelectionMode) {
             setSelectedEventIds([]);
         }
     };
 
+    useEffect(() => {
+        if (reassignMode !== 'supplier' || !reassignTargetSupplierId || selectedEventIds.length === 0) {
+            setReassignSupplierPeriods([]);
+            setReassignRecommendationStatus(null);
+            return undefined;
+        }
+
+        let isCurrent = true;
+        setReassignOptionsLoading(true);
+        setReassignTargetPeriodId('');
+
+        axios.get('/api/payable/events/reassign-options', {
+            params: {
+                supplier_id: parseInt(reassignTargetSupplierId),
+                event_ids: selectedEventIds,
+            },
+        }).then(res => {
+            if (!isCurrent) return;
+            const data = res.data.data || {};
+            setReassignSupplierPeriods(data.periods || []);
+            setReassignRecommendationStatus(data.recommendation_status || null);
+            setReassignTargetPeriodId(data.recommended_period_id ? String(data.recommended_period_id) : '');
+        }).catch(() => {
+            if (!isCurrent) return;
+            setReassignSupplierPeriods([]);
+            setReassignRecommendationStatus('error');
+            toast.error('Gagal mengambil periode supplier tujuan');
+        }).finally(() => {
+            if (isCurrent) setReassignOptionsLoading(false);
+        });
+
+        return () => {
+            isCurrent = false;
+        };
+    }, [reassignMode, reassignTargetSupplierId, selectedEventIds.join(',')]);
+
     const handleConfirmReassign = async () => {
         if (!reassignTargetPeriodId || selectedEventIds.length === 0) return;
+        if (reassignMode === 'supplier' && !reassignTargetSupplierId) return;
         setIsReassigning(true);
         try {
             const res = await axios.post('/api/payable/events/reassign', {
                 event_ids: selectedEventIds,
+                move_mode: reassignMode,
+                target_supplier_id: reassignMode === 'supplier' ? parseInt(reassignTargetSupplierId) : null,
                 target_period_id: parseInt(reassignTargetPeriodId),
             });
             toast.success(res.data.message);
@@ -729,11 +962,11 @@ export default function PayableRekap() {
             setSelectedEventIds([]);
             setReassignSearch('');
             setReassignResults([]);
-            setReassignTargetPeriodId('');
+            resetReassignDestination();
             await fetchPeriods(true);
             if (selectedPeriodId) fetchPeriodDetails(selectedPeriodId, true);
         } catch (err) {
-            toast.error('Gagal memindahkan event');
+            toast.error(err.response?.data?.message || 'Gagal memindahkan event');
         } finally {
             setIsReassigning(false);
         }
@@ -1942,7 +2175,7 @@ export default function PayableRekap() {
 
                                         <button
                                             type="button"
-                                            onClick={() => { setIsReassignModalOpen(true); setReassignSearch(''); setReassignResults([]); setSelectedEventIds([]); setReassignTargetPeriodId(''); setIsActionDropdownOpen(false); }}
+                                            onClick={() => { setIsReassignModalOpen(true); setReassignSearch(''); setReassignResults([]); setSelectedEventIds([]); resetReassignDestination(); setIsActionDropdownOpen(false); }}
                                             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors text-left cursor-pointer"
                                         >
                                             <ArrowLeftRight className="w-4 h-4 text-amber-500" />
@@ -3101,7 +3334,7 @@ export default function PayableRekap() {
                                                 {selectedEventIds.length > 1 ? 'Pindahkan Event Massal' : 'Pindahkan Event'}
                                             </h2>
                                             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                                {selectedEventIds.length} event akan dipindahkan ke periode pilihan.
+                                                {selectedEventIds.length} event siap dipindahkan ke periode atau supplier lain.
                                             </p>
                                         </div>
                                     </div>
@@ -3118,21 +3351,29 @@ export default function PayableRekap() {
                                 <div className="space-y-4 p-5">
                                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
                                         <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-                                            Data transaksi tidak berubah. Hanya penempatan periodenya yang dipindahkan.
+                                            Data transaksi tidak berubah. Sistem hanya memperbarui penempatan event.
                                         </p>
                                     </div>
-                                    <div>
-                                        <label htmlFor="quick-reassign-period" className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                                            Periode tujuan
-                                        </label>
-                                        <ReassignPeriodDropdown
-                                            buttonId="quick-reassign-period"
-                                            periods={periods}
-                                            currentPeriodId={selectedPeriodId}
-                                            value={reassignTargetPeriodId}
-                                            onChange={setReassignTargetPeriodId}
-                                        />
-                                    </div>
+                                    <ReassignDestinationFields
+                                        mode={reassignMode}
+                                        onModeChange={mode => {
+                                            setReassignMode(mode);
+                                            setReassignTargetSupplierId('');
+                                            setReassignTargetPeriodId('');
+                                            setReassignSupplierPeriods([]);
+                                            setReassignRecommendationStatus(null);
+                                        }}
+                                        suppliers={suppliers}
+                                        targetSupplierId={reassignTargetSupplierId}
+                                        onSupplierChange={setReassignTargetSupplierId}
+                                        periods={reassignMode === 'supplier' ? reassignSupplierPeriods : periods}
+                                        currentPeriodId={selectedPeriodId}
+                                        targetPeriodId={reassignTargetPeriodId}
+                                        onPeriodChange={setReassignTargetPeriodId}
+                                        optionsLoading={reassignOptionsLoading}
+                                        recommendationStatus={reassignRecommendationStatus}
+                                        idPrefix="quick-reassign"
+                                    />
                                 </div>
 
                                 <div className="flex gap-3 border-t border-slate-100 bg-slate-50/70 p-4 dark:border-slate-700/50 dark:bg-slate-800/60">
@@ -3146,6 +3387,10 @@ export default function PayableRekap() {
                                     <button
                                         type="button"
                                         onClick={() => {
+                                            if (reassignMode === 'supplier' && !reassignTargetSupplierId) {
+                                                toast.error('Pilih supplier tujuan terlebih dahulu');
+                                                return;
+                                            }
                                             if (!reassignTargetPeriodId) {
                                                 toast.error('Pilih periode tujuan terlebih dahulu');
                                                 return;
@@ -3174,8 +3419,8 @@ export default function PayableRekap() {
                                             <ArrowLeftRight className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                                         </div>
                                         <div>
-                                            <h2 className="text-base font-bold text-slate-800 dark:text-white">Pindahkan Event ke Periode Lain</h2>
-                                            <p className="text-xs text-slate-500">Cari event, pilih, lalu tentukan periode tujuan</p>
+                                            <h2 className="text-base font-bold text-slate-800 dark:text-white">Pindahkan Event</h2>
+                                            <p className="text-xs text-slate-500">Cari event, lalu pilih pindah periode atau supplier</p>
                                         </div>
                                     </div>
                                     <button type="button" onClick={() => setIsReassignModalOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
@@ -3267,21 +3512,39 @@ export default function PayableRekap() {
                                 {/* Footer: target period + confirm */}
                                 {selectedEventIds.length > 0 && (
                                     <div className="p-4 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/80 dark:bg-slate-800/50">
-                                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                                            <div className="flex-1">
-                                                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{selectedEventIds.length} event dipilih &mdash; Pindahkan ke periode:</p>
-                                                <ReassignPeriodDropdown
-                                                    buttonId="searched-reassign-period"
-                                                    periods={periods}
-                                                    currentPeriodId={selectedPeriodId}
-                                                    value={reassignTargetPeriodId}
-                                                    onChange={setReassignTargetPeriodId}
-                                                />
-                                            </div>
+                                        <div className="space-y-4">
+                                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{selectedEventIds.length} event dipilih</p>
+                                            <ReassignDestinationFields
+                                                mode={reassignMode}
+                                                onModeChange={mode => {
+                                                    setReassignMode(mode);
+                                                    setReassignTargetSupplierId('');
+                                                    setReassignTargetPeriodId('');
+                                                    setReassignSupplierPeriods([]);
+                                                    setReassignRecommendationStatus(null);
+                                                }}
+                                                suppliers={suppliers}
+                                                targetSupplierId={reassignTargetSupplierId}
+                                                onSupplierChange={setReassignTargetSupplierId}
+                                                periods={reassignMode === 'supplier' ? reassignSupplierPeriods : periods}
+                                                currentPeriodId={selectedPeriodId}
+                                                targetPeriodId={reassignTargetPeriodId}
+                                                onPeriodChange={setReassignTargetPeriodId}
+                                                optionsLoading={reassignOptionsLoading}
+                                                recommendationStatus={reassignRecommendationStatus}
+                                                idPrefix="searched-reassign"
+                                            />
                                             <button
                                                 type="button"
-                                                onClick={() => { if (reassignTargetPeriodId) setReassignConfirmOpen(true); else toast.error('Pilih periode tujuan terlebih dahulu'); }}
-                                                className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-amber-500/30 flex-shrink-0"
+                                                onClick={() => {
+                                                    if (reassignMode === 'supplier' && !reassignTargetSupplierId) {
+                                                        toast.error('Pilih supplier tujuan terlebih dahulu');
+                                                        return;
+                                                    }
+                                                    if (reassignTargetPeriodId) setReassignConfirmOpen(true);
+                                                    else toast.error('Pilih periode tujuan terlebih dahulu');
+                                                }}
+                                                className="flex w-full items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-amber-500/30"
                                             >
                                                 <ArrowLeftRight className="w-4 h-4" />
                                                 Pindahkan
@@ -3303,10 +3566,15 @@ export default function PayableRekap() {
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Pastikan Pemindahan</h3>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">
-                                    <strong>{selectedEventIds.length} event</strong> akan dipindahkan ke:
+                                    <strong>{selectedEventIds.length} event</strong> akan dipindahkan {reassignMode === 'supplier' ? 'ke supplier dan periode:' : 'ke periode:'}
                                 </p>
                                 <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 mb-5">
-                                    {periods.find(p => p.id == reassignTargetPeriodId)?.name || 'Periode tujuan'}
+                                    {reassignMode === 'supplier' && (
+                                        <span className="mb-1 block text-slate-700 dark:text-slate-200">
+                                            {suppliers.find(s => String(s.id) === String(reassignTargetSupplierId))?.name || 'Supplier tujuan'}
+                                        </span>
+                                    )}
+                                    {(reassignMode === 'supplier' ? reassignSupplierPeriods : periods).find(p => p.id == reassignTargetPeriodId)?.name || 'Periode tujuan'}
                                 </p>
                                 <p className="text-xs text-slate-400 mb-5">Event dengan kombinasi Order ID + Tipe yang sudah ada di periode tujuan akan dilewati secara otomatis.</p>
                                 <div className="flex gap-3">

@@ -127,6 +127,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/payable/payments/{id}', [PayableController::class, 'updatePayment']);
         Route::delete('/payable/payments/{id}', [PayableController::class, 'deletePayment']);
         Route::get('/payable/events/search', [PayableController::class, 'searchEvents']);
+        Route::get('/payable/events/reassign-options', [PayableController::class, 'getReassignOptions']);
         Route::post('/payable/events/reassign', [PayableController::class, 'reassignEvents']);
 
         // Supplier Routes

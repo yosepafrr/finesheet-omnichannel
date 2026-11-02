@@ -1216,7 +1216,7 @@ class PayableController extends Controller
         $limit = min((int) $request->get('limit', 30), 100);
 
         $eventsQuery = PayableEvent::where('user_id', $userId)
-            ->with('period')
+            ->with(['period', 'supplier'])
             ->orderBy('event_date', 'desc');
 
         if ($query) {
@@ -1237,6 +1237,11 @@ class PayableController extends Controller
                 'event_date' => $ev->event_date,
                 'amount' => $ev->amount,
                 'is_manual_moved' => $ev->is_manual_moved,
+                'supplier_id' => $ev->supplier_id,
+                'supplier' => $ev->supplier ? [
+                    'id' => $ev->supplier->id,
+                    'name' => $ev->supplier->name,
+                ] : null,
                 'period' => $ev->period ? [
                     'id' => $ev->period->id,
                     'name' => $ev->period->name,
@@ -1253,19 +1258,116 @@ class PayableController extends Controller
     }
 
     /**
-     * Reassign one or multiple events to a target period for current user
+     * Return periods for a target supplier and recommend the period containing
+     * the selected order date. A recommendation is only made when every
+     * selected event resolves to the same target period.
+     */
+    public function getReassignOptions(Request $request)
+    {
+        $userId = Auth::id();
+        $validated = $request->validate([
+            'supplier_id' => 'required|integer',
+            'event_ids' => 'required|array|min:1',
+            'event_ids.*' => 'integer',
+        ]);
+
+        $supplier = Supplier::where('user_id', $userId)
+            ->findOrFail($validated['supplier_id']);
+
+        $events = PayableEvent::where('user_id', $userId)
+            ->whereIn('id', $validated['event_ids'])
+            ->get();
+
+        abort_if($events->count() !== count(array_unique($validated['event_ids'])), 422, 'Sebagian event tidak ditemukan.');
+
+        $periods = PayablePeriod::where('user_id', $userId)
+            ->where('supplier_id', $supplier->id)
+            ->with('supplier')
+            ->orderByDesc('start_date')
+            ->get();
+
+        $sourceIds = $events->pluck('source_id')->filter()->unique();
+        $orderDates = Order::whereIn('order_sn', $sourceIds)
+            ->pluck('order_time', 'order_sn');
+
+        $missingSourceIds = $sourceIds->diff($orderDates->keys());
+        if ($missingSourceIds->isNotEmpty()) {
+            OrderReturn::whereIn('external_return_id', $missingSourceIds)
+                ->with('order:id,order_sn,order_time')
+                ->get()
+                ->each(function (OrderReturn $return) use ($orderDates) {
+                    if ($return->order?->order_time) {
+                        $orderDates->put($return->external_return_id, $return->order->order_time);
+                    }
+                });
+        }
+
+        $matchedPeriodIds = $events->map(function (PayableEvent $event) use ($orderDates, $periods) {
+            $referenceDate = $orderDates->get($event->source_id) ?? $event->event_date;
+            if (! $referenceDate) {
+                return null;
+            }
+
+            $date = Carbon::parse($referenceDate);
+            $period = $periods->first(function (PayablePeriod $period) use ($date) {
+                return $date->betweenIncluded($period->start_date, $period->end_date);
+            });
+
+            return $period?->id;
+        });
+
+        $uniqueMatches = $matchedPeriodIds->filter()->unique()->values();
+        $allMatched = $matchedPeriodIds->count() > 0 && $matchedPeriodIds->filter()->count() === $matchedPeriodIds->count();
+        $recommendedPeriodId = $allMatched && $uniqueMatches->count() === 1
+            ? $uniqueMatches->first()
+            : null;
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'supplier' => [
+                    'id' => $supplier->id,
+                    'name' => $supplier->name,
+                ],
+                'periods' => $periods,
+                'recommended_period_id' => $recommendedPeriodId,
+                'recommendation_status' => $recommendedPeriodId
+                    ? 'matched'
+                    : ($uniqueMatches->count() > 1 ? 'different_periods' : 'not_found'),
+            ],
+        ]);
+    }
+
+    /**
+     * Reassign one or multiple events to a target period or supplier.
      */
     public function reassignEvents(Request $request)
     {
         $userId = Auth::id();
         $validated = $request->validate([
             'event_ids' => 'required|array|min:1',
-            'event_ids.*' => 'integer|exists:payable_events,id',
-            'target_period_id' => 'required|integer|exists:payable_periods,id',
+            'event_ids.*' => 'integer',
+            'move_mode' => 'sometimes|in:period,supplier',
+            'target_supplier_id' => 'nullable|required_if:move_mode,supplier|integer',
+            'target_period_id' => 'required|integer',
         ]);
 
+        $moveMode = $validated['move_mode'] ?? 'period';
         $targetPeriodId = $validated['target_period_id'];
         $targetPeriod = PayablePeriod::where('user_id', $userId)->findOrFail($targetPeriodId);
+        $targetSupplier = null;
+
+        if ($moveMode === 'supplier') {
+            $targetSupplier = Supplier::where('user_id', $userId)
+                ->findOrFail($validated['target_supplier_id']);
+
+            if ((int) $targetPeriod->supplier_id !== (int) $targetSupplier->id) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Periode tujuan tidak termasuk dalam supplier tujuan.',
+                ], 422);
+            }
+        }
 
         $movedIds = [];
         $skippedIds = [];
@@ -1279,19 +1381,29 @@ class PayableController extends Controller
                     continue;
                 }
 
-                // Skip if already in the target period
-                if ($event->payable_period_id == $targetPeriodId) {
+                // Skip if the destination is already identical.
+                if ($event->payable_period_id == $targetPeriodId
+                    && ($moveMode !== 'supplier' || (int) $event->supplier_id === (int) $targetSupplier->id)) {
                     $skippedIds[] = $eventId;
 
                     continue;
                 }
 
-                // Check for duplicate: same source_id + source_type in the target period for this user
-                $duplicate = PayableEvent::where('payable_period_id', $targetPeriodId)
-                    ->where('user_id', $userId)
+                // The database uniqueness scope follows supplier + order + type.
+                // When changing supplier, check the whole target supplier instead
+                // of only the selected period to avoid a constraint violation.
+                $duplicateQuery = PayableEvent::where('user_id', $userId)
+                    ->whereKeyNot($event->id)
                     ->where('source_id', $event->source_id)
-                    ->where('source_type', $event->source_type)
-                    ->exists();
+                    ->where('source_type', $event->source_type);
+
+                if ($moveMode === 'supplier') {
+                    $duplicateQuery->where('supplier_id', $targetSupplier->id);
+                } else {
+                    $duplicateQuery->where('payable_period_id', $targetPeriodId);
+                }
+
+                $duplicate = $duplicateQuery->exists();
 
                 if ($duplicate) {
                     Log::warning("PayableController::reassignEvents – duplicate prevented: source_id={$event->source_id} source_type={$event->source_type} already exists in period {$targetPeriodId}");
@@ -1303,6 +1415,9 @@ class PayableController extends Controller
 
                 $event->original_period_id = $event->original_period_id ?? $event->payable_period_id;
                 $event->payable_period_id = $targetPeriodId;
+                if ($moveMode === 'supplier') {
+                    $event->supplier_id = $targetSupplier->id;
+                }
                 $event->is_manual_moved = true;
                 $event->save();
 
