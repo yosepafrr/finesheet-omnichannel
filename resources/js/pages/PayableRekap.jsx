@@ -1166,18 +1166,15 @@ export default function PayableRekap() {
             badgeText = supplierNames.join(', ');
         }
 
-        const statusBg = '#e0e7ff';
-        const statusColor = '#3730a3';
         const status = badgeText;
+        const outstanding = Math.max(sisa, 0);
+        const overpayment = Math.max(-sisa, 0);
+        const documentStatus = outstanding <= 0 ? 'LUNAS' : 'BELUM LUNAS';
 
         // Platform & calculations (using filteredOrderEvents)
         const shopeeOrders = filteredOrderEvents.filter(e => (e.platform || '').toLowerCase().includes('shopee'));
         const tiktokOrders = filteredOrderEvents.filter(e => (e.platform || '').toLowerCase().includes('tiktok'));
         const otherOrders = filteredOrderEvents.filter(e => !(e.platform || '').toLowerCase().includes('shopee') && !(e.platform || '').toLowerCase().includes('tiktok'));
-        const shopeeHpp = shopeeOrders.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
-        const tiktokHpp = tiktokOrders.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
-        const otherHpp = otherOrders.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
-
         const paymentsList = periodDetails.payments || [];
 
         const wrapper = document.createElement('div');
@@ -1188,177 +1185,120 @@ export default function PayableRekap() {
             'width:920px',
             'background:#ffffff',
             'font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif',
-            'border-radius:24px',
+            'border-radius:8px',
             'overflow:hidden',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.08)',
-            'border:1px solid #e2e8f0',
-            'color:#1e293b'
+            'border:1px solid #d8dbea',
+            'color:#172033'
         ].join(';');
 
         // ── Header strip
         const header = document.createElement('div');
-        header.style.cssText = 'background:linear-gradient(135deg,#1e3a5f 0%,#2b4374 60%,#3b5998 100%);padding:28px 36px;color:#fff;';
+        header.style.cssText = 'background:#ffffff;padding:34px 42px 26px;border-bottom:1px solid #e7e8f0;';
         header.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                 <div>
-                    <div style="display:inline-flex;align-items:center;background:rgba(255,255,255,0.12);padding:4px 12px;border-radius:6px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:8px;backdrop-filter:blur(4px);">
-                        REKAPITULASI TRANSAKSI DENGAN SUPPLIER
+                    <div style="display:flex;align-items:center;gap:11px;margin-bottom:15px;">
+                        <div style="width:38px;height:38px;border:3px solid #423a91;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#423a91;font-size:18px;font-weight:900;">F</div>
+                        <div>
+                            <div style="font-size:20px;font-weight:900;color:#172033;line-height:1;">finesheet</div>
+                            <div style="font-size:9px;color:#737991;margin-top:4px;letter-spacing:1.1px;text-transform:uppercase;">Supplier transactions</div>
+                        </div>
                     </div>
-                    <h1 style="font-size:24px;font-weight:800;margin:0 0 4px;letter-spacing:-0.5px;">${p.name}</h1>
-                    <p style="font-size:13px;margin:0;opacity:.85;">
-                        ${p.is_virtual ? 'Menampilkan semua transaksi dari periode yang belum lunas untuk supplier yang difilter.' : `Periode Transaksi: <strong>${formatDate(p.start_date)}</strong> s/d <strong>${formatDate(p.end_date)}</strong>`}
-                    </p>
+                    <p style="font-size:11px;line-height:1.6;color:#737991;margin:0;">Rekapitulasi HPP, koreksi, dan pembayaran supplier</p>
                 </div>
                 <div style="text-align:right;">
-                    <span style="display:inline-block;background:${statusBg};color:${statusColor};padding:6px 18px;border-radius:100px;font-size:12px;font-weight:800;letter-spacing:.5px;box-shadow:0 2px 8px rgba(0,0,0,0.1);">${status}</span>
-                    <p style="font-size:11px;margin:8px 0 0;opacity:.7;">Tgl Cetak: ${new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</p>
+                    <h1 style="font-size:27px;font-weight:900;color:#423a91;margin:0 0 5px;letter-spacing:1.2px;">REKAPITULASI</h1>
+                    <p style="font-size:13px;font-weight:800;color:#172033;margin:0;">${p.name}</p>
+                    <p style="font-size:10px;color:#737991;margin:6px 0 0;">Dicetak ${new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</p>
                 </div>
             </div>`;
         card.appendChild(header);
 
         // ── Summary 4 Metric Cards
         const grid = document.createElement('div');
-        grid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:24px 36px 16px;background:#f8fafc;';
+        grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:22px 42px 20px;background:#ffffff;';
 
-        const metrics = [
-            {
-                label: 'Total Pesanan (HPP)',
-                value: formatCurrency(dynamicTotalDebt),
-                sub: `${filteredOrderEvents.length} Pesanan Selesai`,
-                color: '#1e3a5f',
-                bg: '#ffffff',
-                border: '#e2e8f0',
-                accent: '#3b82f6'
-            },
-            {
-                label: 'Total Retur & Batal',
-                value: formatCurrency(dynamicTotalReduction),
-                sub: `${filteredReturnEvents.length} Pengurangan Dicatat`,
-                color: '#be123c',
-                bg: '#ffffff',
-                border: '#e2e8f0',
-                accent: '#f43f5e'
-            },
-            {
-                label: 'Total Hutang Supplier',
-                value: formatCurrency(p.total_paid),
-                sub: `${paymentsList.length} Transaksi Terverifikasi`,
-                color: '#065f46',
-                bg: '#ffffff',
-                border: '#e2e8f0',
-                accent: '#10b981'
-            },
-            {
-                label: 'Sisa Tagihan',
-                value: formatCurrency(sisa),
-                sub: sisa <= 0 ? 'Semua tagihan lunas' : 'Belum terlunasi',
-                color: sisa <= 0 ? '#047857' : '#991b1b',
-                bg: sisa <= 0 ? '#f0fdf4' : '#fef2f2',
-                border: sisa <= 0 ? '#bbf7d0' : '#fecaca',
-                accent: sisa <= 0 ? '#10b981' : '#ef4444'
-            },
-        ];
+        const platformSummary = [
+            shopeeOrders.length > 0 ? `Shopee ${shopeeOrders.length} pesanan` : null,
+            tiktokOrders.length > 0 ? `TikTok Shop ${tiktokOrders.length} pesanan` : null,
+            otherOrders.length > 0 ? `Lainnya ${otherOrders.length} pesanan` : null,
+        ].filter(Boolean).join(' &bull; ') || 'Belum ada pesanan';
+        const periodRange = p.is_virtual
+            ? 'Semua periode yang belum lunas'
+            : `${formatDate(p.start_date)} sampai ${formatDate(p.end_date)}`;
 
-        metrics.forEach(m => {
-            const cell = document.createElement('div');
-            cell.style.cssText = `background:${m.bg};border:1px solid ${m.border};border-top:3px solid ${m.accent};border-radius:14px;padding:16px 18px;box-shadow:0 1px 3px rgba(0,0,0,0.02);`;
-            cell.innerHTML = `
-                <p style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.6px;margin:0 0 6px;font-weight:700;">${m.label}</p>
-                <p style="font-size:18px;font-weight:800;color:${m.color};margin:0 0 4px;letter-spacing:-0.3px;">${m.value}</p>
-                <p style="font-size:10px;color:#94a3b8;margin:0;">${m.sub}</p>`;
-            grid.appendChild(cell);
-        });
+        grid.innerHTML = `
+            <div>
+                <p style="font-size:9px;color:#737991;text-transform:uppercase;letter-spacing:.9px;margin:0 0 7px;font-weight:800;">Ditagihkan kepada</p>
+                <p style="font-size:15px;color:#172033;margin:0 0 7px;font-weight:900;line-height:1.35;">${status}</p>
+                <p style="font-size:10px;color:#737991;margin:0;line-height:1.6;">${platformSummary}</p>
+            </div>
+            <div>
+                <p style="font-size:9px;color:#737991;text-transform:uppercase;letter-spacing:.9px;margin:0 0 7px;font-weight:800;">Periode transaksi</p>
+                <p style="font-size:13px;color:#172033;margin:0 0 7px;font-weight:800;">${periodRange}</p>
+                <div style="display:flex;align-items:center;gap:8px;justify-content:flex-start;">
+                    <span style="font-size:9px;color:#737991;">ID Periode #${p.id}</span>
+                    <span style="font-size:9px;font-weight:900;color:${outstanding <= 0 ? '#047857' : '#9f1239'};background:${outstanding <= 0 ? '#ecfdf5' : '#fff1f2'};padding:4px 7px;border-radius:3px;">${documentStatus}</span>
+                </div>
+            </div>`;
         card.appendChild(grid);
 
         // ── Main Content: 2-Columns (Rincian Finansial & Riwayat Pembayaran)
         const content = document.createElement('div');
-        content.style.cssText = 'padding:16px 36px 24px;display:grid;grid-template-columns:1fr 1fr;gap:20px;';
+        content.style.cssText = 'padding:8px 42px 28px;display:grid;grid-template-columns:1.02fr .98fr;gap:30px;';
 
         // Column 1: Rincian Perhitungan
         const colLeft = document.createElement('div');
-        colLeft.style.cssText = 'background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;';
-
-        let platformBreakdownHtml = '';
-        if (filteredOrderEvents.length > 0) {
-            platformBreakdownHtml = `
-                <div style="margin-top:16px;padding-top:14px;border-top:1px dashed #e2e8f0;">
-                    <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px;">Breakdown Platform</p>
-                    <div style="display:flex;gap:8px;">
-                        ${shopeeOrders.length > 0 ? `
-                            <div style="flex:1;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;">
-                                <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#c2410c;margin-bottom:2px;">
-                                    <span>SHOPEE</span>
-                                    <span>${shopeeOrders.length} order</span>
-                                </div>
-                                <div style="font-size:12px;font-weight:800;color:#9a3412;">${formatCurrency(shopeeHpp)}</div>
-                            </div>` : ''}
-                        ${tiktokOrders.length > 0 ? `
-                            <div style="flex:1;background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:8px 10px;">
-                                <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#0e7490;margin-bottom:2px;">
-                                    <span>TIKTOK SHOP</span>
-                                    <span>${tiktokOrders.length} order</span>
-                                </div>
-                                <div style="font-size:12px;font-weight:800;color:#155e75;">${formatCurrency(tiktokHpp)}</div>
-                            </div>` : ''}
-                        ${otherOrders.length > 0 ? `
-                            <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;">
-                                <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">
-                                    <span>LAINNYA</span>
-                                    <span>${otherOrders.length} order</span>
-                                </div>
-                                <div style="font-size:12px;font-weight:800;color:#334155;">${formatCurrency(otherHpp)}</div>
-                            </div>` : ''}
-                    </div>
-                </div>`;
-        }
+        colLeft.style.cssText = 'background:#ffffff;display:flex;flex-direction:column;justify-content:space-between;';
 
         colLeft.innerHTML = `
             <div>
-                <h3 style="font-size:12px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.8px;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid #f1f5f9;">
-                    Rincian Perhitungan Rekapitulasi
+                <h3 style="font-size:11px;font-weight:900;color:#ffffff;text-transform:uppercase;letter-spacing:.9px;margin:0 0 13px;padding:10px 12px;background:#423a91;">
+                    Rincian Pembayaran
                 </h3>
                 <table style="width:100%;border-collapse:collapse;font-size:11px;">
                     <tbody>
                         <tr>
-                            <td style="padding:6px 0;color:#64748b;">Total Nilai Pesanan (HPP)</td>
+                            <td style="padding:7px 0;color:#60677a;">Nilai pesanan (HPP)</td>
                             <td style="padding:6px 0;text-align:right;font-weight:700;color:#1e293b;">+ ${formatCurrency(dynamicTotalDebt)}</td>
                         </tr>
                         <tr>
-                            <td style="padding:6px 0;color:#64748b;">Potongan Retur & Pengembalian</td>
+                            <td style="padding:7px 0;color:#60677a;">Koreksi retur & pembatalan</td>
                             <td style="padding:6px 0;text-align:right;font-weight:700;color:#be123c;">- ${formatCurrency(Math.abs(dynamicTotalReduction))}</td>
                         </tr>
-                        <tr style="border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;">
-                            <td style="padding:8px 0;font-weight:700;color:#1e293b;">Total Tagihan Bersih (Net)</td>
-                            <td style="padding:8px 0;text-align:right;font-weight:800;color:#1e3a5f;font-size:12px;">${formatCurrency(dynamicNetPayable)}</td>
+                        <tr style="border-top:1px solid #d8dbea;">
+                            <td style="padding:9px 0;font-weight:800;color:#172033;">Tagihan bersih</td>
+                            <td style="padding:9px 0;text-align:right;font-weight:900;color:#172033;font-size:12px;">${formatCurrency(dynamicNetPayable)}</td>
                         </tr>
                         <tr>
-                            <td style="padding:6px 0;color:#64748b;">Total Hutang Supplier</td>
-                            <td style="padding:6px 0;text-align:right;font-weight:700;color:#065f46;">- ${formatCurrency(p.total_paid)}</td>
+                            <td style="padding:7px 0;color:#60677a;">Pembayaran tercatat</td>
+                            <td style="padding:7px 0;text-align:right;font-weight:700;color:#047857;">- ${formatCurrency(p.total_paid)}</td>
                         </tr>
                     </tbody>
                 </table>
-                <div style="margin-top:12px;background:${sisa <= 0 ? '#ecfdf5' : '#fef2f2'};border:1px solid ${sisa <= 0 ? '#a7f3d0' : '#fecaca'};border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+                <div style="margin-top:14px;background:#423a91;padding:15px 16px;display:flex;justify-content:space-between;align-items:center;color:#ffffff;">
                     <div>
-                        <span style="font-size:10px;font-weight:700;color:${sisa <= 0 ? '#047857' : '#991b1b'};text-transform:uppercase;letter-spacing:.5px;display:block;">Sisa Kewajiban</span>
+                        <span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;display:block;opacity:.82;">Total Pembayaran Akhir</span>
+                        <span style="font-size:9px;display:block;margin-top:4px;opacity:.72;">${documentStatus}</span>
                     </div>
-                    <span style="font-size:16px;font-weight:900;color:${sisa <= 0 ? '#047857' : '#991b1b'};">${formatCurrency(sisa)}</span>
+                    <span style="font-size:20px;font-weight:900;letter-spacing:.1px;">${formatCurrency(outstanding)}</span>
                 </div>
+                ${overpayment > 0 ? `<p style="font-size:9px;color:#047857;margin:7px 0 0;text-align:right;font-weight:700;">Kelebihan pembayaran ${formatCurrency(overpayment)}</p>` : ''}
             </div>
-            ${platformBreakdownHtml}
         `;
         content.appendChild(colLeft);
 
         // Column 2: Riwayat Pembayaran
         const colRight = document.createElement('div');
-        colRight.style.cssText = 'background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;display:flex;flex-direction:column;';
+        colRight.style.cssText = 'background:#ffffff;display:flex;flex-direction:column;';
 
         let paymentRowsHtml = '';
         if (paymentsList.length === 0) {
             paymentRowsHtml = `
                 <tr>
                     <td colspan="4" style="padding:28px 12px;text-align:center;color:#94a3b8;font-size:11px;">
-                        <div style="font-weight:600;margin-bottom:2px;">Belum ada catatan hutang supplier</div>
-                        <div style="font-size:10px;">Hutang supplier yang dicatat akan terdata di sini</div>
+                        <div style="font-weight:600;margin-bottom:2px;">Belum ada pembayaran tercatat</div>
+                        <div style="font-size:10px;">Pembayaran yang dicatat akan tampil di sini</div>
                     </td>
                 </tr>`;
         } else {
@@ -1373,13 +1313,13 @@ export default function PayableRekap() {
         }
 
         colRight.innerHTML = `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f1f5f9;">
-                <h3 style="font-size:12px;font-weight:800;color:#065f46;text-transform:uppercase;letter-spacing:.8px;margin:0;">
-                    Riwayat Hutang Supplier
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px;padding:10px 12px;background:#423a91;color:#ffffff;">
+                <h3 style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.9px;margin:0;">
+                    Riwayat Pembayaran
                 </h3>
-                <span style="font-size:10px;color:#64748b;font-weight:600;">${paymentsList.length} transaksi</span>
+                <span style="font-size:9px;font-weight:700;opacity:.8;">${paymentsList.length} transaksi</span>
             </div>
-            <div style="flex:1;overflow:hidden;border:1px solid #f1f5f9;border-radius:10px;">
+            <div style="flex:1;overflow:hidden;border:1px solid #e7e8f0;">
                 <table style="width:100%;border-collapse:collapse;">
                     <thead>
                         <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0;">
@@ -1394,9 +1334,9 @@ export default function PayableRekap() {
                     </tbody>
                     ${paymentsList.length > 0 ? `
                         <tfoot>
-                            <tr style="background:#f0fdf4;border-top:1px solid #bbf7d0;">
-                                <td colspan="3" style="padding:8px 8px;font-size:11px;font-weight:700;color:#065f46;">TOTAL HUTANG SUPPLIER</td>
-                                <td style="padding:8px 8px;font-size:12px;font-weight:800;color:#065f46;text-align:right;">${formatCurrency(p.total_paid)}</td>
+                            <tr style="background:#f5f4fb;border-top:1px solid #d8d5ee;">
+                                <td colspan="3" style="padding:8px 8px;font-size:10px;font-weight:900;color:#423a91;">TOTAL DIBAYAR</td>
+                                <td style="padding:8px 8px;font-size:12px;font-weight:900;color:#423a91;text-align:right;">${formatCurrency(p.total_paid)}</td>
                             </tr>
                         </tfoot>` : ''}
                 </table>
@@ -1407,7 +1347,7 @@ export default function PayableRekap() {
 
         // ── Signatures & Verification Area
         const signSection = document.createElement('div');
-        signSection.style.cssText = 'padding:14px 36px 20px;display:flex;justify-content:space-between;background:#f8fafc;border-top:1px solid #e2e8f0;';
+        signSection.style.cssText = 'padding:18px 42px 26px;display:flex;justify-content:space-between;background:#ffffff;border-top:1px solid #e7e8f0;';
         signSection.innerHTML = `
             <div style="width:220px;text-align:center;">
                 <p style="font-size:10px;color:#64748b;margin:0 0 45px;">Dibuat / Disiapkan Oleh,</p>
@@ -1424,10 +1364,10 @@ export default function PayableRekap() {
 
         // ── Footer
         const footer = document.createElement('div');
-        footer.style.cssText = 'background:#1e293b;padding:10px 36px;display:flex;justify-content:space-between;align-items:center;color:#94a3b8;font-size:10px;';
+        footer.style.cssText = 'background:#ffffff;padding:11px 42px 14px;display:flex;justify-content:space-between;align-items:center;color:#737991;font-size:9px;border-top:1px solid #e7e8f0;';
         footer.innerHTML = `
             <p style="margin:0;">FineSheet Omnichannel &bull; Dicetak: ${new Date().toLocaleString('id-ID')} &bull; ID Periode: #${p.id}</p>
-            <p style="margin:0;opacity:.8;">Dokumen Rekapitulasi Transaksi Supplier Resmi</p>`;
+            <p style="margin:0;color:#423a91;font-weight:800;">Rekapitulasi transaksi supplier</p>`;
         card.appendChild(footer);
 
         wrapper.appendChild(card);
@@ -1482,14 +1422,15 @@ export default function PayableRekap() {
                 ['Supplier Terkait', badgeText],
                 [''],
                 ['Ringkasan Keuangan (Berdasarkan Filter)', ''],
-                ['Sisa Tagihan', sisa],
-                ['Total Pesanan (HPP)', parseFloat(dynamicTotalDebt)],
-                ['Total Retur & Batal', parseFloat(dynamicTotalReduction)],
-                ['Total Hutang Supplier', parseFloat(p.total_paid)],
+                ['Nilai Pesanan (HPP)', parseFloat(dynamicTotalDebt)],
+                ['Koreksi Retur & Pembatalan', parseFloat(dynamicTotalReduction)],
+                ['Tagihan Bersih', parseFloat(dynamicNetPayable)],
+                ['Pembayaran Tercatat', parseFloat(p.total_paid)],
+                ['Total Pembayaran Akhir', Math.max(sisa, 0)],
                 [''],
                 ['Jumlah Order', filteredOrderEvents.length],
                 ['Jumlah Pengembalian', filteredReturnEvents.length],
-                ['Jumlah Hutang Supplier', (periodDetails.payments || []).length],
+                ['Jumlah Pembayaran', (periodDetails.payments || []).length],
             ]);
             // Title merge & style
             wsSum['A1'].s = { font: { bold: true, sz: 16, color: { rgb: '1E3A5F' } }, alignment: { horizontal: 'left' } };
@@ -1497,8 +1438,8 @@ export default function PayableRekap() {
             wsSum['!cols'] = [{ wch: 30 }, { wch: 45 }];
             // Section headers
             ['A7'].forEach(addr => { if (wsSum[addr]) wsSum[addr].s = labelStyle; });
-            ['A8', 'A9', 'A10', 'A11'].forEach(addr => { if (wsSum[addr]) wsSum[addr].s = labelStyle; });
-            ['B8', 'B9', 'B10', 'B11'].forEach(addr => { if (wsSum[addr]) wsSum[addr].s = currencyStyle; });
+            ['A8', 'A9', 'A10', 'A11', 'A12'].forEach(addr => { if (wsSum[addr]) wsSum[addr].s = labelStyle; });
+            ['B8', 'B9', 'B10', 'B11', 'B12'].forEach(addr => { if (wsSum[addr]) wsSum[addr].s = currencyStyle; });
             XLSX.utils.book_append_sheet(wb, wsSum, '📊 Ringkasan');
 
             // ── Sheet 2: Riwayat Order
