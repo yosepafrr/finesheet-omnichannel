@@ -51,14 +51,7 @@ class PayableService
             return null;
         }
 
-        $lengthDays = $supplier->period_length_days ?? 14;
-
-        // Calculate how many periods have passed
-        $diffDays = $firstPeriodStart->diffInDays($date, false);
-        $periodsPassed = floor($diffDays / $lengthDays);
-
-        $periodStart = $firstPeriodStart->copy()->addDays($periodsPassed * $lengthDays);
-        $periodEnd = $periodStart->copy()->addDays($lengthDays)->subSecond();
+        [$periodStart, $periodEnd] = $this->periodBoundsForDate($date, $supplier);
 
         $periodName = 'Periode '.$periodStart->format('d M Y').' - '.$periodEnd->format('d M Y');
 
@@ -89,9 +82,6 @@ class PayableService
             return;
         }
 
-        $lengthDays = $supplier->period_length_days ?? 14;
-
-        // Figure out what period $start falls in (align to grid)
         if ($start->lt($firstPeriodStart)) {
             $start = $firstPeriodStart->copy();
         }
@@ -101,7 +91,7 @@ class PayableService
         $cursor = $firstPeriodStart->copy();
 
         while ($cursor->lte($now)) {
-            $periodEnd = $cursor->copy()->addDays($lengthDays)->subSecond();
+            $periodEnd = $this->nextPeriodStart($cursor, $supplier)->subSecond();
             $periodName = 'Periode '.$cursor->format('d M Y').' - '.$periodEnd->format('d M Y');
 
             PayablePeriod::firstOrCreate(
@@ -119,10 +109,50 @@ class PayableService
                 ]
             );
 
-            $cursor->addDays($lengthDays);
+            $cursor = $this->nextPeriodStart($cursor, $supplier);
         }
 
         Log::info("PayableService::ensureAllPeriods created periods for supplier {$supplier->id} from {$firstPeriodStart} to {$now}");
+    }
+
+    /**
+     * Return gapless period boundaries for fixed-day and calendar-month periods.
+     */
+    private function periodBoundsForDate(Carbon $date, Supplier $supplier): array
+    {
+        $anchor = $supplier->first_period_start->copy();
+
+        if (($supplier->period_type ?? 'days') !== 'months') {
+            $lengthDays = max(1, (int) ($supplier->period_length_days ?? 14));
+            $diffDays = $anchor->diffInDays($date, false);
+            $periodsPassed = (int) floor($diffDays / $lengthDays);
+            $periodStart = $anchor->copy()->addDays($periodsPassed * $lengthDays);
+
+            return [$periodStart, $periodStart->copy()->addDays($lengthDays)->subSecond()];
+        }
+
+        $lengthMonths = max(1, (int) ($supplier->period_length_months ?? 1));
+        $monthsPassed = (($date->year - $anchor->year) * 12) + ($date->month - $anchor->month);
+        $periodsPassed = max(0, intdiv(max(0, $monthsPassed), $lengthMonths));
+        $periodStart = $anchor->copy()->addMonthsNoOverflow($periodsPassed * $lengthMonths);
+
+        // Before the selected cutoff time on day one, the prior period is still active.
+        if ($date->lt($periodStart) && $periodsPassed > 0) {
+            $periodStart = $anchor->copy()->addMonthsNoOverflow(($periodsPassed - 1) * $lengthMonths);
+        }
+
+        $periodEnd = $periodStart->copy()->addMonthsNoOverflow($lengthMonths)->subSecond();
+
+        return [$periodStart, $periodEnd];
+    }
+
+    private function nextPeriodStart(Carbon $periodStart, Supplier $supplier): Carbon
+    {
+        if (($supplier->period_type ?? 'days') === 'months') {
+            return $periodStart->copy()->addMonthsNoOverflow(max(1, (int) ($supplier->period_length_months ?? 1)));
+        }
+
+        return $periodStart->copy()->addDays(max(1, (int) ($supplier->period_length_days ?? 14)));
     }
 
     /**

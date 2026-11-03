@@ -18,6 +18,23 @@ import {
     AlertTriangle
 } from 'lucide-react';
 
+const emptySupplierForm = () => ({
+    name: '',
+    contact_person: '',
+    phone: '',
+    address: '',
+    notes: '',
+    first_period_start: '',
+    period_type: 'days',
+    period_length_days: 14,
+    period_length_months: 1,
+});
+
+const normalizeMonthlyStartValue = (value) => {
+    if (!value || value.length < 10) return value;
+    return `${value.slice(0, 8)}01${value.slice(10)}`;
+};
+
 export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], onUpdated, zIndex = 130 }) {
     const [localSuppliers, setLocalSuppliers] = useState(suppliers);
     const [isDeletingId, setIsDeletingId] = useState(null);
@@ -40,15 +57,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
     // Supplier add / edit state
     const [isEditingSupplier, setIsEditingSupplier] = useState(false);
     const [editingSupplierId, setEditingSupplierId] = useState(null);
-    const [supplierForm, setSupplierForm] = useState({
-        name: '',
-        contact_person: '',
-        phone: '',
-        address: '',
-        notes: '',
-        first_period_start: '',
-        period_length_days: 14
-    });
+    const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
     const [isSavingSupplier, setIsSavingSupplier] = useState(false);
 
     // Products mapping tab state
@@ -84,7 +93,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
             setActiveTab('LIST');
             setIsEditingSupplier(false);
             setEditingSupplierId(null);
-            setSupplierForm({ name: '', contact_person: '', phone: '', address: '', notes: '', first_period_start: '', period_length_days: 14 });
+            setSupplierForm(emptySupplierForm());
             setSelectedProductIds([]);
             loadProducts();
         }
@@ -143,7 +152,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
             }
             setIsEditingSupplier(false);
             setEditingSupplierId(null);
-            setSupplierForm({ name: '', contact_person: '', phone: '', address: '', notes: '', first_period_start: '', period_length_days: 14 });
+            setSupplierForm(emptySupplierForm());
             if (onUpdated) await onUpdated();
             loadProducts();
         } catch (err) {
@@ -162,7 +171,9 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
             address: s.address || '',
             notes: s.notes || '',
             first_period_start: s.first_period_start_local || '',
-            period_length_days: s.period_length_days || 14
+            period_type: s.period_type || 'days',
+            period_length_days: s.period_length_days || 14,
+            period_length_months: s.period_length_months || 1,
         });
         setIsEditingSupplier(true);
     };
@@ -426,24 +437,66 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
                                             />
                                         </div>
                                     </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Pola Periode</label>
+                                        <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+                                            {[
+                                                ['days', 'Durasi hari'],
+                                                ['months', 'Kalender bulanan'],
+                                            ].map(([value, label]) => (
+                                                <button
+                                                    key={value}
+                                                    type="button"
+                                                    onClick={() => setSupplierForm(current => ({
+                                                        ...current,
+                                                        period_type: value,
+                                                        first_period_start: value === 'months'
+                                                            ? normalizeMonthlyStartValue(current.first_period_start)
+                                                            : current.first_period_start,
+                                                    }))}
+                                                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${supplierForm.period_type === value
+                                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Tanggal &amp; Jam Mulai Periode Pertama</label>
+                                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                                {supplierForm.period_type === 'months' ? 'Bulan & Jam Mulai Periode' : 'Tanggal & Jam Mulai Periode'}
+                                            </label>
                                             <input
                                                 type="datetime-local"
                                                 step="60"
                                                 value={supplierForm.first_period_start}
-                                                onChange={e => setSupplierForm({ ...supplierForm, first_period_start: e.target.value })}
+                                                onChange={e => setSupplierForm({
+                                                    ...supplierForm,
+                                                    first_period_start: supplierForm.period_type === 'months'
+                                                        ? normalizeMonthlyStartValue(e.target.value)
+                                                        : e.target.value
+                                                })}
                                                 className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-indigo-500/30"
                                             />
+                                            {supplierForm.period_type === 'months' && (
+                                                <p className="mt-1 text-[10px] text-slate-400">Tanggal otomatis menjadi tanggal 1.</p>
+                                            )}
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Durasi Periode (Hari)</label>
+                                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                                {supplierForm.period_type === 'months' ? 'Panjang Periode (Bulan)' : 'Durasi Periode (Hari)'}
+                                            </label>
                                             <input
                                                 type="number"
                                                 min="1"
-                                                value={supplierForm.period_length_days}
-                                                onChange={e => setSupplierForm({ ...supplierForm, period_length_days: parseInt(e.target.value) || 14 })}
+                                                max={supplierForm.period_type === 'months' ? 24 : undefined}
+                                                value={supplierForm[supplierForm.period_type === 'months' ? 'period_length_months' : 'period_length_days']}
+                                                onChange={e => setSupplierForm({
+                                                    ...supplierForm,
+                                                    [supplierForm.period_type === 'months' ? 'period_length_months' : 'period_length_days']: parseInt(e.target.value) || 1
+                                                })}
                                                 className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-indigo-500/30"
                                             />
                                         </div>
@@ -470,7 +523,7 @@ export default function ManageSuppliersModal({ isOpen, onClose, suppliers = [], 
                                     type="button"
                                     onClick={() => {
                                         setEditingSupplierId(null);
-                                        setSupplierForm({ name: '', contact_person: '', phone: '', address: '', notes: '', first_period_start: '', period_length_days: 14 });
+                                        setSupplierForm(emptySupplierForm());
                                         setIsEditingSupplier(true);
                                     }}
                                     className="w-full py-3 px-4 border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 rounded-2xl flex items-center justify-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"

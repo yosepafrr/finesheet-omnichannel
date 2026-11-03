@@ -479,6 +479,11 @@ function ReassignDestinationFields({
     );
 }
 
+const normalizeMonthlyStartValue = (value) => {
+    if (!value || value.length < 10) return value;
+    return `${value.slice(0, 8)}01${value.slice(10)}`;
+};
+
 export default function PayableRekap() {
     const tour = useOnboarding("payable", PAYABLE_TOUR_STEPS.length);
     const [periods, setPeriods] = useState([]);
@@ -505,7 +510,12 @@ export default function PayableRekap() {
 
     // Settings (duration change) modal
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-    const [settingsForm, setSettingsForm] = useState({ length_days: 14, apply_mode: 'future' });
+    const [settingsForm, setSettingsForm] = useState({
+        period_type: 'days',
+        length_days: 14,
+        length_months: 1,
+        apply_mode: 'future'
+    });
     const [settingsDurationConfirm, setSettingsDurationConfirm] = useState(false); // sub-confirm
     const [isSettingsSaving, setIsSettingsSaving] = useState(false);
 
@@ -566,7 +576,9 @@ export default function PayableRekap() {
     // Config Form State
     const [configForm, setConfigForm] = useState({
         first_period_start: '',
-        length_days: 14
+        period_type: 'days',
+        length_days: 14,
+        length_months: 1
     });
 
     // Payment Form State
@@ -752,12 +764,19 @@ export default function PayableRekap() {
             if (res.data.data) {
                 setConfigForm({
                     first_period_start: res.data.data.first_period_start.slice(0, 16),
-                    length_days: res.data.data.length_days
+                    period_type: res.data.data.period_type || 'days',
+                    length_days: res.data.data.length_days || 14,
+                    length_months: res.data.data.length_months || 1
                 });
-                setSettingsForm(prev => ({ ...prev, length_days: res.data.data.length_days }));
+                setSettingsForm(prev => ({
+                    ...prev,
+                    period_type: res.data.data.period_type || 'days',
+                    length_days: res.data.data.length_days || 14,
+                    length_months: res.data.data.length_months || 1
+                }));
             } else {
-                setConfigForm({ first_period_start: '', length_days: 14 });
-                setSettingsForm(prev => ({ ...prev, length_days: 14 }));
+                setConfigForm({ first_period_start: '', period_type: 'days', length_days: 14, length_months: 1 });
+                setSettingsForm(prev => ({ ...prev, period_type: 'days', length_days: 14, length_months: 1 }));
             }
             return res.data.data;
         } catch (error) {
@@ -3137,36 +3156,82 @@ export default function PayableRekap() {
                                 </p>
                                 <form onSubmit={handleSaveConfig} className="space-y-4">
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Tgl &amp; Jam Mulai Periode Pertama</label>
+                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Pola Periode</label>
+                                        <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+                                            {[
+                                                ['days', 'Durasi hari'],
+                                                ['months', 'Kalender bulanan'],
+                                            ].map(([value, label]) => (
+                                                <button
+                                                    key={value}
+                                                    type="button"
+                                                    onClick={() => setConfigForm(current => ({
+                                                        ...current,
+                                                        period_type: value,
+                                                        first_period_start: value === 'months'
+                                                            ? normalizeMonthlyStartValue(current.first_period_start)
+                                                            : current.first_period_start,
+                                                    }))}
+                                                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${configForm.period_type === value
+                                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                            {configForm.period_type === 'months' ? 'Bulan & Jam Mulai Periode Pertama' : 'Tgl & Jam Mulai Periode Pertama'}
+                                        </label>
                                         <input
                                             type="datetime-local"
                                             required
                                             value={configForm.first_period_start}
-                                            onChange={e => setConfigForm({ ...configForm, first_period_start: e.target.value })}
+                                            onChange={e => setConfigForm({
+                                                ...configForm,
+                                                first_period_start: configForm.period_type === 'months'
+                                                    ? normalizeMonthlyStartValue(e.target.value)
+                                                    : e.target.value
+                                            })}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50"
                                         />
-                                        <p className="text-[10px] text-slate-400 mt-1">Data historis sebelum tanggal ini tidak akan masuk ke rekap.</p>
+                                        <p className="text-[10px] text-slate-400 mt-1">
+                                            {configForm.period_type === 'months'
+                                                ? 'Tanggal otomatis menjadi tanggal 1. Periode berganti pada jam yang dipilih.'
+                                                : 'Data historis sebelum tanggal ini tidak akan masuk ke rekap.'}
+                                        </p>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Durasi Periode (Hari)</label>
+                                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                            {configForm.period_type === 'months' ? 'Panjang Periode (Bulan)' : 'Durasi Periode (Hari)'}
+                                        </label>
                                         <div className="flex gap-2 mb-2">
-                                            {[7, 14, 30].map(d => (
-                                                <button key={d} type="button" onClick={() => setConfigForm(c => ({ ...c, length_days: d }))}
+                                            {(configForm.period_type === 'months' ? [1, 2, 3, 6] : [7, 14, 30]).map(length => (
+                                                <button key={length} type="button" onClick={() => setConfigForm(current => ({
+                                                    ...current,
+                                                    [current.period_type === 'months' ? 'length_months' : 'length_days']: length
+                                                }))}
                                                     className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                                        parseInt(configForm.length_days) === d
+                                                        parseInt(configForm[configForm.period_type === 'months' ? 'length_months' : 'length_days']) === length
                                                             ? 'bg-indigo-500 text-white border-indigo-500'
                                                             : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400'
-                                                    }`}>{d} hari</button>
+                                                    }`}>{length} {configForm.period_type === 'months' ? 'bln' : 'hari'}</button>
                                             ))}
                                         </div>
                                         <input
                                             type="number"
                                             min="1"
+                                            max={configForm.period_type === 'months' ? 24 : undefined}
                                             required
-                                            value={configForm.length_days}
-                                            onChange={e => setConfigForm({ ...configForm, length_days: e.target.value })}
+                                            value={configForm[configForm.period_type === 'months' ? 'length_months' : 'length_days']}
+                                            onChange={e => setConfigForm({
+                                                ...configForm,
+                                                [configForm.period_type === 'months' ? 'length_months' : 'length_days']: e.target.value
+                                            })}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50"
-                                            placeholder="atau masukkan jumlah hari..."
+                                            placeholder={configForm.period_type === 'months' ? 'Jumlah bulan per periode' : 'Jumlah hari per periode'}
                                         />
                                     </div>
                                     <div className="flex gap-3 pt-4">
@@ -3196,21 +3261,54 @@ export default function PayableRekap() {
                                         </div>
                                         <div className="space-y-4">
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Durasi Periode Baru (Hari)</label>
+                                                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Pola Periode</label>
+                                                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+                                                    {[
+                                                        ['days', 'Durasi hari'],
+                                                        ['months', 'Kalender bulanan'],
+                                                    ].map(([value, label]) => (
+                                                        <button
+                                                            key={value}
+                                                            type="button"
+                                                            onClick={() => setSettingsForm(current => ({ ...current, period_type: value }))}
+                                                            className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${settingsForm.period_type === value
+                                                                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                                                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {settingsForm.period_type === 'months' && (
+                                                    <p className="mt-2 text-[10px] text-slate-400">Periode berganti setiap tanggal 1 pada jam konfigurasi awal.</p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
+                                                    {settingsForm.period_type === 'months' ? 'Panjang Periode Baru (Bulan)' : 'Durasi Periode Baru (Hari)'}
+                                                </label>
                                                 <div className="flex gap-2 mb-2">
-                                                    {[7, 14, 30].map(d => (
-                                                        <button key={d} type="button" onClick={() => setSettingsForm(f => ({ ...f, length_days: d }))}
+                                                    {(settingsForm.period_type === 'months' ? [1, 2, 3, 6] : [7, 14, 30]).map(length => (
+                                                        <button key={length} type="button" onClick={() => setSettingsForm(current => ({
+                                                            ...current,
+                                                            [current.period_type === 'months' ? 'length_months' : 'length_days']: length
+                                                        }))}
                                                             className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                                                parseInt(settingsForm.length_days) === d
+                                                                parseInt(settingsForm[settingsForm.period_type === 'months' ? 'length_months' : 'length_days']) === length
                                                                     ? 'bg-indigo-500 text-white border-indigo-500'
                                                                     : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400'
-                                                            }`}>{d} hari</button>
+                                                            }`}>{length} {settingsForm.period_type === 'months' ? 'bln' : 'hari'}</button>
                                                     ))}
                                                 </div>
                                                 <input
-                                                    type="number" min="1"
-                                                    value={settingsForm.length_days}
-                                                    onChange={e => setSettingsForm(f => ({ ...f, length_days: parseInt(e.target.value) || 1 }))}
+                                                    type="number"
+                                                    min="1"
+                                                    max={settingsForm.period_type === 'months' ? 24 : undefined}
+                                                    value={settingsForm[settingsForm.period_type === 'months' ? 'length_months' : 'length_days']}
+                                                    onChange={e => setSettingsForm(current => ({
+                                                        ...current,
+                                                        [current.period_type === 'months' ? 'length_months' : 'length_days']: parseInt(e.target.value) || 1
+                                                    }))}
                                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50"
                                                 />
                                             </div>
@@ -3251,7 +3349,11 @@ export default function PayableRekap() {
                                         </div>
                                         <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Konfirmasi Perubahan Durasi</h3>
                                         <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">
-                                            Durasi periode akan diubah menjadi <strong>{settingsForm.length_days} hari</strong>.
+                                            Pola periode akan diubah menjadi <strong>
+                                                {settingsForm.period_type === 'months'
+                                                    ? `${settingsForm.length_months} bulan kalender`
+                                                    : `${settingsForm.length_days} hari`}
+                                            </strong>.
                                         </p>
                                         <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">
                                             {settingsForm.apply_mode === 'future'

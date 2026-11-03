@@ -16,7 +16,9 @@ class Supplier extends Model
         'phone',
         'address',
         'notes',
+        'period_type',
         'period_length_days',
+        'period_length_months',
         'first_period_start',
     ];
 

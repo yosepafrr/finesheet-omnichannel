@@ -42,6 +42,32 @@ class PayableController extends Controller
         return array_map('intval', array_filter(explode(',', (string) $raw), fn ($v) => is_numeric($v)));
     }
 
+    private function normalizePeriodStart(?string $value, string $periodType): ?Carbon
+    {
+        if (! $value) {
+            return null;
+        }
+
+        $start = Carbon::parse($value);
+        $hour = $start->hour;
+        $minute = $start->minute;
+        $second = $start->second;
+
+        return $periodType === 'months'
+            ? $start->startOfMonth()->setTime($hour, $minute, $second)
+            : $start;
+    }
+
+    private function periodConfigPayload(Supplier $supplier): array
+    {
+        return [
+            'first_period_start' => $supplier->first_period_start?->format('Y-m-d H:i:s'),
+            'period_type' => $supplier->period_type ?? 'days',
+            'length_days' => $supplier->period_length_days ?? 14,
+            'length_months' => $supplier->period_length_months ?? 1,
+        ];
+    }
+
     /**
      * Get suppliers for current user
      */
@@ -406,9 +432,13 @@ class PayableController extends Controller
             'phone' => 'nullable|string|max:50',
             'address' => 'nullable|string',
             'notes' => 'nullable|string',
+            'period_type' => ['nullable', Rule::in(['days', 'months'])],
             'period_length_days' => 'nullable|integer|min:1',
+            'period_length_months' => 'nullable|integer|min:1|max:24',
             'first_period_start' => 'nullable|date',
         ]);
+
+        $periodType = $validated['period_type'] ?? 'days';
 
         $supplier = Supplier::create([
             'user_id' => $userId,
@@ -417,8 +447,10 @@ class PayableController extends Controller
             'phone' => $validated['phone'] ?? null,
             'address' => $validated['address'] ?? null,
             'notes' => $validated['notes'] ?? null,
+            'period_type' => $periodType,
             'period_length_days' => $validated['period_length_days'] ?? 14,
-            'first_period_start' => isset($validated['first_period_start']) ? Carbon::parse($validated['first_period_start']) : null,
+            'period_length_months' => $validated['period_length_months'] ?? 1,
+            'first_period_start' => $this->normalizePeriodStart($validated['first_period_start'] ?? null, $periodType),
         ]);
 
         return response()->json([
@@ -441,19 +473,24 @@ class PayableController extends Controller
             'phone' => 'nullable|string|max:50',
             'address' => 'nullable|string',
             'notes' => 'nullable|string',
+            'period_type' => ['nullable', Rule::in(['days', 'months'])],
             'period_length_days' => 'nullable|integer|min:1',
+            'period_length_months' => 'nullable|integer|min:1|max:24',
             'first_period_start' => 'nullable|date',
         ]);
 
         $updateData = $validated;
+        $periodType = $updateData['period_type'] ?? $supplier->period_type ?? 'days';
         if (! empty($updateData['first_period_start'])) {
-            $updateData['first_period_start'] = Carbon::parse($updateData['first_period_start']);
+            $updateData['first_period_start'] = $this->normalizePeriodStart($updateData['first_period_start'], $periodType);
         }
 
         $supplier->fill($updateData);
         $periodConfigChanged = $supplier->isDirty([
             'first_period_start',
+            'period_type',
             'period_length_days',
+            'period_length_months',
         ]);
         $supplier->save();
 
@@ -591,11 +628,9 @@ class PayableController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'data' => $supplier->first_period_start ? [
-                    'supplier_id' => $supplier->id,
-                    'first_period_start' => $supplier->first_period_start->format('Y-m-d H:i:s'),
-                    'length_days' => $supplier->period_length_days ?? 14,
-                ] : null,
+                'data' => $supplier->first_period_start
+                    ? ['supplier_id' => $supplier->id, ...$this->periodConfigPayload($supplier)]
+                    : null,
             ]);
         }
 
@@ -616,15 +651,19 @@ class PayableController extends Controller
         $validated = $request->validate([
             'supplier_id' => 'required|integer|exists:suppliers,id',
             'first_period_start' => 'required|date',
-            'length_days' => 'required|integer|min:1',
+            'period_type' => ['required', Rule::in(['days', 'months'])],
+            'length_days' => 'required_if:period_type,days|nullable|integer|min:1',
+            'length_months' => 'required_if:period_type,months|nullable|integer|min:1|max:24',
         ]);
 
         $supplier = Supplier::where('user_id', $userId)
             ->findOrFail($validated['supplier_id']);
-        $startDate = Carbon::parse($validated['first_period_start']);
+        $startDate = $this->normalizePeriodStart($validated['first_period_start'], $validated['period_type']);
 
         $supplier->update([
-            'period_length_days' => $validated['length_days'],
+            'period_type' => $validated['period_type'],
+            'period_length_days' => $validated['length_days'] ?? $supplier->period_length_days ?? 14,
+            'period_length_months' => $validated['length_months'] ?? $supplier->period_length_months ?? 1,
             'first_period_start' => $startDate,
         ]);
 
@@ -635,10 +674,7 @@ class PayableController extends Controller
 
         Setting::updateOrCreate(
             ['key' => 'recap_period_config', 'user_id' => $userId],
-            ['value' => [
-                'first_period_start' => $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
-                'length_days' => $earliestSupplier->period_length_days ?? 14,
-            ]]
+            ['value' => $this->periodConfigPayload($earliestSupplier)]
         );
 
         // Sync historical orders for this user in background
@@ -651,11 +687,7 @@ class PayableController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Konfigurasi periode berhasil disimpan, histori sedang disinkronisasi',
-            'data' => [
-                'supplier_id' => $supplier->id,
-                'first_period_start' => $supplier->first_period_start->format('Y-m-d H:i:s'),
-                'length_days' => $supplier->period_length_days,
-            ],
+            'data' => ['supplier_id' => $supplier->id, ...$this->periodConfigPayload($supplier)],
         ]);
     }
 
@@ -667,7 +699,9 @@ class PayableController extends Controller
         $userId = Auth::id();
         $validated = $request->validate([
             'supplier_id' => 'required|integer|exists:suppliers,id',
-            'length_days' => 'required|integer|min:1',
+            'period_type' => ['required', Rule::in(['days', 'months'])],
+            'length_days' => 'required_if:period_type,days|nullable|integer|min:1',
+            'length_months' => 'required_if:period_type,months|nullable|integer|min:1|max:24',
             'apply_mode' => 'required|in:future,all',
         ]);
 
@@ -677,7 +711,15 @@ class PayableController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Belum ada konfigurasi periode'], 422);
         }
 
-        $supplier->update(['period_length_days' => $validated['length_days']]);
+        $supplier->update([
+            'period_type' => $validated['period_type'],
+            'period_length_days' => $validated['length_days'] ?? $supplier->period_length_days ?? 14,
+            'period_length_months' => $validated['length_months'] ?? $supplier->period_length_months ?? 1,
+            'first_period_start' => $this->normalizePeriodStart(
+                $supplier->first_period_start->format('Y-m-d H:i:s'),
+                $validated['period_type']
+            ),
+        ]);
 
         $earliestSupplier = Supplier::where('user_id', $userId)
             ->whereNotNull('first_period_start')
@@ -686,10 +728,7 @@ class PayableController extends Controller
 
         Setting::updateOrCreate(
             ['key' => 'recap_period_config', 'user_id' => $userId],
-            ['value' => [
-                'first_period_start' => $earliestSupplier->first_period_start->format('Y-m-d H:i:s'),
-                'length_days' => $earliestSupplier->period_length_days ?? 14,
-            ]]
+            ['value' => $this->periodConfigPayload($earliestSupplier)]
         );
 
         if ($validated['apply_mode'] === 'all') {
@@ -706,13 +745,13 @@ class PayableController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => "Durasi periode {$supplier->name} diubah menjadi {$validated['length_days']} hari dan diterapkan ke semua periodenya. Sinkronisasi ulang dimulai.",
+                'message' => "Pola periode {$supplier->name} diperbarui dan diterapkan ke semua periodenya. Sinkronisasi ulang dimulai.",
             ]);
         }
 
         return response()->json([
             'status' => 'success',
-            'message' => "Durasi periode {$supplier->name} diubah menjadi {$validated['length_days']} hari. Perubahan akan diterapkan setelah periode saat ini selesai.",
+            'message' => "Pola periode {$supplier->name} diperbarui. Perubahan akan diterapkan setelah periode saat ini selesai.",
         ]);
     }
 
