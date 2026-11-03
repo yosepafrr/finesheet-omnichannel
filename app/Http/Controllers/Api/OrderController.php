@@ -211,6 +211,30 @@ class OrderController extends Controller
         $orders = collect($paginator->items());
 
         $financialSummaries = $profitService->summaries($orders);
+        $ordersById = $orders->keyBy('id');
+        $listFinancialSummaries = $financialSummaries->map(function (array $summary, $orderId) use ($ordersById, $escrowService) {
+            $order = $ordersById->get($orderId);
+            if (! $order) {
+                return $summary;
+            }
+
+            $status = strtoupper(trim((string) $order->order_status));
+            $isReturnOrCancel = in_array($status, [
+                'CANCEL',
+                'CANCELLED',
+                'IN_CANCEL',
+                'TO_RETURN',
+                'RETURNED',
+            ], true) || $escrowService->activeReturns($order)->isNotEmpty();
+
+            if ($isReturnOrCancel && abs((float) ($summary['escrow_amount'] ?? 0)) < 0.0001) {
+                $summary['hpp_amount'] = 0.0;
+                $summary['profit_amount'] = 0.0;
+                $summary['has_missing_hpp'] = false;
+            }
+
+            return $summary;
+        });
 
         return response()->json([
             'status_counts' => $statusCounts,
@@ -228,10 +252,10 @@ class OrderController extends Controller
                 ];
             }),
             'totals' => [
-                'hpp_amount' => (float) $financialSummaries->sum('hpp_amount'),
-                'escrow_amount' => (float) $financialSummaries->sum('escrow_amount'),
-                'profit_amount' => (float) $financialSummaries->sum('profit_amount'),
-                'has_missing_hpp' => $financialSummaries->contains('has_missing_hpp', true),
+                'hpp_amount' => (float) $listFinancialSummaries->sum('hpp_amount'),
+                'escrow_amount' => (float) $listFinancialSummaries->sum('escrow_amount'),
+                'profit_amount' => (float) $listFinancialSummaries->sum('profit_amount'),
+                'has_missing_hpp' => $listFinancialSummaries->contains('has_missing_hpp', true),
             ],
             'totals_scope' => 'page',
             'pagination' => [
@@ -242,10 +266,10 @@ class OrderController extends Controller
                 'from' => $paginator->firstItem(),
                 'to' => $paginator->lastItem(),
             ],
-            'orders' => $orders->map(function ($order) use ($financialBreakdownService, $financialSummaries) {
+            'orders' => $orders->map(function ($order) use ($financialBreakdownService, $listFinancialSummaries) {
                 $firstProduct = $order->orderProducts->first();
                 $financialBreakdown = $financialBreakdownService->forOrder($order);
-                $financialSummary = $financialSummaries->get($order->id);
+                $financialSummary = $listFinancialSummaries->get($order->id);
 
                 return [
                     'id' => $order->id,

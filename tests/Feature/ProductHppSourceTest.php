@@ -123,6 +123,84 @@ class ProductHppSourceTest extends TestCase
             ->assertJsonPath('totals.has_missing_hpp', true);
     }
 
+    public function test_order_list_uses_zero_hpp_for_zero_escrow_cancelled_order(): void
+    {
+        [$product, $variant, $user] = $this->createMarketplaceVariant(localHpp: 25_000);
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Shopee',
+            'order_sn' => 'ORDER-CANCELLED-ZERO-ESCROW',
+            'order_status' => 'CANCELLED',
+            'order_time' => now(),
+            'order_selling_price' => 100_000,
+            'escrow_amount' => 0,
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 2,
+            'price' => 50_000,
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=CANCELLED')
+            ->assertOk()
+            ->assertJsonPath('orders.0.hpp_amount', 0)
+            ->assertJsonPath('orders.0.escrow_amount', 0)
+            ->assertJsonPath('orders.0.profit_amount', 0)
+            ->assertJsonPath('orders.0.has_missing_hpp', false)
+            ->assertJsonPath('totals.hpp_amount', 0)
+            ->assertJsonPath('totals.profit_amount', 0);
+    }
+
+    public function test_order_list_uses_zero_hpp_for_zero_escrow_active_return(): void
+    {
+        [$product, $variant, $user] = $this->createMarketplaceVariant(localHpp: 25_000);
+        $order = Order::withoutEvents(fn () => Order::create([
+            'store_id' => $product->store_id,
+            'platform' => 'Shopee',
+            'order_sn' => 'ORDER-RETURN-ZERO-ESCROW',
+            'order_status' => 'COMPLETED',
+            'order_time' => now(),
+            'order_selling_price' => 100_000,
+            'escrow_amount' => 0,
+        ]));
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => $variant->model_name,
+            'platform_variant_id' => $variant->model_id,
+            'sku' => $variant->model_sku,
+            'quantity_purchased' => 2,
+            'price' => 50_000,
+        ]));
+        OrderReturn::withoutEvents(fn () => OrderReturn::create([
+            'order_id' => $order->id,
+            'platform' => 'Shopee',
+            'external_return_id' => 'RETURN-ZERO-ESCROW-1',
+            'return_status' => 'COMPLETED',
+            'platform_status' => 'COMPLETED',
+            'normalized_status' => 'REFUND_COMPLETED',
+            'refund_amount' => 100_000,
+            'created_at_platform' => now(),
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=COMPLETED')
+            ->assertOk()
+            ->assertJsonPath('orders.0.hpp_amount', 0)
+            ->assertJsonPath('orders.0.escrow_amount', 0)
+            ->assertJsonPath('orders.0.profit_amount', 0)
+            ->assertJsonPath('orders.0.has_missing_hpp', false)
+            ->assertJsonPath('totals.hpp_amount', 0)
+            ->assertJsonPath('totals.profit_amount', 0);
+    }
+
     public function test_payable_prefers_master_supplier_and_falls_back_to_marketplace_mapping(): void
     {
         [$product, $variant, $masterVariant, $user] = $this->createLinkedVariant(25000, 18000);
