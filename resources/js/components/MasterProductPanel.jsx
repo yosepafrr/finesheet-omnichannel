@@ -1002,9 +1002,20 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
     const [busyId, setBusyId] = useState(null);
     const [notice, setNotice] = useState("");
     const supplierRevisionRef = useRef(supplierRevision);
+    const abortControllerRef = useRef(null);
+    const fetchRequestIdRef = useRef(0);
+
+    useEffect(() => () => abortControllerRef.current?.abort(), []);
 
     const fetchRows = useCallback(async (silent = false) => {
+        const requestId = fetchRequestIdRef.current + 1;
+        fetchRequestIdRef.current = requestId;
         if (!silent) setLoading(true);
+
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
             const response = await axios.get("/api/master-products", {
                 params: {
@@ -1015,17 +1026,27 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                     variant_clusters: variantClusters.length > 0 ? variantClusters : undefined,
                     supplier_id: supplierFilter || undefined,
                 },
+                signal: controller.signal,
             });
+            if (requestId !== fetchRequestIdRef.current) return;
             setRows(response.data.data || []);
             setMeta(response.data.meta || {});
-            setFilterOptions(response.data.filters || { product_clusters: [], variant_clusters: [], suppliers: [] });
             setError("");
         } catch (requestError) {
-            setError(errorMessage(requestError));
+            if (!axios.isCancel(requestError)) setError(errorMessage(requestError));
         } finally {
-            if (!silent) setLoading(false);
+            if (!silent && requestId === fetchRequestIdRef.current) setLoading(false);
         }
     }, [page, pageSize, productClusters, search, supplierFilter, variantClusters]);
+
+    const fetchFilterOptions = useCallback(async () => {
+        try {
+            const response = await axios.get("/api/master-products/filters");
+            setFilterOptions(response.data || { product_clusters: [], variant_clusters: [], suppliers: [] });
+        } catch (requestError) {
+            if (!axios.isCancel(requestError)) console.error(requestError);
+        }
+    }, []);
 
     const fetchDetected = useCallback(async () => {
         try {
@@ -1039,30 +1060,34 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
     useEffect(() => setPage(1), [productClusters, search, supplierFilter, variantClusters]);
     useEffect(() => setSelectedIds(new Set()), [page, pageSize, productClusters, search, supplierFilter, variantClusters]);
     useEffect(() => {
-        const timeout = setTimeout(() => fetchRows(), 250);
+        const timeout = setTimeout(() => fetchRows(), 0);
         return () => clearTimeout(timeout);
     }, [fetchRows]);
-    useEffect(() => { fetchDetected(); }, [fetchDetected]);
+    useEffect(() => {
+        fetchFilterOptions();
+        const timeout = window.setTimeout(() => fetchDetected(), 500);
+        return () => window.clearTimeout(timeout);
+    }, [fetchDetected, fetchFilterOptions]);
     useEffect(() => {
         if (supplierRevisionRef.current === supplierRevision) return;
         supplierRevisionRef.current = supplierRevision;
-        fetchRows(true);
-    }, [fetchRows, supplierRevision]);
+        Promise.all([fetchRows(true), fetchFilterOptions()]);
+    }, [fetchFilterOptions, fetchRows, supplierRevision]);
     useEffect(() => {
-        const interval = window.setInterval(() => fetchRows(true), 10000);
+        const interval = window.setInterval(() => fetchRows(true), 60000);
         return () => window.clearInterval(interval);
     }, [fetchRows]);
 
     const refresh = async () => {
         setModal({ open: false, row: null, preset: null });
         setValueModal({ open: false, row: null, field: null });
-        await Promise.all([fetchRows(), fetchDetected()]);
+        await Promise.all([fetchRows(), fetchDetected(), fetchFilterOptions()]);
     };
 
     const finishBulkCreate = async (result) => {
         setBulkModalOpen(false);
         setNotice(result.message || "SKU master berhasil ditambahkan.");
-        await Promise.all([fetchRows(), fetchDetected()]);
+        await Promise.all([fetchRows(), fetchDetected(), fetchFilterOptions()]);
     };
 
     const openValueModal = (row, field) => {

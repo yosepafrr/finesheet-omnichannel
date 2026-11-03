@@ -38,6 +38,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/stores/{id}', [StoreController::class, 'destroy']);
         Route::get('/products', [ProductController::class, 'index']);
         Route::get('/master-products', [MasterProductController::class, 'index']);
+        Route::get('/master-products/filters', [MasterProductController::class, 'filters']);
         Route::get('/master-products/components', [MasterProductController::class, 'components']);
         Route::post('/master-products', [MasterProductController::class, 'store']);
         Route::post('/master-products/bulk', [MasterProductController::class, 'bulkStore']);

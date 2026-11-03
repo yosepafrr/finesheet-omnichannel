@@ -147,6 +147,33 @@ class ProductSupplierAssignmentTest extends TestCase
             ->assertJsonPath('stores.0.pagination.last_page', 4);
     }
 
+    public function test_marketplace_products_can_be_scoped_to_one_store_without_losing_store_options(): void
+    {
+        $user = User::factory()->create();
+        $firstStore = $this->createStore($user, 'SHOP-FIRST');
+        $secondStore = $this->createStore($user, 'SHOP-SECOND');
+
+        foreach ([$firstStore, $secondStore] as $index => $store) {
+            Product::create([
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'product_id' => 'PLATFORM-SCOPED-'.$index,
+                'product_name' => 'Produk Toko '.$index,
+                'product_sku' => 'SKU-SCOPED-'.$index,
+                'stock' => 10,
+                'price' => 50000,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/products?store_id='.$secondStore->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'stores')
+            ->assertJsonCount(2, 'store_options')
+            ->assertJsonPath('stores.0.id', $secondStore->id)
+            ->assertJsonPath('stores.0.products.0.product_name', 'Produk Toko 1');
+    }
+
     private function createStore(User $user, string $shopId): Store
     {
         return Store::create([

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\MasterProductVariant;
 use App\Models\Product;
 use App\Models\VariantProduct;
+use Illuminate\Support\Facades\DB;
 
 class ProductHppService
 {
@@ -26,6 +27,30 @@ class ProductHppService
             $this->masterVariantForVariant($variant),
             (float) ($variant->hpp ?? 0)
         );
+    }
+
+    public function primeMasterVariants(int $userId, iterable $skus): void
+    {
+        $normalizedSkus = collect($skus)
+            ->map(fn ($sku) => mb_strtolower(trim((string) $sku)))
+            ->filter(fn (string $sku) => $sku !== '' && $sku !== '0')
+            ->unique()
+            ->reject(fn (string $sku) => array_key_exists($userId.':'.$sku, $this->masterVariantCache))
+            ->values();
+
+        if ($normalizedSkus->isEmpty()) {
+            return;
+        }
+
+        $variants = MasterProductVariant::query()
+            ->where('user_id', $userId)
+            ->whereIn(DB::raw('LOWER(sku)'), $normalizedSkus->all())
+            ->get()
+            ->keyBy(fn (MasterProductVariant $variant) => mb_strtolower(trim((string) $variant->sku)));
+
+        foreach ($normalizedSkus as $sku) {
+            $this->masterVariantCache[$userId.':'.$sku] = $variants->get($sku);
+        }
     }
 
     public function updateProduct(Product $product, float $hpp): array

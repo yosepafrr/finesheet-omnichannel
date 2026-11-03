@@ -213,6 +213,7 @@ export default function ProductList() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [expandedProducts, setExpandedProducts] = useState({});
     const [syncing, setSyncing] = useState(false);
     const [syncingStoreId, setSyncingStoreId] = useState(null);
@@ -243,6 +244,15 @@ export default function ProductList() {
     const [selectedStore, setSelectedStore] = useState("");
     const storeDropdownRef = useRef(null);
     const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
+    const abortControllerRef = useRef(null);
+    const fetchRequestIdRef = useRef(0);
+
+    useEffect(() => () => abortControllerRef.current?.abort(), []);
+
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+        return () => window.clearTimeout(timeout);
+    }, [search]);
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -262,14 +272,14 @@ export default function ProductList() {
         setPageByStore({});
         setMarketplaceSelectionMode(false);
         setSelectedMarketplaceProductIds([]);
-    }, [search, selectedStore]);
+    }, [debouncedSearch, selectedStore]);
 
     const handleSync = async () => {
         setSyncing(true);
         try {
             await axios.post("/api/sync/products");
             // Re-fetch immediately in case some data was updated fast,
-            // the 10s polling will catch the rest.
+            // the background refresh will catch the rest.
             fetchData();
         } catch (err) {
             console.error("Failed to sync products", err);
@@ -309,15 +319,26 @@ export default function ProductList() {
         await fetchData();
     };
 
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (silent = false) => {
+        const requestId = fetchRequestIdRef.current + 1;
+        fetchRequestIdRef.current = requestId;
+        if (!silent) setLoading(true);
+
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
             const res = await axios.get("/api/products", {
                 params: {
-                    search,
+                    search: debouncedSearch || undefined,
+                    store_id: selectedStore || undefined,
                     pages: JSON.stringify(pageByStore),
                     limits: JSON.stringify(limitByStore),
                 },
+                signal: controller.signal,
             });
+            if (requestId !== fetchRequestIdRef.current) return;
             setData(res.data);
 
             // If the bulk modal is currently open, refresh its product reference so it gets the new HPP data
@@ -334,11 +355,13 @@ export default function ProductList() {
                 });
             }
         } catch (err) {
-            console.error(err);
+            if (!axios.isCancel(err)) console.error(err);
         } finally {
-            setLoading(false);
+            if (!silent && requestId === fetchRequestIdRef.current) {
+                setLoading(false);
+            }
         }
-    }, [search, pageByStore, limitByStore]);
+    }, [debouncedSearch, selectedStore, pageByStore, limitByStore]);
 
     const loadManagedSuppliers = useCallback(async () => {
         try {
@@ -360,12 +383,10 @@ export default function ProductList() {
     }, [fetchData, loadManagedSuppliers]);
 
     const visibleStores = useMemo(
-        () =>
-            (data?.stores || []).filter(
-                (store) => selectedStore === "" || store.id == selectedStore,
-            ),
-        [data?.stores, selectedStore],
+        () => data?.stores || [],
+        [data?.stores],
     );
+    const storeOptions = data?.store_options || data?.stores || [];
     const selectableMarketplaceProducts = useMemo(
         () =>
             visibleStores
@@ -450,7 +471,7 @@ export default function ProductList() {
         if (activeTab !== "products") return undefined;
 
         setLoading(true);
-        const timeout = setTimeout(() => fetchData(), 300);
+        const timeout = setTimeout(() => fetchData(), 0);
         return () => clearTimeout(timeout);
     }, [activeTab, fetchData]);
 
@@ -458,7 +479,7 @@ export default function ProductList() {
     useEffect(() => {
         if (activeTab !== "products") return undefined;
 
-        const interval = setInterval(() => fetchData(), POLLING_INTERVAL);
+        const interval = setInterval(() => fetchData(true), POLLING_INTERVAL);
         return () => clearInterval(interval);
     }, [activeTab, fetchData]);
 
@@ -529,7 +550,7 @@ export default function ProductList() {
                                     <span className="truncate pr-2">
                                         {selectedStore === ""
                                             ? "Semua Toko"
-                                            : data?.stores?.find(
+                                            : storeOptions.find(
                                                 (s) =>
                                                     s.id == selectedStore,
                                             )?.store_name ||
@@ -579,7 +600,7 @@ export default function ProductList() {
                                                 >
                                                     Semua Toko
                                                 </button>
-                                                {data?.stores?.map((store) => (
+                                                {storeOptions.map((store) => (
                                                     <button
                                                         key={store.id}
                                                         onClick={() => {
@@ -627,7 +648,7 @@ export default function ProductList() {
                     {/* Main Content Area */}
                     {activeTab === "master" ? (
                         <MasterProductPanel
-                            search={search}
+                            search={debouncedSearch}
                             onManageSuppliers={openSupplierManager}
                             supplierRevision={supplierRevision}
                         />

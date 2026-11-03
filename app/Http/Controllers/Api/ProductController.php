@@ -19,7 +19,11 @@ class ProductController extends Controller
     public function index(Request $request, ProductHppService $hppService)
     {
         $user = Auth::user();
-        $stores = $user->stores()->get();
+        $storeOptions = $user->stores()->get(['stores.id', 'store_name', 'platform']);
+        $selectedStoreId = $request->integer('store_id');
+        $stores = $selectedStoreId > 0
+            ? $storeOptions->where('id', $selectedStoreId)->values()
+            : $storeOptions;
         $pages = $this->paginationMap($request->input('pages', []));
         $limits = $this->paginationMap($request->input('limits', []));
         $search = trim((string) $request->input('search', ''));
@@ -63,7 +67,7 @@ class ProductController extends Controller
         };
 
         return response()->json([
-            'stores' => $stores->map(function ($store) use ($pages, $limits, $search, $serializeProduct) {
+            'stores' => $stores->map(function ($store) use ($pages, $limits, $search, $serializeProduct, $hppService, $user) {
                 $page = max((int) ($pages[(string) $store->id] ?? 1), 1);
                 $perPage = min(max((int) ($limits[(string) $store->id] ?? 30), 1), 100);
 
@@ -99,6 +103,14 @@ class ProductController extends Controller
                 $storeProducts = $query
                     ->forPage($page, $perPage)
                     ->get();
+                $hppService->primeMasterVariants(
+                    (int) $user->id,
+                    $storeProducts
+                        ->pluck('product_sku')
+                        ->merge($storeProducts->flatMap(
+                            fn (Product $product) => $product->variantProducts->pluck('model_sku')
+                        ))
+                );
 
                 return [
                     'id' => $store->id,
@@ -116,6 +128,7 @@ class ProductController extends Controller
                     'products' => $storeProducts->map($serializeProduct),
                 ];
             }),
+            'store_options' => $storeOptions->values(),
             'suppliers' => Supplier::query()
                 ->where('user_id', $user->id)
                 ->orderBy('name')

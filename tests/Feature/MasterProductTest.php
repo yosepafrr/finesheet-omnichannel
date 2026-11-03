@@ -20,6 +20,41 @@ class MasterProductTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_master_product_filters_are_loaded_from_a_separate_endpoint(): void
+    {
+        $user = User::factory()->create();
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Filter',
+            'period_length_days' => 14,
+        ]);
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Jas Filter',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'sku' => 'jas-w-hitam-l',
+            'stock' => 5,
+            'hpp' => 10000,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products/filters')
+            ->assertOk()
+            ->assertJsonPath('product_clusters.0.key', 'jas-w')
+            ->assertJsonPath('suppliers.0.name', 'Supplier Filter');
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products')
+            ->assertOk()
+            ->assertJsonMissingPath('filters');
+    }
+
     public function test_manual_master_sku_links_matching_marketplace_products_without_pushing_stock(): void
     {
         Bus::fake();

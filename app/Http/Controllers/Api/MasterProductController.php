@@ -59,7 +59,7 @@ class MasterProductController extends Controller
         return response()->json(['data' => $variants]);
     }
 
-    public function index(Request $request, MasterProductClusterService $clusterService)
+    public function index(Request $request)
     {
         $perPage = min(max((int) $request->input('per_page', 20), 10), 100);
         $search = trim((string) $request->input('search', ''));
@@ -84,33 +84,6 @@ class MasterProductController extends Controller
             ->orderBy('sku')
             ->paginate($perPage);
 
-        $allVariants = (clone $baseQuery)->get([
-            'product_cluster_key',
-            'variant_cluster_keys',
-        ]);
-        $productClusters = $allVariants
-            ->pluck('product_cluster_key')
-            ->filter()
-            ->countBy()
-            ->sortKeys()
-            ->map(fn (int $count, string $key) => [
-                'key' => $key,
-                'label' => $clusterService->fromSku($key)['product_label'] ?? mb_strtoupper($key),
-                'count' => $count,
-            ])
-            ->values();
-        $variantClusters = $allVariants
-            ->flatMap(fn (MasterProductVariant $variant) => $variant->variant_cluster_keys ?? [])
-            ->filter()
-            ->countBy()
-            ->sortKeys()
-            ->map(fn (int $count, string $key) => [
-                'key' => $key,
-                'label' => mb_strtoupper($key),
-                'count' => $count,
-            ])
-            ->values();
-
         return response()->json([
             'data' => collect($variants->items())
                 ->map(fn (MasterProductVariant $variant) => $this->formatVariant($variant))
@@ -123,14 +96,44 @@ class MasterProductController extends Controller
                 'from' => $variants->firstItem(),
                 'to' => $variants->lastItem(),
             ],
-            'filters' => [
-                'product_clusters' => $productClusters,
-                'variant_clusters' => $variantClusters,
-                'suppliers' => Supplier::query()
-                    ->where('user_id', $userId)
-                    ->orderBy('name')
-                    ->get(['id', 'name']),
-            ],
+        ]);
+    }
+
+    public function filters(Request $request, MasterProductClusterService $clusterService)
+    {
+        $userId = $request->user()->id;
+        $allVariants = MasterProductVariant::query()
+            ->where('user_id', $userId)
+            ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'))
+            ->get(['product_cluster_key', 'variant_cluster_keys']);
+
+        return response()->json([
+            'product_clusters' => $allVariants
+                ->pluck('product_cluster_key')
+                ->filter()
+                ->countBy()
+                ->sortKeys()
+                ->map(fn (int $count, string $key) => [
+                    'key' => $key,
+                    'label' => $clusterService->fromSku($key)['product_label'] ?? mb_strtoupper($key),
+                    'count' => $count,
+                ])
+                ->values(),
+            'variant_clusters' => $allVariants
+                ->flatMap(fn (MasterProductVariant $variant) => $variant->variant_cluster_keys ?? [])
+                ->filter()
+                ->countBy()
+                ->sortKeys()
+                ->map(fn (int $count, string $key) => [
+                    'key' => $key,
+                    'label' => mb_strtoupper($key),
+                    'count' => $count,
+                ])
+                ->values(),
+            'suppliers' => Supplier::query()
+                ->where('user_id', $userId)
+                ->orderBy('name')
+                ->get(['id', 'name']),
         ]);
     }
 
