@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
 use App\Models\VariantProduct;
+use App\Services\AccessControlService;
 use App\Services\PayableSyncStatusService;
 use App\Services\ProductHppService;
 use Illuminate\Http\Request;
@@ -16,9 +17,10 @@ use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
-    public function index(Request $request, ProductHppService $hppService)
+    public function index(Request $request, AccessControlService $access, ProductHppService $hppService)
     {
         $user = Auth::user();
+        $canViewHpp = $access->allows($request, 'products.hpp.view');
         $storeOptions = $user->stores()->get(['stores.id', 'store_name', 'platform']);
         $selectedStoreId = $request->integer('store_id');
         $stores = $selectedStoreId > 0
@@ -28,8 +30,8 @@ class ProductController extends Controller
         $limits = $this->paginationMap($request->input('limits', []));
         $search = trim((string) $request->input('search', ''));
 
-        $serializeProduct = function (Product $product) use ($hppService) {
-            $hpp = $hppService->productDetails($product);
+        $serializeProduct = function (Product $product) use ($canViewHpp, $hppService) {
+            $hpp = $canViewHpp ? $hppService->productDetails($product) : null;
 
             return [
                 'id' => $product->id,
@@ -38,14 +40,14 @@ class ProductController extends Controller
                 'product_sku' => $product->product_sku,
                 'stock' => $product->stock,
                 'price' => $product->price,
-                'hpp' => $hpp['hpp'],
-                'hpp_source' => $hpp['source'],
-                'master_product_variant_id' => $hpp['master_variant_id'],
+                'hpp' => $hpp['hpp'] ?? null,
+                'hpp_source' => $hpp['source'] ?? null,
+                'master_product_variant_id' => $hpp['master_variant_id'] ?? null,
                 'supplier_id' => $product->supplier_id,
                 'supplier_name' => $product->supplier?->name,
                 'image' => $product->image,
-                'variants' => $product->variantProducts->map(function ($variant) use ($hppService) {
-                    $hpp = $hppService->variantDetails($variant);
+                'variants' => $product->variantProducts->map(function ($variant) use ($canViewHpp, $hppService) {
+                    $hpp = $canViewHpp ? $hppService->variantDetails($variant) : null;
 
                     return [
                         'id' => $variant->id,
@@ -58,16 +60,16 @@ class ProductController extends Controller
                         'model_sku' => $variant->model_sku,
                         'stock' => $variant->stock,
                         'price' => $variant->price,
-                        'hpp' => $hpp['hpp'],
-                        'hpp_source' => $hpp['source'],
-                        'master_product_variant_id' => $hpp['master_variant_id'],
+                        'hpp' => $hpp['hpp'] ?? null,
+                        'hpp_source' => $hpp['source'] ?? null,
+                        'master_product_variant_id' => $hpp['master_variant_id'] ?? null,
                     ];
                 }),
             ];
         };
 
         return response()->json([
-            'stores' => $stores->map(function ($store) use ($pages, $limits, $search, $serializeProduct, $hppService, $user) {
+            'stores' => $stores->map(function ($store) use ($pages, $limits, $search, $serializeProduct, $canViewHpp, $hppService, $user) {
                 $page = max((int) ($pages[(string) $store->id] ?? 1), 1);
                 $perPage = min(max((int) ($limits[(string) $store->id] ?? 30), 1), 100);
 
@@ -103,14 +105,16 @@ class ProductController extends Controller
                 $storeProducts = $query
                     ->forPage($page, $perPage)
                     ->get();
-                $hppService->primeMasterVariants(
-                    (int) $user->id,
-                    $storeProducts
-                        ->pluck('product_sku')
-                        ->merge($storeProducts->flatMap(
-                            fn (Product $product) => $product->variantProducts->pluck('model_sku')
-                        ))
-                );
+                if ($canViewHpp) {
+                    $hppService->primeMasterVariants(
+                        (int) $user->id,
+                        $storeProducts
+                            ->pluck('product_sku')
+                            ->merge($storeProducts->flatMap(
+                                fn (Product $product) => $product->variantProducts->pluck('model_sku')
+                            ))
+                    );
+                }
 
                 return [
                     'id' => $store->id,
@@ -129,6 +133,7 @@ class ProductController extends Controller
                 ];
             }),
             'store_options' => $storeOptions->values(),
+            'can_view_hpp' => $canViewHpp,
             'suppliers' => Supplier::query()
                 ->where('user_id', $user->id)
                 ->orderBy('name')

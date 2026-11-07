@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\AccessControlService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -24,9 +26,9 @@ class AuthenticatedSessionController extends Controller
 
         $this->ensureIsNotRateLimited($request);
 
-        $user = \App\Models\User::where('email', $request->email)->first();
+        $user = User::where('email', $request->email)->first();
 
-        if (!$user) {
+        if (! $user) {
             RateLimiter::hit($this->throttleKey($request));
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
@@ -51,9 +53,11 @@ class AuthenticatedSessionController extends Controller
     /**
      * Destroy an authenticated session.
      */
-    public function destroy(Request $request): Response
+    public function destroy(Request $request, AccessControlService $access): Response
     {
         Auth::guard('web')->logout();
+
+        $access->forgetDeviceProfile();
 
         $request->session()->invalidate();
 

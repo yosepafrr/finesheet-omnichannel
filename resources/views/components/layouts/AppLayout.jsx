@@ -3,8 +3,10 @@ import axios from "axios";
 import Sidebar from "../react/sidebar";
 import Navbar from "../react/navbar";
 import Footer from "../react/footer";
+import { useAccess } from "../../../js/contexts/AccessContext";
 
 export default function AppLayout({ children, isBlurred = false }) {
+    const access = useAccess();
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [user, setUser] = useState({ name: "Loading...", email: "" });
 
@@ -20,10 +22,10 @@ export default function AppLayout({ children, isBlurred = false }) {
     }, []);
 
     return (
-        <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+        <div className="finesheet-app flex flex-col h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
             {/* 1. Navbar Paling Atas */}
             <div className={`w-full flex-none bg-white dark:bg-slate-900 shadow-sm transition-all duration-300 relative z-30 lg:z-40 ${isBlurred ? 'blur-sm brightness-75 pointer-events-none select-none' : ''}`}>
-                <Navbar onMenuClick={() => setIsMobileOpen(true)} user={user} />
+                <Navbar onMenuClick={() => setIsMobileOpen(true)} user={user} access={access} />
             </div>
 
             {/* 2. Container Bawah */}
@@ -34,12 +36,13 @@ export default function AppLayout({ children, isBlurred = false }) {
                         isMobileOpen={isMobileOpen}
                         closeMobile={() => setIsMobileOpen(false)}
                         user={user}
+                        access={access}
                     />
                 </div>
 
                 {/* Main Content Area */}
                 <div id="main-scroll-container" className="flex-1 min-w-0 flex flex-col overflow-y-auto overflow-x-hidden relative z-0 bg-inherit">
-                    <main className="grow shrink-0 p-4 sm:p-6 lg:p-8">
+                    <main className="finesheet-page grow shrink-0 p-4 sm:p-6 lg:p-8">
                         {children}
                     </main>
                     <Footer />

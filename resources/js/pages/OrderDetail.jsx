@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import { useAccess } from "@/contexts/AccessContext";
 
 function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
@@ -115,6 +116,8 @@ function ReturnStatusBadge({ status, platformStatus }) {
 }
 
 export default function OrderDetail({ routeParams }) {
+    const access = useAccess();
+    const canViewFinance = access.can("orders.finance.view");
     const { id } = routeParams;
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -372,6 +375,7 @@ export default function OrderDetail({ routeParams }) {
                         </div>
 
                         {/* Financial Summary */}
+                        {canViewFinance && (
                         <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
                             <div className="mb-3 flex items-center justify-between gap-2 border-b border-gray-100 pb-2 dark:border-slate-700">
                                 <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-900 dark:text-white">
@@ -478,6 +482,7 @@ export default function OrderDetail({ routeParams }) {
                                 </div>
                             </div>
                         </div>
+                        )}
 
                         {/* Logistics Information */}
                         {packages.length > 0 && (

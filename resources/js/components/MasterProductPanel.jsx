@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import SupplierAssignmentModal from "./SupplierAssignmentModal";
 import SupplierSelect from "./SupplierSelect";
+import { useAccess } from "../contexts/AccessContext";
+import FinesheetSelect from "./ui/FinesheetSelect";
 
 const EMPTY_FORM = {
     name: "",
@@ -146,7 +148,7 @@ function MatchStatus({ row }) {
     );
 }
 
-function ActionMenu({ row, onEdit, onCopy, onEditStock, onEditHpp, onSupplier, onDelete, onPush }) {
+function ActionMenu({ row, onEdit, onCopy, onEditStock, onEditHpp, onSupplier, onDelete, onPush, permissions }) {
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState({ left: 0, top: 0 });
     const buttonRef = useRef(null);
@@ -183,6 +185,8 @@ function ActionMenu({ row, onEdit, onCopy, onEditStock, onEditHpp, onSupplier, o
         };
     }, []);
 
+    if (!Object.values(permissions).some(Boolean)) return null;
+
     return (
         <div>
             <button
@@ -205,34 +209,34 @@ function ActionMenu({ row, onEdit, onCopy, onEditStock, onEditHpp, onSupplier, o
                         style={position}
                         className="fixed z-[9998] w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
                     >
-                        <button type="button" onClick={() => { setOpen(false); onEdit(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        {permissions.edit && <button type="button" onClick={() => { setOpen(false); onEdit(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">edit</span>
                             Edit data
-                        </button>
-                        <button type="button" onClick={() => { setOpen(false); onCopy(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        </button>}
+                        {permissions.edit && <button type="button" onClick={() => { setOpen(false); onCopy(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">content_copy</span>
                             Salin sebagai baru
-                        </button>
-                        {!row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        </button>}
+                        {permissions.stock && !row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditStock(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">inventory</span>
                             Edit stok
                         </button>}
-                        {!row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        {permissions.hpp && !row.is_bundle && <button type="button" onClick={() => { setOpen(false); onEditHpp(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">payments</span>
                             Edit HPP
                         </button>}
-                        <button type="button" onClick={() => { setOpen(false); onSupplier(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        {permissions.supplier && <button type="button" onClick={() => { setOpen(false); onSupplier(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">local_shipping</span>
                             Atur supplier
-                        </button>
-                        <button type="button" onClick={() => { setOpen(false); onPush(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
+                        </button>}
+                        {permissions.stock && <button type="button" onClick={() => { setOpen(false); onPush(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700">
                             <span className="material-symbols-rounded text-lg">sync</span>
                             Sinkronkan stok
-                        </button>
-                        <button type="button" onClick={() => { setOpen(false); onDelete(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
+                        </button>}
+                        {permissions.edit && <button type="button" onClick={() => { setOpen(false); onDelete(row); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
                             <span className="material-symbols-rounded text-lg">delete</span>
                             Hapus SKU master
-                        </button>
+                        </button>}
                     </motion.div>
                 )}
             </AnimatePresence>, document.body)}
@@ -879,8 +883,8 @@ function BulkDataModal({ count, onClose, onSaved }) {
                                     </div>
                                     {active && <div className="mt-3 pl-7">
                                         {field.type === "textarea" ? <textarea rows="3" value={values[field.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
-                                            : field.type === "status" ? <select value={values.status} onChange={(event) => setValues((current) => ({ ...current, status: event.target.value }))} className="w-full rounded-lg border-slate-300 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"><option value="active">Aktif</option><option value="draft">Draft</option><option value="archived">Diarsipkan</option></select>
-                                                : field.type === "boolean" ? <select value={values.is_active ? "1" : "0"} onChange={(event) => setValues((current) => ({ ...current, is_active: event.target.value === "1" }))} className="w-full rounded-lg border-slate-300 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"><option value="1">Aktif</option><option value="0">Nonaktif</option></select>
+                                            : field.type === "status" ? <FinesheetSelect value={values.status} onChange={(value) => setValues((current) => ({ ...current, status: value }))} options={[{ value: "active", label: "Aktif" }, { value: "draft", label: "Draft" }, { value: "archived", label: "Diarsipkan" }]} icon="flag" />
+                                                : field.type === "boolean" ? <FinesheetSelect value={values.is_active ? "1" : "0"} onChange={(value) => setValues((current) => ({ ...current, is_active: value === "1" }))} options={[{ value: "1", label: "Aktif" }, { value: "0", label: "Nonaktif" }]} icon="toggle_on" />
                                                     : <input type={field.type} required={field.key === "name"} value={values[field.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.key === "name" ? "Masukkan nama master produk" : "Kosongkan untuk menghapus nilai"} className="w-full rounded-lg border-slate-300 text-sm focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-900 dark:text-white" />}
                                     </div>}
                                 </div>
@@ -977,6 +981,15 @@ function LoadingRows() {
 }
 
 export default function MasterProductPanel({ search = "", onManageSuppliers, supplierRevision = 0 }) {
+    const access = useAccess();
+    const actionPermissions = {
+        edit: access.can("products.edit"),
+        stock: access.can("products.stock.manage"),
+        hpp: access.can("products.hpp.edit"),
+        supplier: access.can("products.supplier.manage"),
+    };
+    const canViewHpp = access.can("products.hpp.view");
+    const canUseBulkActions = Object.values(actionPermissions).some(Boolean);
     const [rows, setRows] = useState([]);
     const [detected, setDetected] = useState([]);
     const [filterOptions, setFilterOptions] = useState({ product_clusters: [], variant_clusters: [], suppliers: [] });
@@ -1092,6 +1105,8 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
 
     const openValueModal = (row, field) => {
         if (row.is_bundle) return;
+        if (field === "stock" && !actionPermissions.stock) return;
+        if (field === "hpp" && !actionPermissions.hpp) return;
         setValueModal({ open: true, row, field });
     };
 
@@ -1359,18 +1374,18 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                     <p className="text-sm text-slate-500 dark:text-slate-400">{meta.total || 0} SKU dikelola</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                    <button type="button" onClick={toggleBulkMode} disabled={loading || rows.length === 0} className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${bulkMode ? "border-[#304674] bg-blue-50 text-[#304674] dark:border-blue-500 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>
+                    {canUseBulkActions && <button type="button" onClick={toggleBulkMode} disabled={loading || rows.length === 0} className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${bulkMode ? "border-[#304674] bg-blue-50 text-[#304674] dark:border-blue-500 dark:bg-blue-500/10 dark:text-blue-300" : "border-slate-300 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>
                         <span className="material-symbols-rounded text-lg">{bulkMode ? "close" : "checklist"}</span>
                         {bulkMode ? "Selesai" : "Aksi Massal"}
-                    </button>
-                    <button type="button" onClick={() => setModal({ open: true, row: null, preset: null })} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700">
+                    </button>}
+                    {actionPermissions.edit && <button type="button" onClick={() => setModal({ open: true, row: null, preset: null })} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#243558] dark:bg-blue-600 dark:hover:bg-blue-700">
                         <span className="material-symbols-rounded text-lg">add</span>
                         Tambah Master Produk
-                    </button>
+                    </button>}
                 </div>
             </div>
 
-            {detected.length > 0 && (
+            {actionPermissions.edit && detected.length > 0 && (
                 <div className="border-y border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-500/20 dark:bg-amber-500/5">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex items-start gap-3">
@@ -1408,18 +1423,18 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 sm:flex">
-                        <button type="button" disabled={bulkBusy} onClick={bulkPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        {actionPermissions.stock && <button type="button" disabled={bulkBusy} onClick={bulkPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className={`material-symbols-rounded text-lg ${bulkBusy ? "animate-spin" : ""}`}>{bulkBusy ? "progress_activity" : "sync"}</span><span>Sinkronkan</span>
-                        </button>
-                        <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "Stok bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        </button>}
+                        {actionPermissions.stock && <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "Stok bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">inventory</span><span>Edit stok</span>
-                        </button>
-                        <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "HPP bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        </button>}
+                        {actionPermissions.hpp && <button type="button" disabled={bulkBusy || selectedHasBundle} title={selectedHasBundle ? "HPP bundle dihitung otomatis dari komponen" : undefined} onClick={() => setBulkValueField("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">payments</span><span>Edit HPP</span>
-                        </button>
-                        <button type="button" disabled={bulkBusy} onClick={() => openSupplierModal(selectedRows)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        </button>}
+                        {actionPermissions.supplier && <button type="button" disabled={bulkBusy} onClick={() => openSupplierModal(selectedRows)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                             <span className="material-symbols-rounded text-lg">local_shipping</span><span>Supplier</span>
-                        </button>
+                        </button>}
                     </div>
                 </div>
             )}
@@ -1435,7 +1450,7 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                         suppliers={filterOptions.suppliers}
                         defaultLabel="Semua supplier"
                         includeUnassigned
-                        onManageSuppliers={onManageSuppliers}
+                        onManageSuppliers={actionPermissions.supplier ? onManageSuppliers : undefined}
                     />
                 </div>
             </div>
@@ -1448,12 +1463,12 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                             <div><p className="text-sm font-bold text-slate-900 dark:text-white">{meta.total || 0} SKU dalam cluster terpilih</p><p className="text-xs text-slate-500 dark:text-slate-400">Aksi diterapkan ke seluruh hasil filter, termasuk halaman lain.</p></div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:flex">
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterDataAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">edit</span>Edit data</button>
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">inventory</span>Edit stok</button>
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">payments</span>Edit HPP</button>
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterSupplierAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">local_shipping</span>Supplier</button>
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">sync</span>Sinkronkan</button>
-                            <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterDelete} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-500/30 dark:bg-slate-800 dark:text-red-400"><span className="material-symbols-rounded text-lg">delete</span>Hapus</button>
+                            {actionPermissions.edit && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterDataAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">edit</span>Edit data</button>}
+                            {actionPermissions.stock && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("stock")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">inventory</span>Edit stok</button>}
+                            {actionPermissions.hpp && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={() => openClusterValueAction("hpp")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">payments</span>Edit HPP</button>}
+                            {actionPermissions.supplier && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={openClusterSupplierAction} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">local_shipping</span>Supplier</button>}
+                            {actionPermissions.stock && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterPush} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[#304674] hover:text-[#304674] disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"><span className="material-symbols-rounded text-lg">sync</span>Sinkronkan</button>}
+                            {actionPermissions.edit && <button type="button" disabled={clusterBusy || meta.total === 0} onClick={bulkClusterDelete} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-500/30 dark:bg-slate-800 dark:text-red-400"><span className="material-symbols-rounded text-lg">delete</span>Hapus</button>}
                         </div>
                     </div>
                 </div>
@@ -1484,11 +1499,11 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             {bulkMode && <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
                                             <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p>{row.is_bundle && <BundleBadge />}</div><p className="truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
                                             <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
-                                            <td className="px-4 py-4 text-right"><button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit stok"} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-900 dark:text-white dark:disabled:hover:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button></td>
-                                            <td className="px-4 py-4 text-right"><button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-800 dark:text-slate-100 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button></td>
+                                            <td className="px-4 py-4 text-right">{actionPermissions.stock ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit stok"} className="inline-flex items-center gap-1 text-sm font-bold text-slate-900 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-900 dark:text-white dark:disabled:hover:text-white"><span>{row.stock.toLocaleString("id-ID")}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-bold text-slate-900 dark:text-white">{row.stock.toLocaleString("id-ID")}</span>}</td>
+                                            <td className="px-4 py-4 text-right">{canViewHpp ? (actionPermissions.hpp ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-800 dark:text-slate-100 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRp(row.hpp)}</span>) : <span className="text-xs font-semibold text-slate-400">Akses dibatasi</span>}</td>
                                             <td className="px-4 py-4"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-4"><MatchStatus row={row} /></td>
-                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} /></div></td>
+                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} permissions={actionPermissions} /></div></td>
                                         </tr>
                                         </React.Fragment>;
                                     })}
@@ -1516,23 +1531,23 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             <div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div>
                                             <p className="mt-1 truncate text-xs text-slate-400">{row.supplier_name || "Supplier belum ditentukan"}</p>
                                         </div>
-                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} />
+                                        <ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} permissions={actionPermissions} />
                                     </div>
 
                                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
                                         <div className="min-w-0">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">Stok tersedia</p>
-                                            <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "stock")} className="mt-1 inline-flex items-center gap-1 text-lg font-extrabold text-[#304674] disabled:cursor-default dark:text-blue-400">
+                                            <button type="button" disabled={row.is_bundle || !actionPermissions.stock} onClick={() => openValueModal(row, "stock")} className="mt-1 inline-flex items-center gap-1 text-lg font-extrabold text-[#304674] disabled:cursor-default dark:text-blue-400">
                                                 <span>{row.stock.toLocaleString("id-ID")}</span>
-                                                <span className="material-symbols-rounded text-[16px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>
+                                                {(row.is_bundle || actionPermissions.stock) && <span className="material-symbols-rounded text-[16px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>}
                                             </button>
                                         </div>
                                         <div className="min-w-0 text-right">
                                             <p className="text-[10px] font-semibold uppercase text-slate-400 dark:text-slate-500">HPP</p>
-                                            <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 disabled:cursor-default dark:text-white">
+                                            {canViewHpp ? <button type="button" disabled={row.is_bundle || !actionPermissions.hpp} onClick={() => openValueModal(row, "hpp")} className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-bold text-slate-900 disabled:cursor-default dark:text-white">
                                                 <span className="truncate">{formatRp(row.hpp)}</span>
-                                                <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>
-                                            </button>
+                                                {(row.is_bundle || actionPermissions.hpp) && <span className="material-symbols-rounded shrink-0 text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span>}
+                                            </button> : <p className="mt-1 text-xs font-semibold text-slate-400">Akses dibatasi</p>}
                                         </div>
                                     </div>
 

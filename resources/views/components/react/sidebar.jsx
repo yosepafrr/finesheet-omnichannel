@@ -15,8 +15,9 @@ function useCurrentRoute() {
     return route;
 }
 
-export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loading..." } }) {
+export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loading..." }, access }) {
     const currentRoute = useCurrentRoute();
+    const can = (permission) => access?.can?.(permission) ?? true;
 
     const [sidebarCollapsed, setSidebarCollapsed] = useState(
         JSON.parse(localStorage.getItem("sidebarCollapsed")) || false,
@@ -151,7 +152,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
 
                 {/* NAVIGATION */}
                 <div className="flex-1 px-3 py-4 lg:py-6 space-y-1.5 overflow-y-auto overflow-x-hidden hide-scrollbar">
-                    <a href="#/dashboard" onClick={(e) => handleNav(e, '/dashboard')} className={navItemClass('/dashboard')}>
+                    {can('dashboard.view') && <a href="#/dashboard" onClick={(e) => handleNav(e, '/dashboard')} className={navItemClass('/dashboard')}>
                         <span className="material-symbols-rounded text-xl">
                             space_dashboard
                         </span>
@@ -161,9 +162,9 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                             </span>
                         )}
                         {renderTooltip("Dashboard")}
-                    </a>
+                    </a>}
 
-                    <a href="#/stores" onClick={(e) => handleNav(e, '/stores')} className={navItemClass('/stores')}>
+                    {can('stores.view') && <a href="#/stores" onClick={(e) => handleNav(e, '/stores')} className={navItemClass('/stores')}>
                         <span className="material-symbols-rounded text-xl shrink-0">
                             store
                         </span>
@@ -173,9 +174,9 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                             </span>
                         )}
                         {renderTooltip("Your Stores")}
-                    </a>
+                    </a>}
 
-                    <a href="#/products" onClick={(e) => handleNav(e, '/products')} className={navItemClass('/products')}>
+                    {can('products.view') && <a href="#/products" onClick={(e) => handleNav(e, '/products')} className={navItemClass('/products')}>
                         <span className="material-symbols-rounded text-xl shrink-0">
                             apparel
                         </span>
@@ -185,9 +186,9 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                             </span>
                         )}
                         {renderTooltip("Your Products")}
-                    </a>
+                    </a>}
 
-                    <a href="#/orders" onClick={(e) => handleNav(e, '/orders')} className={navItemClass('/orders')}>
+                    {can('orders.view') && <a href="#/orders" onClick={(e) => handleNav(e, '/orders')} className={navItemClass('/orders')}>
                         <span className="material-symbols-rounded text-xl shrink-0">
                             shopping_cart
                         </span>
@@ -197,12 +198,24 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                             </span>
                         )}
                         {renderTooltip("Order List")}
-                    </a>
+                    </a>}
+
+                    {can('fulfillment.settings.manage') && <a href="#/fulfillment-settings" onClick={(e) => handleNav(e, '/fulfillment-settings')} className={navItemClass('/fulfillment-settings')}>
+                        <span className="material-symbols-rounded text-xl shrink-0">
+                            package_2
+                        </span>
+                        {!sidebarCollapsed && (
+                            <span className="font-medium whitespace-nowrap text-sm">
+                                Fulfillment Settings
+                            </span>
+                        )}
+                        {renderTooltip("Fulfillment Settings")}
+                    </a>}
 
                     <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2"></div>
 
                     {/* FINANCE */}
-                    <div>
+                    {(can('finance.profit.view') || can('finance.payable.manage') || can('finance.cashflow.manage')) && <div>
                         <button
                             onClick={() => toggleMenu("finance")}
                             className={expandListClass("finance", ['/profit-tracker', '/cashflow', '/payable'])}
@@ -228,27 +241,27 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                         </button>
                         {openSubmenus.finance && !sidebarCollapsed && (
                             <div className="flex flex-col gap-1 mt-1 ml-6 pl-4 border-l-2 border-gray-300 dark:border-slate-700 overflow-hidden">
-                                <a
+                                {can('finance.profit.view') && <a
                                     href="#/profit-tracker"
                                     onClick={(e) => handleNav(e, '/profit-tracker')}
                                     className={submenuItemClass('/profit-tracker')}
                                 >
                                     Profit Tracker
-                                </a>
-                                <a
+                                </a>}
+                                {can('finance.payable.manage') && <a
                                     href="#/payable"
                                     onClick={(e) => handleNav(e, '/payable')}
                                     className={submenuItemClass('/payable')}
                                 >
                                     Suppliers Transactions
-                                </a>
-                                <a
+                                </a>}
+                                {can('finance.cashflow.manage') && <a
                                     href="#/cashflow"
                                     onClick={(e) => handleNav(e, '/cashflow')}
                                     className={submenuItemClass('/cashflow')}
                                 >
                                     Cashflow
-                                </a>
+                                </a>}
 {/* 
                                 <a
                                     href="#/ads"
@@ -259,7 +272,18 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                 </a> */}
                             </div>
                         )}
-                    </div>
+                    </div>}
+
+                    {access?.is_owner_mode && (
+                        <>
+                            <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2"></div>
+                            <a href="#/team-access" onClick={(e) => handleNav(e, '/team-access')} className={navItemClass('/team-access')}>
+                                <span className="material-symbols-rounded text-xl shrink-0">admin_panel_settings</span>
+                                {!sidebarCollapsed && <span className="font-medium whitespace-nowrap text-sm">Tim & Hak Akses</span>}
+                                {renderTooltip("Tim & Hak Akses")}
+                            </a>
+                        </>
+                    )}
 
                     {/* ORDERS */}
                     {/* <div>

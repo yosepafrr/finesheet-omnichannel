@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Children, useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import ReactApexChart from "react-apexcharts";
 import toast from "react-hot-toast";
@@ -27,6 +27,7 @@ import {
     X,
 } from "lucide-react";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import FinesheetSelect from "@/components/ui/FinesheetSelect";
 
 const accountTypes = {
     cash: [
@@ -105,17 +106,24 @@ function formatDate(value, withTime = false) {
     ).format(date);
 }
 
-function SelectField({ className = "", children, ...props }) {
+function SelectField({ className = "", children, value, onChange, disabled, ...props }) {
+    const options = Children.toArray(children).map((child) => ({
+        value: child.props.value,
+        label: child.props.children,
+        disabled: child.props.disabled,
+    }));
+
     return (
-        <div className={`relative ${className}`}>
-            <select
-                {...props}
-                className="h-10 w-full appearance-none rounded-md border border-slate-200 bg-white pl-3 pr-9 text-sm font-medium text-slate-700 outline-none transition focus:border-[#304674] focus:ring-2 focus:ring-[#304674]/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-                {children}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        </div>
+        <FinesheetSelect
+            {...props}
+            value={value}
+            onChange={(nextValue) => onChange?.({ target: { value: nextValue } })}
+            options={options}
+            disabled={disabled}
+            className={className}
+            compact
+            icon="unfold_more"
+        />
     );
 }
 

@@ -15,6 +15,8 @@ class Store extends Model
         'token_expired_at',
         'shopee_shop_id',
         'platform_shop_id',
+        'fulfillment_handover_method',
+        'shipping_label_template',
         'user_id',
     ];
 

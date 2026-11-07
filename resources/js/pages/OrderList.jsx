@@ -6,6 +6,7 @@ import React, {
     Fragment,
 } from "react";
 import axios from "axios";
+import { createPortal } from "react-dom";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import OnboardingTour from "@/components/OnboardingTour";
@@ -13,6 +14,7 @@ import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OrderSyncStatus } from "@/components/OrderSyncStatus";
 import { useOrderSyncStatus } from "@/hooks/useOrderSyncStatus";
+import { useAccess } from "@/contexts/AccessContext";
 
 const ORDER_TOUR_STEPS = [
     {
@@ -38,6 +40,160 @@ const ORDER_TOUR_STEPS = [
 
 function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
+}
+
+function FulfillmentModal({ state, busy, onClose, onSubmit }) {
+    if (!state) return null;
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+            <div className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800" onMouseDown={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+                    <div>
+                        <h3 className="font-bold text-slate-900 dark:text-white">Atur pengiriman</h3>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {state.orderIds.length} pesanan akan diproses di latar belakang.
+                        </p>
+                    </div>
+                    <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Tutup modal">
+                        <span className="material-symbols-rounded text-[20px]">close</span>
+                    </button>
+                </div>
+                <div className="space-y-4 px-5 py-5">
+                    <div className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-relaxed text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+                        <span className="material-symbols-rounded mt-0.5 text-[18px]">tune</span>
+                        <span>
+                            Metode pengiriman mengikuti pengaturan masing-masing toko. Jika metode tersebut tidak tersedia untuk suatu pesanan, sistem otomatis menggunakan metode yang disediakan marketplace.
+                        </span>
+                    </div>
+                    {state.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{state.error}</p>}
+                </div>
+                <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">Batal</button>
+                    <button type="button" disabled={busy} onClick={onSubmit} className="inline-flex items-center gap-2 rounded-lg bg-[#304674] px-4 py-2 text-sm font-semibold text-white hover:bg-[#263961] disabled:cursor-not-allowed disabled:opacity-50">
+                        <span className={`material-symbols-rounded text-[18px] ${busy ? "animate-spin" : ""}`}>{busy ? "progress_activity" : "local_shipping"}</span>
+                        Proses pengiriman
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function FulfillmentRowActions({ order, canArrange, canPrint, onArrange, onPrint, onPrintUnavailable, compact = false }) {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+    const menuButtonRef = useRef(null);
+    const menuRef = useRef(null);
+    const arrangeAvailable = canArrange && Boolean(order.fulfillment?.can_arrange);
+    const printAvailable = canPrint && Boolean(order.fulfillment?.can_print);
+
+    useEffect(() => {
+        if (!menuOpen) return undefined;
+
+        const closeMenu = (event) => {
+            if (!menuRef.current?.contains(event.target) && !menuButtonRef.current?.contains(event.target)) {
+                setMenuOpen(false);
+            }
+        };
+        const closeOnViewportChange = () => setMenuOpen(false);
+        document.addEventListener("mousedown", closeMenu);
+        window.addEventListener("resize", closeOnViewportChange);
+        window.addEventListener("scroll", closeOnViewportChange, true);
+
+        return () => {
+            document.removeEventListener("mousedown", closeMenu);
+            window.removeEventListener("resize", closeOnViewportChange);
+            window.removeEventListener("scroll", closeOnViewportChange, true);
+        };
+    }, [menuOpen]);
+
+    const toggleMenu = (event) => {
+        event.stopPropagation();
+        if (!menuOpen) {
+            const rect = menuButtonRef.current?.getBoundingClientRect();
+            if (rect) {
+                setMenuPosition({
+                    top: Math.min(rect.bottom + 6, window.innerHeight - 72),
+                    left: Math.max(8, Math.min(rect.right - 208, window.innerWidth - 216)),
+                });
+            }
+        }
+        setMenuOpen((open) => !open);
+    };
+
+    const handlePrint = (event) => {
+        event.stopPropagation();
+        setMenuOpen(false);
+        if (printAvailable) {
+            onPrint(order.id);
+            return;
+        }
+
+        onPrintUnavailable(
+            order.fulfillment?.print_reason
+                || `Resi pesanan ${order.order_sn} belum tersedia. Atur pengiriman terlebih dahulu.`,
+        );
+    };
+
+    return (
+        <div
+            className={`flex items-center gap-1.5 ${compact
+                ? "w-full"
+                : "min-w-[196px] justify-end rounded-xl border border-slate-200/90 bg-white/95 p-1.5 opacity-0 translate-y-1 pointer-events-none shadow-[0_12px_32px_rgba(15,23,42,0.16)] backdrop-blur-sm transition-[opacity,transform] duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto dark:border-slate-600 dark:bg-slate-800/95"
+            }`}
+            onClick={(event) => event.stopPropagation()}
+        >
+            <button
+                type="button"
+                disabled={!arrangeAvailable}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onArrange(order.id);
+                }}
+                title={arrangeAvailable ? "Atur pengiriman" : (order.fulfillment?.arrange_reason || "Pengiriman tidak perlu diatur lagi")}
+                className={`group inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none dark:disabled:border-slate-700 dark:disabled:bg-slate-700 ${compact ? "flex-1" : ""}`}
+            >
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/12 transition group-hover:bg-white/16">
+                    <span className="material-symbols-rounded text-[17px]">local_shipping</span>
+                </span>
+                Atur pengiriman
+            </button>
+            <button
+                ref={menuButtonRef}
+                type="button"
+                onClick={toggleMenu}
+                aria-label={`Opsi pengiriman ${order.order_sn}`}
+                aria-expanded={menuOpen}
+                title="Opsi lainnya"
+                className={`flex min-h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#304674]/20 ${menuOpen ? "border-[#304674]/30 bg-[#304674]/10 text-[#304674] dark:bg-blue-400/15 dark:text-blue-200" : "border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#304674]/30 hover:bg-[#304674]/5 hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/10 dark:hover:text-blue-200"}`}
+            >
+                <span className="material-symbols-rounded text-[20px]">more_horiz</span>
+            </button>
+
+            {menuOpen && typeof document !== "undefined" && createPortal(
+                <div
+                    ref={menuRef}
+                    role="menu"
+                    style={{ top: menuPosition.top, left: menuPosition.left }}
+                    className="fixed z-[520] w-52 overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)] dark:border-slate-600 dark:bg-slate-800"
+                >
+                    {canPrint ? (
+                        <button type="button" role="menuitem" onClick={handlePrint} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
+                                <span className="material-symbols-rounded text-[18px]">print</span>
+                            </span>
+                            <span className="flex-1">Cetak resi</span>
+                            {!printAvailable && <span className="material-symbols-rounded text-[17px] text-amber-500" title="Atur pengiriman terlebih dahulu">warning</span>}
+                        </button>
+                    ) : (
+                        <p className="px-3 py-2 text-xs text-slate-400">Tidak ada opsi lain.</p>
+                    )}
+                </div>,
+                document.body,
+            )}
+        </div>
+    );
 }
 
 const STATUS_CONFIG_SHOPEE = {
@@ -313,6 +469,12 @@ const formatDate = (dateString) => {
 };
 
 export default function OrderList() {
+    const access = useAccess();
+    const canViewFinance = access.can("orders.finance.view");
+    const canSyncOrders = access.can("orders.sync");
+    const canArrangeShipping = access.can("orders.ship");
+    const canPrintLabels = access.can("orders.print");
+    const hasFulfillmentTools = canArrangeShipping || canPrintLabels;
     const savedStateRef = useRef(getSavedOrderListState());
     const initialSaved = savedStateRef.current;
     const notificationNavigationRef = useRef(getNotificationNavigationState());
@@ -355,6 +517,10 @@ export default function OrderList() {
     );
     const [copiedSn, setCopiedSn] = useState(null);
     const [excludeReturns, setExcludeReturns] = useState(false);
+    const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+    const [fulfillmentModal, setFulfillmentModal] = useState(null);
+    const [fulfillmentBusy, setFulfillmentBusy] = useState(false);
+    const [fulfillmentNotice, setFulfillmentNotice] = useState(null);
     const {
         syncs,
         isAnySyncing,
@@ -764,6 +930,76 @@ export default function OrderList() {
 
     const totalOrdersCount = Number(data?.pagination?.total ?? visibleOrders.length);
 
+    const canSelectForFulfillment = useCallback((order) => (
+        (canArrangeShipping && Boolean(order.fulfillment?.can_arrange))
+        || (canPrintLabels && Boolean(order.fulfillment?.can_print))
+    ), [canArrangeShipping, canPrintLabels]);
+    const eligibleOrders = visibleOrders.filter((order) => canSelectForFulfillment(order));
+    const allEligibleSelected = eligibleOrders.length > 0
+        && eligibleOrders.every((order) => selectedOrderIds.includes(order.id));
+    const selectedOrders = visibleOrders.filter((order) => selectedOrderIds.includes(order.id));
+    const selectedArrangeIds = selectedOrders
+        .filter((order) => canArrangeShipping && order.fulfillment?.can_arrange)
+        .map((order) => order.id);
+    const selectedPrintIds = selectedOrders
+        .filter((order) => canPrintLabels && order.fulfillment?.can_print)
+        .map((order) => order.id);
+
+    useEffect(() => {
+        const visibleEligibleIds = new Set(visibleOrders.filter((order) => canSelectForFulfillment(order)).map((order) => order.id));
+        setSelectedOrderIds((current) => current.filter((id) => visibleEligibleIds.has(id)));
+    }, [data, canSelectForFulfillment]);
+
+    const toggleOrderSelection = (order) => {
+        if (!canSelectForFulfillment(order)) return;
+        setSelectedOrderIds((current) => current.includes(order.id)
+            ? current.filter((id) => id !== order.id)
+            : [...current, order.id]);
+    };
+
+    const toggleAllEligible = () => {
+        setSelectedOrderIds(allEligibleSelected ? [] : eligibleOrders.map((order) => order.id));
+    };
+
+    const beginArrange = async (orderIds = selectedOrderIds) => {
+        if (!orderIds.length) return;
+        setFulfillmentModal({ orderIds, error: null });
+    };
+
+    const submitArrange = async () => {
+        if (!fulfillmentModal?.orderIds?.length) return;
+        setFulfillmentBusy(true);
+        try {
+            const response = await axios.post("/api/orders/fulfillment/arrange", {
+                order_ids: fulfillmentModal.orderIds,
+            });
+            setFulfillmentNotice({ type: "success", message: response.data.message });
+            setFulfillmentModal(null);
+            setSelectedOrderIds([]);
+            setTimeout(() => fetchDataRef.current(true), 2500);
+        } catch (error) {
+            setFulfillmentModal((current) => ({
+                ...current,
+                error: error.response?.data?.message
+                    || Object.values(error.response?.data?.errors || {})?.[0]?.[0]
+                    || "Pengaturan pengiriman gagal diproses.",
+            }));
+        } finally {
+            setFulfillmentBusy(false);
+        }
+    };
+
+    const printLabels = (orderIds = selectedOrderIds) => {
+        if (!orderIds.length) return;
+        orderIds.slice(0, 20).forEach((id) => window.open(`/api/orders/${id}/shipping-label`, "_blank", "noopener,noreferrer"));
+        if (orderIds.length > 20) {
+            setFulfillmentNotice({ type: "error", message: "Maksimal 20 resi dapat dibuka sekaligus." });
+        } else {
+            setFulfillmentNotice({ type: "success", message: `${orderIds.length} dokumen resi dibuka untuk dicetak.` });
+        }
+        setSelectedOrderIds([]);
+    };
+
     const handleResetFilter = () => {
         setSearchQuery("");
         setSelectedFilterId("semua");
@@ -811,7 +1047,7 @@ export default function OrderList() {
 
                             {/* Search and Store Filter */}
                             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                                <button
+                                {canSyncOrders && <button
                                     onClick={handleSync}
                                     disabled={isSyncBusy}
                                     aria-busy={isSyncBusy}
@@ -825,7 +1061,7 @@ export default function OrderList() {
                                     {isSyncBusy
                                         ? "Menyelaraskan..."
                                         : "Sinkronisasi Data"}
-                                </button>
+                                </button>}
                                 <div className="relative w-full md:w-64">
                                     <span className="material-symbols-rounded absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
                                         search
@@ -1216,7 +1452,7 @@ export default function OrderList() {
                                 )}
                             </p>
 
-                            {!searchQuery && (
+                            {!searchQuery && canSyncOrders && (
                                 <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-900/60 dark:bg-amber-900/20">
                                     <div className="flex items-start gap-3">
                                         <span className="material-symbols-rounded mt-0.5 text-[18px] text-amber-600 dark:text-amber-300">
@@ -1245,7 +1481,7 @@ export default function OrderList() {
                                     </button>
                                 )}
 
-                                <button
+                                {canSyncOrders && <button
                                     onClick={handleSync}
                                     disabled={isSyncBusy}
                                     aria-busy={isSyncBusy}
@@ -1255,7 +1491,7 @@ export default function OrderList() {
                                         sync
                                     </span>
                                     {isSyncBusy ? "Menyelaraskan..." : "Sinkronisasi Data"}
-                                </button>
+                                </button>}
                             </div>
                         </motion.div>
                     ) : (
@@ -1307,7 +1543,7 @@ export default function OrderList() {
                                             <span className="text-xs font-medium bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-1 rounded-md hidden sm:inline-block">
                                                 {storeOrders.length} Orders
                                             </span>
-                                            {!store.isCombined && (
+                                            {!store.isCombined && canSyncOrders && (
                                                 <button
                                                     onClick={() => handleSyncStore(store.id)}
                                                     disabled={isSyncBusy}
@@ -1326,7 +1562,18 @@ export default function OrderList() {
                                         <table className="w-full text-left text-sm">
                                             <thead className="bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500 font-medium text-xs uppercase border-b border-gray-100 dark:border-slate-700">
                                                 <tr>
-                                                    <th className="px-6 py-4 w-8"></th>
+                                                    <th className="px-6 py-4 w-12">
+                                                        {hasFulfillmentTools && (
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={allEligibleSelected}
+                                                                onChange={toggleAllEligible}
+                                                                disabled={!eligibleOrders.length}
+                                                                className="h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] disabled:cursor-not-allowed disabled:opacity-40"
+                                                                aria-label="Pilih semua pesanan yang dapat diproses"
+                                                            />
+                                                        )}
+                                                    </th>
                                                     <th className="px-6 py-4">
                                                         Order Details
                                                     </th>
@@ -1339,15 +1586,13 @@ export default function OrderList() {
                                                     <th className="px-6 py-4 w-80">
                                                         Informasi Logistik
                                                     </th>
-                                                    <th className="px-6 py-4 text-right">
-                                                        HPP
-                                                    </th>
-                                                    <th className="px-6 py-4 text-right">
-                                                        Escrow
-                                                    </th>
-                                                    <th className="px-6 py-4 text-right">
-                                                        Profit
-                                                    </th>
+                                                    {canViewFinance && (
+                                                        <>
+                                                            <th className="px-6 py-4 text-right">HPP</th>
+                                                            <th className="px-6 py-4 text-right">Escrow</th>
+                                                            <th className="px-6 py-4 text-right">Profit</th>
+                                                        </>
+                                                    )}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
@@ -1359,9 +1604,20 @@ export default function OrderList() {
                                                             <tr
                                                                 key={order.id}
                                                                 onClick={() => handleNavigateToDetail(order.id)}
-                                                                className="hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
+                                                                className="relative hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                                                             >
                                                                 <td className="px-6 py-4 align-top">
+                                                                    {hasFulfillmentTools && (
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={selectedOrderIds.includes(order.id)}
+                                                                            onChange={() => toggleOrderSelection(order)}
+                                                                            onClick={(event) => event.stopPropagation()}
+                                                                            disabled={!canSelectForFulfillment(order)}
+                                                                            className="mb-3 block h-4 w-4 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] disabled:cursor-not-allowed disabled:opacity-30"
+                                                                            aria-label={`Pilih pesanan ${order.order_sn}`}
+                                                                        />
+                                                                    )}
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
@@ -1518,30 +1774,40 @@ export default function OrderList() {
                                                                     ) : (
                                                                         <span className="text-xs text-gray-400 italic">Informasi logistik belum tersedia</span>
                                                                     )}
-                                                                </td>
-                                                                <td className="px-6 py-4 align-top text-right font-semibold text-gray-700 dark:text-slate-200">
-                                                                    {formatRp(
-                                                                        order.hpp_amount,
-                                                                    )}
-                                                                    {order.has_missing_hpp && (
-                                                                        <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                                                                            HPP belum tersedia
-                                                                        </p>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-6 py-4 align-top text-right font-semibold text-[#304674] dark:text-blue-400">
-                                                                    {formatRp(
-                                                                        order.escrow_amount,
+                                                                    {hasFulfillmentTools && (
+                                                                    <div className="absolute right-4 top-1/2 z-20 -translate-y-1/2">
+                                                                        <FulfillmentRowActions
+                                                                            order={order}
+                                                                            canArrange={canArrangeShipping}
+                                                                            canPrint={canPrintLabels}
+                                                                            onArrange={(id) => beginArrange([id])}
+                                                                            onPrint={(id) => printLabels([id])}
+                                                                            onPrintUnavailable={(message) => setFulfillmentNotice({ type: "warning", message })}
+                                                                        />
+                                                                    </div>
                                                                     )}
                                                                 </td>
-                                                                <td className="px-6 py-4 align-top text-right">
-                                                                    <p className={`font-bold ${Number(order.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                                        {formatRp(order.profit_amount)}
-                                                                    </p>
-                                                                    {order.has_missing_hpp && (
-                                                                        <HppWarning className="ml-auto max-w-48 justify-end text-left" />
-                                                                    )}
-                                                                </td>
+                                                                {canViewFinance && (
+                                                                    <>
+                                                                        <td className="px-6 py-4 align-top text-right font-semibold text-gray-700 dark:text-slate-200">
+                                                                            {formatRp(order.hpp_amount)}
+                                                                            {order.has_missing_hpp && (
+                                                                                <p className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">HPP belum tersedia</p>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-6 py-4 align-top text-right font-semibold text-[#304674] dark:text-blue-400">
+                                                                            {formatRp(order.escrow_amount)}
+                                                                        </td>
+                                                                        <td className="px-6 py-4 align-top text-right">
+                                                                            <p className={`font-bold ${Number(order.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                                                {formatRp(order.profit_amount)}
+                                                                            </p>
+                                                                            {order.has_missing_hpp && (
+                                                                                <HppWarning className="ml-auto max-w-48 justify-end text-left" />
+                                                                            )}
+                                                                        </td>
+                                                                    </>
+                                                                )}
                                                             </tr>
                                                             {/* Expanded Detail */}
                                                             {expandedOrders[
@@ -1553,7 +1819,7 @@ export default function OrderList() {
                                                                     >
                                                                         <td
                                                                             colSpan={
-                                                                                8
+                                                                                canViewFinance ? 8 : 5
                                                                             }
                                                                             className="px-6 py-4"
                                                                         >
@@ -1622,6 +1888,7 @@ export default function OrderList() {
                                                 )}
                                             </tbody>
                                             <tfoot className="bg-gray-50 dark:bg-slate-900/30 border-t border-gray-100 dark:border-slate-700">
+                                                {canViewFinance && (
                                                 <tr>
                                                     <td
                                                         colSpan={5}
@@ -1639,9 +1906,10 @@ export default function OrderList() {
                                                         {formatRp(totalProfit)}
                                                     </td>
                                                 </tr>
+                                                )}
                                                 {selectedFilterId === 'dikirim' && (
                                                     <tr>
-                                                        <td colSpan={8} className="px-6 py-3 text-right">
+                                                        <td colSpan={canViewFinance ? 8 : 5} className="px-6 py-3 text-right">
                                                             <label className="inline-flex items-center cursor-pointer">
                                                                 <input
                                                                     type="checkbox"
@@ -1670,6 +1938,17 @@ export default function OrderList() {
                                                     className="tour-order-mobile-card bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative cursor-pointer"
                                                 >
                                                     <div className="flex justify-between items-start mb-3 gap-2">
+                                                        {hasFulfillmentTools && (
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedOrderIds.includes(order.id)}
+                                                                onChange={() => toggleOrderSelection(order)}
+                                                                onClick={(event) => event.stopPropagation()}
+                                                                disabled={!canSelectForFulfillment(order)}
+                                                                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-[#304674] focus:ring-[#304674] disabled:cursor-not-allowed disabled:opacity-30"
+                                                                aria-label={`Pilih pesanan ${order.order_sn}`}
+                                                            />
+                                                        )}
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex flex-wrap items-start gap-2 mb-1">
                                                                 <button onClick={(e) => handleCopySn(e, order.order_sn)} className="font-mono text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 inline-flex items-center gap-0.5 min-w-0 truncate">
@@ -1762,6 +2041,7 @@ export default function OrderList() {
                                                         </div>
                                                     </div>
 
+                                                    {canViewFinance && (
                                                     <div className="mb-3 grid grid-cols-3 divide-x divide-gray-100 rounded-lg border border-gray-100 bg-gray-50/70 dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-900/50">
                                                         <div className="min-w-0 px-2 py-2.5">
                                                             <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">HPP</p>
@@ -1782,8 +2062,23 @@ export default function OrderList() {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    {order.has_missing_hpp && (
+                                                    )}
+                                                    {canViewFinance && order.has_missing_hpp && (
                                                         <HppWarning className="mb-3" />
+                                                    )}
+
+                                                    {hasFulfillmentTools && (
+                                                        <div className="mb-3">
+                                                            <FulfillmentRowActions
+                                                                order={order}
+                                                                canArrange={canArrangeShipping}
+                                                                canPrint={canPrintLabels}
+                                                                onArrange={(id) => beginArrange([id])}
+                                                                onPrint={(id) => printLabels([id])}
+                                                                onPrintUnavailable={(message) => setFulfillmentNotice({ type: "warning", message })}
+                                                                compact
+                                                            />
+                                                        </div>
                                                     )}
 
                                                     <div
@@ -1879,6 +2174,7 @@ export default function OrderList() {
                                             );
                                         })}
 
+                                        {canViewFinance && (
                                         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
                                             <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-slate-700">
                                                 <div className="min-w-0 px-3 py-3">
@@ -1895,6 +2191,7 @@ export default function OrderList() {
                                                 </div>
                                             </div>
                                         </div>
+                                        )}
                                     </div>
 
                                     {/* Pagination Controls */}
@@ -1975,6 +2272,81 @@ export default function OrderList() {
                 </div>
             </div>
 
+            {typeof document !== "undefined" && createPortal(
+                <>
+                    <AnimatePresence>
+                        {fulfillmentNotice && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 16 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 12 }}
+                                className={`fixed left-4 right-4 z-[440] mx-auto flex max-w-xl items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg sm:left-auto sm:right-5 ${selectedOrderIds.length ? "bottom-28 sm:bottom-24" : "bottom-5"} ${fulfillmentNotice.type === "error" ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200" : fulfillmentNotice.type === "warning" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"}`}
+                            >
+                                <span className="font-medium">{fulfillmentNotice.message}</span>
+                                <button type="button" onClick={() => setFulfillmentNotice(null)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-black/5" aria-label="Tutup pemberitahuan">
+                                    <span className="material-symbols-rounded text-[18px]">close</span>
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    <AnimatePresence>
+                        {hasFulfillmentTools && selectedOrderIds.length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 28, x: "-50%" }}
+                                animate={{ opacity: 1, y: 0, x: "-50%" }}
+                                exit={{ opacity: 0, y: 24, x: "-50%" }}
+                                transition={{ duration: 0.18, ease: "easeOut" }}
+                                className="fixed bottom-4 left-1/2 z-[450] w-[calc(100%-1.5rem)] max-w-4xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.22)] dark:border-slate-600 dark:bg-slate-800"
+                            >
+                                <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                                    <div className="flex items-center justify-between gap-4 sm:justify-start">
+                                        <div className="flex items-center gap-3">
+                                            <button type="button" onClick={() => setSelectedOrderIds([])} className="flex h-8 w-8 items-center justify-center rounded-md bg-[#394670] text-white hover:bg-[#2b3556]" title="Batalkan pilihan">
+                                                <span className="material-symbols-rounded text-[18px]">remove</span>
+                                            </button>
+                                            <div>
+                                                <p className="text-sm font-bold text-slate-900 dark:text-white">{selectedOrderIds.length} dipilih</p>
+                                                <p className="hidden text-[11px] text-slate-400 sm:block">Pilih aksi yang tersedia untuk pesanan ini.</p>
+                                            </div>
+                                        </div>
+                                        <button type="button" onClick={toggleAllEligible} className="text-xs font-semibold text-[#394670] hover:underline dark:text-blue-300">
+                                            {allEligibleSelected ? "Batalkan semua" : `Pilih semua (${eligibleOrders.length})`}
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                                        {canArrangeShipping && (
+                                            <button
+                                                type="button"
+                                                disabled={!selectedArrangeIds.length}
+                                                onClick={() => beginArrange(selectedArrangeIds)}
+                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[#394670] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#2b3556] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-700"
+                                            >
+                                                <span className="material-symbols-rounded text-[18px]">local_shipping</span>
+                                                Atur kirim{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
+                                            </button>
+                                        )}
+                                        {canPrintLabels && (
+                                            <button
+                                                type="button"
+                                                disabled={!selectedPrintIds.length}
+                                                onClick={() => printLabels(selectedPrintIds)}
+                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 dark:disabled:text-slate-500"
+                                            >
+                                                <span className="material-symbols-rounded text-[18px]">print</span>
+                                                Cetak resi{selectedPrintIds.length ? ` (${selectedPrintIds.length})` : ""}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </>,
+                document.body,
+            )}
+
             <style>{`
                 .no-scrollbar::-webkit-scrollbar { display: none; }
                 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -1993,6 +2365,12 @@ export default function OrderList() {
                 onSkip={tour.skip}
                 onFinish={tour.finish}
                 onStart={tour.start}
+            />
+            <FulfillmentModal
+                state={fulfillmentModal}
+                busy={fulfillmentBusy}
+                onClose={() => !fulfillmentBusy && setFulfillmentModal(null)}
+                onSubmit={submitArrange}
             />
             <ScrollToTopButton markerId="order-scroll-top-marker" />
         </AppLayout>

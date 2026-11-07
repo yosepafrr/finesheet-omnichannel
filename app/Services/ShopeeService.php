@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Store;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -712,6 +713,99 @@ class ShopeeService
         $response = $this->httpClient()->get($url);
 
         return $response->json();
+    }
+
+    public function getShippingParameter(Store $store, string $orderSn, string $packageNumber = ''): array
+    {
+        $params = ['order_sn' => $orderSn];
+        if ($packageNumber !== '' && $packageNumber !== $orderSn) {
+            $params['package_number'] = $packageNumber;
+        }
+
+        return $this->authorizedGet($store, '/api/v2/logistics/get_shipping_parameter', $params);
+    }
+
+    public function shipOrder(Store $store, string $orderSn, array $shipment, string $packageNumber = ''): array
+    {
+        $body = ['order_sn' => $orderSn] + $shipment;
+        if ($packageNumber !== '' && $packageNumber !== $orderSn) {
+            $body['package_number'] = $packageNumber;
+        }
+
+        return $this->authorizedPost($store, '/api/v2/logistics/ship_order', $body);
+    }
+
+    public function getTrackingNumber(Store $store, string $orderSn, string $packageNumber = ''): array
+    {
+        $params = ['order_sn' => $orderSn];
+        if ($packageNumber !== '' && $packageNumber !== $orderSn) {
+            $params['package_number'] = $packageNumber;
+        }
+
+        return $this->authorizedGet($store, '/api/v2/logistics/get_tracking_number', $params);
+    }
+
+    public function createShippingDocument(Store $store, array $orders): array
+    {
+        return $this->authorizedPost($store, '/api/v2/logistics/create_shipping_document', [
+            'order_list' => $orders,
+            'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+        ]);
+    }
+
+    public function getShippingDocumentResult(Store $store, array $orders): array
+    {
+        return $this->authorizedPost($store, '/api/v2/logistics/get_shipping_document_result', [
+            'order_list' => $orders,
+        ]);
+    }
+
+    public function downloadShippingDocument(Store $store, array $orders): Response
+    {
+        return $this->authorizedPostResponse($store, '/api/v2/logistics/download_shipping_document', [
+            'order_list' => $orders,
+        ], 60);
+    }
+
+    private function authorizedGet(Store $store, string $path, array $params = []): array
+    {
+        $shopId = (string) $store->shopee_shop_id;
+        $accessToken = $this->ensureValidToken($store);
+        $timestamp = time();
+
+        $response = $this->httpClient()->get("{$this->baseUrl}{$path}", [
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $this->generateSign($path, $timestamp, $accessToken, $shopId),
+            'access_token' => $accessToken,
+            'shop_id' => $shopId,
+        ] + $params);
+
+        return $response->json() ?? [];
+    }
+
+    private function authorizedPost(Store $store, string $path, array $body): array
+    {
+        return $this->authorizedPostResponse($store, $path, $body)->json() ?? [];
+    }
+
+    private function authorizedPostResponse(Store $store, string $path, array $body, int $timeout = 30): Response
+    {
+        $shopId = (string) $store->shopee_shop_id;
+        $accessToken = $this->ensureValidToken($store);
+        $timestamp = time();
+        $url = "{$this->baseUrl}{$path}?".http_build_query([
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $this->generateSign($path, $timestamp, $accessToken, $shopId),
+            'access_token' => $accessToken,
+            'shop_id' => $shopId,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return $this->httpClient()
+            ->timeout($timeout)
+            ->acceptJson()
+            ->post($url, $body);
     }
 
     // UPDATE STOCK

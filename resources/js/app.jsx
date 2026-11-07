@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axios from "axios";
 import { BellRing, Store, Trash2, X } from "lucide-react";
 import { PUBLIC_DOCUMENT_ROUTES, PUBLIC_ROUTES } from "./publicSite";
+import { AccessProvider, PAGE_PERMISSIONS, useAccess } from "./contexts/AccessContext";
+import AppLayout from "../views/components/layouts/AppLayout";
 
 // Global axios config for handling 401 Unauthorized
 axios.interceptors.response.use(
@@ -39,6 +41,8 @@ const Register = lazy(() => import('./pages/auth/Register'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 const TiktokAdsIntegration = lazy(() => import('./pages/TiktokAdsIntegration'));
+const TeamAccess = lazy(() => import('./pages/TeamAccess'));
+const FulfillmentSettings = lazy(() => import('./pages/FulfillmentSettings'));
 
 // Route config
 const routes = {
@@ -52,6 +56,8 @@ const routes = {
     '/cashflow': Cashflow,
     '/meet-the-creators': MeetCreators,
     '/profile': Profile,
+    '/team-access': TeamAccess,
+    '/fulfillment-settings': FulfillmentSettings,
     '/login': Login,
     '/register': Register,
     '/privacy-policy': PrivacyPolicy,
@@ -453,9 +459,44 @@ class ErrorBoundary extends React.Component {
     }
 }
 
+function AccessDenied({ permission, homeRoute }) {
+    return (
+        <AppLayout>
+            <div className="flex min-h-[65vh] items-center justify-center p-4">
+                <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-500/10">
+                        <span className="material-symbols-rounded">lock</span>
+                    </div>
+                    <h1 className="mt-4 text-lg font-bold text-slate-900 dark:text-white">Akses dibatasi</h1>
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                        Profil aktif tidak memiliki izin untuk membuka halaman ini.
+                    </p>
+                    <p className="mt-3 text-xs font-medium text-slate-400">{permission}</p>
+                    <button type="button" onClick={() => { window.location.hash = `#${homeRoute}`; }} className="mt-6 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-semibold text-white">
+                        Buka halaman utama operator
+                    </button>
+                </div>
+            </div>
+        </AppLayout>
+    );
+}
+
 function App() {
     const currentRoute = useHashRouter();
     const isPublicRoute = PUBLIC_ROUTES.includes(currentRoute);
+    const access = useAccess();
+
+    useEffect(() => {
+        console.log('App Mounted');
+
+        if (window.flashMessages?.success) {
+            toast.success(window.flashMessages.success);
+        }
+        if (window.flashMessages?.error) {
+            toast.error(window.flashMessages.error, { duration: 8000 });
+        }
+        window.flashMessages = {};
+    }, []);
 
     let PageComponent = routes[currentRoute];
     let routeParams = {};
@@ -476,17 +517,27 @@ function App() {
         }
     }
 
-    useEffect(() => {
-        console.log('App Mounted');
+    const baseRoute = currentRoute.startsWith('/orders/')
+        ? '/orders'
+        : currentRoute.startsWith('/products/master/')
+            ? '/products'
+            : currentRoute;
+    const requiredPermission = PAGE_PERMISSIONS[baseRoute];
+    const ownerOnlyRoute = ["/profile", "/team-access"].includes(baseRoute);
+    const deniedByPermission = !isPublicRoute && !access.loading && requiredPermission && !access.can(requiredPermission);
 
-        if (window.flashMessages?.success) {
-            toast.success(window.flashMessages.success);
+    useEffect(() => {
+        if (currentRoute === "/dashboard" && deniedByPermission && access.homeRoute !== "/dashboard") {
+            window.location.hash = `#${access.homeRoute}`;
         }
-        if (window.flashMessages?.error) {
-            toast.error(window.flashMessages.error, { duration: 8000 });
-        }
-        window.flashMessages = {};
-    }, []);
+    }, [access.homeRoute, currentRoute, deniedByPermission]);
+
+    if (!isPublicRoute && !access.loading && ownerOnlyRoute && !access.is_owner_mode) {
+        return <AccessDenied permission="Owner" homeRoute={access.homeRoute} />;
+    }
+    if (deniedByPermission) {
+        return <AccessDenied permission={requiredPermission} homeRoute={access.homeRoute} />;
+    }
 
     if (!PageComponent) {
         // Default to landing page if route not found
@@ -522,7 +573,9 @@ if (container) {
     }
     window.__finesheet_root.render(
         <QueryClientProvider client={queryClient}>
-            <App />
+            <AccessProvider>
+                <App />
+            </AccessProvider>
         </QueryClientProvider>
     );
 }

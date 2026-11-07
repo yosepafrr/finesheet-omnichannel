@@ -38,6 +38,7 @@ import ManageSuppliersModal from "../../views/components/react/ManageSuppliersMo
 import OnboardingTour from "@/components/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { usePayableSyncStatus } from "@/hooks/usePayableSyncStatus";
+import FinesheetSelect from "@/components/ui/FinesheetSelect";
 
 const PAYABLE_TOUR_STEPS = [
     {
@@ -3700,17 +3701,14 @@ export default function PayableRekap() {
                                             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
                                                 Supplier <span className="text-rose-500">*</span>
                                             </label>
-                                            <select
+                                            <FinesheetSelect
                                                 value={paymentForm.supplier_id || ''}
-                                                onChange={e => setPaymentForm({ ...paymentForm, supplier_id: e.target.value })}
-                                                required
-                                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/50"
-                                            >
-                                                <option value="">-- Pilih Supplier --</option>
-                                                {suppliers.map(s => (
-                                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                                ))}
-                                            </select>
+                                                onChange={(value) => setPaymentForm({ ...paymentForm, supplier_id: value })}
+                                                options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))}
+                                                placeholder="Pilih supplier"
+                                                ariaLabel="Supplier"
+                                                icon="local_shipping"
+                                            />
                                         </div>
                                     )}
                                     {suppliers.length === 1 && (

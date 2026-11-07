@@ -17,6 +17,7 @@ import {
     X,
     Store as StoreIcon
 } from 'lucide-react';
+import FinesheetSelect from '@/components/ui/FinesheetSelect';
 
 export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) {
     const [step, setStep] = useState('DECISION'); // 'DECISION', 'INPUT_SUPPLIERS', 'MAP_PRODUCTS'
@@ -532,30 +533,27 @@ export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) 
 
                                 {/* Store Filter */}
                                 {availableStores.length > 1 && (
-                                    <select
+                                    <FinesheetSelect
                                         value={selectedStoreFilter}
-                                        onChange={e => setSelectedStoreFilter(e.target.value)}
-                                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs rounded-xl px-3 py-1.5 text-slate-700 dark:text-slate-300 outline-none"
-                                    >
-                                        <option value="ALL">Semua Toko ({products.length})</option>
-                                        {availableStores.map(sName => (
-                                            <option key={sName} value={sName}>{sName}</option>
-                                        ))}
-                                    </select>
+                                        onChange={setSelectedStoreFilter}
+                                        options={[{ value: 'ALL', label: `Semua Toko (${products.length})` }, ...availableStores.map((name) => ({ value: name, label: name }))]}
+                                        className="min-w-44"
+                                        icon="storefront"
+                                        compact
+                                    />
                                 )}
 
                                 {/* Bulk Action */}
                                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                                    <select
+                                    <FinesheetSelect
                                         value={bulkSupplierTarget}
-                                        onChange={e => setBulkSupplierTarget(e.target.value)}
-                                        className="bg-transparent text-xs text-slate-700 dark:text-slate-300 px-2 py-1 outline-none"
-                                    >
-                                        <option value="">Pilih Supplier Target</option>
-                                        {supplierNames.map(sName => (
-                                            <option key={sName} value={sName}>{sName}</option>
-                                        ))}
-                                    </select>
+                                        onChange={setBulkSupplierTarget}
+                                        options={supplierNames.map((name) => ({ value: name, label: name }))}
+                                        placeholder="Pilih supplier target"
+                                        className="min-w-48"
+                                        icon="local_shipping"
+                                        compact
+                                    />
                                     <button
                                         type="button"
                                         onClick={handleApplyBulkSupplier}
@@ -641,20 +639,14 @@ export default function SupplierOnboardingModal({ isOpen, onClose, onSuccess }) 
                                                             )}
                                                         </td>
                                                         <td className="p-3">
-                                                            <select
+                                                            <FinesheetSelect
                                                                 value={assignedSupplier}
-                                                                onChange={e => handleProductSupplierChange(product.id, e.target.value)}
-                                                                className={`w-full text-xs font-semibold py-1.5 px-2.5 rounded-xl border transition-colors outline-none cursor-pointer ${
-                                                                    assignedSupplier
-                                                                        ? 'bg-white dark:bg-slate-800 border-indigo-200 dark:border-indigo-800/80 text-indigo-900 dark:text-indigo-200 font-bold'
-                                                                        : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400'
-                                                                }`}
-                                                            >
-                                                                <option value="">-- Pilih Supplier --</option>
-                                                                {supplierNames.map(sName => (
-                                                                    <option key={sName} value={sName}>{sName}</option>
-                                                                ))}
-                                                            </select>
+                                                                onChange={(value) => handleProductSupplierChange(product.id, value)}
+                                                                options={supplierNames.map((name) => ({ value: name, label: name }))}
+                                                                placeholder="Pilih supplier"
+                                                                icon="local_shipping"
+                                                                compact
+                                                            />
                                                         </td>
                                                     </tr>
                                                 );

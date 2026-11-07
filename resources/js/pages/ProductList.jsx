@@ -18,6 +18,7 @@ import MarketplaceConversionModal from "../components/MarketplaceConversionModal
 import OnboardingTour from "@/components/OnboardingTour";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { useAccess } from "@/contexts/AccessContext";
 import { CheckCircle2, PackagePlus, SquareMousePointer, X } from "lucide-react";
 
 const PRODUCT_TOUR_STEPS = [
@@ -209,6 +210,11 @@ function LimitDropdown({ value, onChange }) {
 }
 
 export default function ProductList() {
+    const access = useAccess();
+    const canSyncProducts = access.can("products.sync");
+    const canEditHpp = access.can("products.hpp.edit");
+    const canManageSuppliers = access.can("products.supplier.manage");
+    const canEditProducts = access.can("products.edit");
     const tour = useOnboarding("products", PRODUCT_TOUR_STEPS.length);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -275,6 +281,7 @@ export default function ProductList() {
     }, [debouncedSearch, selectedStore]);
 
     const handleSync = async () => {
+        if (!canSyncProducts) return;
         setSyncing(true);
         try {
             await axios.post("/api/sync/products");
@@ -289,6 +296,7 @@ export default function ProductList() {
     };
 
     const handleSyncStore = async (storeId) => {
+        if (!canSyncProducts) return;
         setSyncingStoreId(storeId);
         try {
             await axios.post("/api/sync/products", { store_id: storeId });
@@ -301,11 +309,13 @@ export default function ProductList() {
     };
 
     const openBulkHppModal = (product) => {
+        if (!canEditHpp) return;
         setBulkModalProduct(product);
         setIsBulkModalOpen(true);
     };
 
     const openSupplierModal = (product) => {
+        if (!canManageSuppliers) return;
         setSupplierModal({ open: true, products: [product] });
     };
 
@@ -426,6 +436,7 @@ export default function ProductList() {
     };
 
     const openMarketplaceConversion = (products) => {
+        if (!canEditProducts) return;
         const selected = Array.isArray(products) ? products : [products];
         setConversionError("");
         setConversionModal({ open: true, products: selected });
@@ -506,7 +517,7 @@ export default function ProductList() {
                             </p>
                         </div>
                         <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                            <button
+                            {canSyncProducts && <button
                                 id="tour-sync-btn"
                                 onClick={handleSync}
                                 disabled={syncing || syncingStoreId !== null}
@@ -520,7 +531,7 @@ export default function ProductList() {
                                 {syncing
                                     ? "Menyelaraskan..."
                                     : "Sinkronisasi Data"}
-                            </button>
+                            </button>}
                             <div className="relative w-full md:w-64">
                                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                                     <span className="material-symbols-rounded text-lg">
@@ -1789,21 +1800,21 @@ export default function ProductList() {
             `}</style>
 
             {/* Modal for Bulk HPP */}
-            <BulkHppModal
+            {canEditHpp && <BulkHppModal
                 isOpen={isBulkModalOpen}
                 onClose={() => setIsBulkModalOpen(false)}
                 product={bulkModalProduct}
                 onSave={fetchData}
-            />
-            <MarketplaceConversionModal
+            />}
+            {canEditProducts && <MarketplaceConversionModal
                 isOpen={conversionModal.open}
                 products={conversionModal.products}
                 isSaving={convertingMarketplace}
                 error={conversionError}
                 onClose={closeMarketplaceConversion}
                 onConfirm={convertMarketplaceProducts}
-            />
-            <SupplierAssignmentModal
+            />}
+            {canManageSuppliers && <SupplierAssignmentModal
                 isOpen={supplierModal.open}
                 title="Atur supplier produk marketplace"
                 itemCount={supplierModal.products.length}
@@ -1812,14 +1823,14 @@ export default function ProductList() {
                 onManageSuppliers={openSupplierManager}
                 onClose={() => setSupplierModal({ open: false, products: [] })}
                 onSave={updateMarketplaceSupplier}
-            />
-            <ManageSuppliersModal
+            />}
+            {canManageSuppliers && <ManageSuppliersModal
                 isOpen={supplierManagerOpen}
                 onClose={() => setSupplierManagerOpen(false)}
                 suppliers={managedSuppliers}
                 onUpdated={handleSuppliersUpdated}
                 zIndex={10050}
-            />
+            />}
             <OnboardingTour
                 steps={PRODUCT_TOUR_STEPS}
                 isOpen={tour.isOpen}

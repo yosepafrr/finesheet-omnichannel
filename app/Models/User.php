@@ -111,4 +111,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(CashflowTransaction::class, 'user_id');
     }
+
+    public function accessProfiles(): HasMany
+    {
+        return $this->hasMany(AccessProfile::class, 'user_id');
+    }
 }

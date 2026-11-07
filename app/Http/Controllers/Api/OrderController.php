@@ -7,9 +7,11 @@ use App\Jobs\SyncShopeeEscrowJob;
 use App\Jobs\SyncTiktokEscrowJob;
 use App\Models\Order;
 use App\Models\VariantProduct;
+use App\Services\AccessControlService;
 use App\Services\LogisticsStatusNormalizer;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
+use App\Services\OrderFulfillmentService;
 use App\Services\OrderProfitService;
 use App\Services\PayableService;
 use App\Services\TiktokEscrowAmountResolver;
@@ -21,11 +23,14 @@ class OrderController extends Controller
 {
     public function index(
         Request $request,
+        AccessControlService $access,
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService,
-        OrderProfitService $profitService
+        OrderProfitService $profitService,
+        OrderFulfillmentService $fulfillmentService,
     ) {
         $user = Auth::user();
+        $canViewFinance = $access->allows($request, 'orders.finance.view');
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
 
@@ -251,12 +256,12 @@ class OrderController extends Controller
                     },
                 ];
             }),
-            'totals' => [
+            'totals' => $canViewFinance ? [
                 'hpp_amount' => (float) $listFinancialSummaries->sum('hpp_amount'),
                 'escrow_amount' => (float) $listFinancialSummaries->sum('escrow_amount'),
                 'profit_amount' => (float) $listFinancialSummaries->sum('profit_amount'),
                 'has_missing_hpp' => $listFinancialSummaries->contains('has_missing_hpp', true),
-            ],
+            ] : null,
             'totals_scope' => 'page',
             'pagination' => [
                 'current_page' => $paginator->currentPage(),
@@ -266,9 +271,9 @@ class OrderController extends Controller
                 'from' => $paginator->firstItem(),
                 'to' => $paginator->lastItem(),
             ],
-            'orders' => $orders->map(function ($order) use ($financialBreakdownService, $listFinancialSummaries) {
+            'orders' => $orders->map(function ($order) use ($canViewFinance, $financialBreakdownService, $listFinancialSummaries, $fulfillmentService) {
                 $firstProduct = $order->orderProducts->first();
-                $financialBreakdown = $financialBreakdownService->forOrder($order);
+                $financialBreakdown = $canViewFinance ? $financialBreakdownService->forOrder($order) : null;
                 $financialSummary = $listFinancialSummaries->get($order->id);
 
                 return [
@@ -285,16 +290,17 @@ class OrderController extends Controller
                     'order_time' => $order->order_time?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'order_selling_price' => $order->order_selling_price,
-                    'hpp_amount' => $financialSummary['hpp_amount'],
-                    'escrow_amount' => $financialSummary['escrow_amount'],
-                    'profit_amount' => $financialSummary['profit_amount'],
-                    'has_missing_hpp' => $financialSummary['has_missing_hpp'],
-                    'is_affiliate' => $financialBreakdown['is_affiliate'],
-                    'affiliate_percentage' => $financialBreakdown['affiliate_percentage'],
+                    'hpp_amount' => $canViewFinance ? $financialSummary['hpp_amount'] : null,
+                    'escrow_amount' => $canViewFinance ? $financialSummary['escrow_amount'] : null,
+                    'profit_amount' => $canViewFinance ? $financialSummary['profit_amount'] : null,
+                    'has_missing_hpp' => $canViewFinance && $financialSummary['has_missing_hpp'],
+                    'is_affiliate' => $canViewFinance ? $financialBreakdown['is_affiliate'] : false,
+                    'affiliate_percentage' => $canViewFinance ? $financialBreakdown['affiliate_percentage'] : null,
                     'cancel_source' => $order->cancel_source,
                     'cancel_reason' => $order->cancel_reason,
                     'buyer_cancel_reason' => $order->buyer_cancel_reason,
                     'normalized_cancel_category' => $order->normalized_cancel_category,
+                    'fulfillment' => $fulfillmentService->capabilities($order),
                     'first_product' => $firstProduct ? (function () use ($firstProduct) {
                         $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $firstProduct->model_name);
                         $variant = $firstProduct->product?->variantProducts->first(
@@ -365,6 +371,7 @@ class OrderController extends Controller
     public function show(
         Request $request,
         $id,
+        AccessControlService $access,
         OrderEscrowService $escrowService,
         OrderFinancialBreakdownService $financialBreakdownService,
         LogisticsStatusNormalizer $logisticsStatusNormalizer,
@@ -373,6 +380,7 @@ class OrderController extends Controller
         OrderProfitService $profitService,
     ) {
         $user = Auth::user();
+        $canViewFinance = $access->allows($request, 'orders.finance.view');
         $stores = $user->stores()->pluck('id');
 
         $order = Order::with(['orderProducts.product', 'returns.items', 'store', 'packages'])
@@ -408,12 +416,13 @@ class OrderController extends Controller
         }
 
         $financeSyncPending = false;
-        if ($escrowService->needsShopeeFinanceRefresh($order)) {
+        if ($canViewFinance && $escrowService->needsShopeeFinanceRefresh($order)) {
             SyncShopeeEscrowJob::dispatch($order->store_id, $order->order_sn)
                 ->onQueue('orders-low');
             $financeSyncPending = true;
         } elseif (
-            strtolower((string) $order->platform) === 'tiktokshop'
+            $canViewFinance
+            && strtolower((string) $order->platform) === 'tiktokshop'
             && $tiktokEscrowResolver->shouldTryStatement($order->order_status)
             && $tiktokEscrowResolver->needsRefresh(
                 $order->fee_details,
@@ -432,26 +441,29 @@ class OrderController extends Controller
             $financeSyncPending = true;
         }
 
-        $financialBreakdown = $financialBreakdownService->forOrder($order);
-        $financialBreakdown['sync_pending'] = $financeSyncPending;
-        $financialSummary = $profitService->summaries(collect([$order]))->get($order->id, []);
-        $financialBreakdown['has_financial_correction'] = $escrowService
-            ->hasReturnOrFailedDelivery($order);
-        $financialBreakdown['sale_escrow_amount'] = (float) (
-            $financialSummary['sale_escrow_amount'] ?? $financialBreakdown['escrow_amount']
-        );
-        $financialBreakdown['sale_escrow_source'] = $financialSummary['sale_escrow_source'] ?? null;
-        $financialBreakdown['sale_escrow_is_estimated'] = (bool) (
-            $financialSummary['sale_escrow_is_estimated'] ?? false
-        );
-        $financialBreakdown['sale_escrow_sample_size'] = (int) (
-            $financialSummary['sale_escrow_sample_size'] ?? 0
-        );
-        $financialBreakdown['display_escrow_amount'] = ! $financialBreakdown['has_financial_correction']
-            && abs((float) $financialBreakdown['escrow_amount']) < 0.0001
-            && (float) $financialBreakdown['sale_escrow_amount'] > 0
-                ? (float) $financialBreakdown['sale_escrow_amount']
-                : (float) $financialBreakdown['escrow_amount'];
+        $financialBreakdown = null;
+        if ($canViewFinance) {
+            $financialBreakdown = $financialBreakdownService->forOrder($order);
+            $financialBreakdown['sync_pending'] = $financeSyncPending;
+            $financialSummary = $profitService->summaries(collect([$order]))->get($order->id, []);
+            $financialBreakdown['has_financial_correction'] = $escrowService
+                ->hasReturnOrFailedDelivery($order);
+            $financialBreakdown['sale_escrow_amount'] = (float) (
+                $financialSummary['sale_escrow_amount'] ?? $financialBreakdown['escrow_amount']
+            );
+            $financialBreakdown['sale_escrow_source'] = $financialSummary['sale_escrow_source'] ?? null;
+            $financialBreakdown['sale_escrow_is_estimated'] = (bool) (
+                $financialSummary['sale_escrow_is_estimated'] ?? false
+            );
+            $financialBreakdown['sale_escrow_sample_size'] = (int) (
+                $financialSummary['sale_escrow_sample_size'] ?? 0
+            );
+            $financialBreakdown['display_escrow_amount'] = ! $financialBreakdown['has_financial_correction']
+                && abs((float) $financialBreakdown['escrow_amount']) < 0.0001
+                && (float) $financialBreakdown['sale_escrow_amount'] > 0
+                    ? (float) $financialBreakdown['sale_escrow_amount']
+                    : (float) $financialBreakdown['escrow_amount'];
+        }
 
         $orderData = [
             'id' => $order->id,
@@ -463,8 +475,8 @@ class OrderController extends Controller
             'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->format('d M Y, H:i'),
             'updated_at' => $order->updated_at?->setTimezone('Asia/Jakarta')->format('d M Y, H:i'),
             'order_selling_price' => $order->order_selling_price,
-            'escrow_amount' => $escrowService->amount($order),
-            'fee_details' => $order->fee_details,
+            'escrow_amount' => $canViewFinance ? $escrowService->amount($order) : null,
+            'fee_details' => $canViewFinance ? $order->fee_details : null,
             'financial_breakdown' => $financialBreakdown,
             'cancel_source' => $order->cancel_source,
             'cancel_reason' => $order->cancel_reason,
@@ -472,7 +484,7 @@ class OrderController extends Controller
             'normalized_cancel_category' => $order->normalized_cancel_category,
             'customer_info' => $customerInfo,
             'shipping_info' => $shippingInfo,
-            'raw_data' => $rawData, // For developer mode
+            'raw_data' => $canViewFinance ? $rawData : null,
             'products' => $order->orderProducts->map(function ($product) {
                 $normalizedModelName = str_replace([', ', ','], [' - ', ' - '], $product->model_name);
                 $variant = VariantProduct::where('product_id', $product->product?->id)
@@ -552,7 +564,7 @@ class OrderController extends Controller
                     }),
                 ];
             }),
-            'packages' => $order->packages->map(function ($pkg) use ($logisticsStatusNormalizer) {
+            'packages' => $order->packages->map(function ($pkg) use ($canViewFinance, $logisticsStatusNormalizer) {
                 return [
                     'package_id' => $pkg->package_id,
                     'tracking_number' => $pkg->tracking_number,
@@ -560,7 +572,7 @@ class OrderController extends Controller
                     'normalized_logistics_status' => $pkg->normalized_logistics_status,
                     'failed_at' => $pkg->failed_at?->toIso8601String(),
                     'history' => $logisticsStatusNormalizer->history($pkg->raw_data ?? []),
-                    'raw_data' => $pkg->raw_data,
+                    'raw_data' => $canViewFinance ? $pkg->raw_data : null,
                 ];
             }),
         ];

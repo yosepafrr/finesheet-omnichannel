@@ -10,6 +10,7 @@ use App\Models\MasterProductVariant;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
+use App\Services\AccessControlService;
 use App\Services\BundleInventoryService;
 use App\Services\MasterProductClusterService;
 use App\Services\MasterSkuSyncService;
@@ -24,8 +25,11 @@ use Illuminate\Validation\ValidationException;
 
 class MasterProductController extends Controller
 {
-    public function components(Request $request)
+    private bool $canViewHpp = true;
+
+    public function components(Request $request, AccessControlService $access)
     {
+        $this->canViewHpp = $access->allows($request, 'products.hpp.view');
         $search = trim((string) $request->input('search', ''));
         $excludeId = (int) $request->input('exclude_id', 0);
 
@@ -53,14 +57,15 @@ class MasterProductController extends Controller
                 'name' => $variant->masterProduct?->name,
                 'variant_name' => $variant->variant_name,
                 'stock' => (int) ($variant->syncGroup?->master_stock ?? $variant->stock),
-                'hpp' => (float) $variant->hpp,
+                'hpp' => $this->canViewHpp ? (float) $variant->hpp : null,
             ]);
 
         return response()->json(['data' => $variants]);
     }
 
-    public function index(Request $request)
+    public function index(Request $request, AccessControlService $access)
     {
+        $this->canViewHpp = $access->allows($request, 'products.hpp.view');
         $perPage = min(max((int) $request->input('per_page', 20), 10), 100);
         $search = trim((string) $request->input('search', ''));
         $productClusters = $this->normalizedFilterValues($request, 'product_clusters', 'product_cluster');
@@ -176,8 +181,9 @@ class MasterProductController extends Controller
         ]);
     }
 
-    public function show(Request $request, int $id)
+    public function show(Request $request, int $id, AccessControlService $access)
     {
+        $this->canViewHpp = $access->allows($request, 'products.hpp.view');
         $product = MasterProduct::query()
             ->where('user_id', $request->user()->id)
             ->where('source', 'manual')
@@ -192,9 +198,11 @@ class MasterProductController extends Controller
     public function store(
         Request $request,
         MasterSkuSyncService $skuSync,
-        BundleInventoryService $bundleInventory
+        BundleInventoryService $bundleInventory,
+        AccessControlService $access
     ) {
         $data = $this->validateProductPayload($request);
+        $data['variants'] = $this->protectRestrictedVariantFields($request, $access, $data['variants']);
         $user = $request->user();
 
         $product = DB::transaction(function () use ($data, $user) {
@@ -521,10 +529,17 @@ class MasterProductController extends Controller
         int $id,
         MasterSkuSyncService $skuSync,
         StockSyncService $stockSync,
-        BundleInventoryService $bundleInventory
+        BundleInventoryService $bundleInventory,
+        AccessControlService $access
     ) {
         $product = $this->ownedProduct($request, $id);
         $data = $this->validateProductPayload($request, $product);
+        $data['variants'] = $this->protectRestrictedVariantFields(
+            $request,
+            $access,
+            $data['variants'],
+            $product->variants()->get()->keyBy('id')
+        );
         $originalStocks = $product->variants()->pluck('stock', 'id');
         $originalHpps = $product->variants()->pluck('hpp', 'id');
         $originalSuppliers = $product->variants()->pluck('supplier_id', 'id');
@@ -594,11 +609,18 @@ class MasterProductController extends Controller
         int $variantId,
         MasterSkuSyncService $skuSync,
         StockSyncService $stockSync,
-        BundleInventoryService $bundleInventory
+        BundleInventoryService $bundleInventory,
+        AccessControlService $access
     ) {
         $product = $this->ownedProduct($request, $productId);
         $variant = $product->variants()->findOrFail($variantId);
         $data = $this->validateSingleVariantPayload($request, $variant);
+        $data = $this->protectRestrictedVariantFields(
+            $request,
+            $access,
+            [$data],
+            collect([$variant->id => $variant])
+        )[0];
         $stockChanged = (int) $variant->stock !== (int) $data['stock'];
         $activeChanged = (bool) $variant->is_active !== (bool) ($data['is_active'] ?? true);
         $payableSourceChanged = (int) ($variant->supplier_id ?? 0) !== (int) ($data['supplier_id'] ?? 0)
@@ -1130,6 +1152,41 @@ class MasterProductController extends Controller
         ];
     }
 
+    private function protectRestrictedVariantFields(
+        Request $request,
+        AccessControlService $access,
+        array $definitions,
+        ?Collection $existingVariants = null
+    ): array {
+        $existingVariants ??= collect();
+        $canEditHpp = $access->allows($request, 'products.hpp.edit');
+        $canManageStock = $access->allows($request, 'products.stock.manage');
+        $canManageSupplier = $access->allows($request, 'products.supplier.manage');
+
+        return collect($definitions)->map(function (array $definition) use (
+            $existingVariants,
+            $canEditHpp,
+            $canManageStock,
+            $canManageSupplier
+        ) {
+            $existing = ! empty($definition['id'])
+                ? $existingVariants->get((int) $definition['id'])
+                : null;
+
+            if (! $canEditHpp) {
+                $definition['hpp'] = (float) ($existing?->hpp ?? 0);
+            }
+            if (! $canManageStock) {
+                $definition['stock'] = (int) ($existing?->stock ?? 0);
+            }
+            if (! $canManageSupplier) {
+                $definition['supplier_id'] = $existing?->supplier_id;
+            }
+
+            return $definition;
+        })->all();
+    }
+
     private function validateBundleDefinitions(array &$definitions, int $userId): void
     {
         $componentIds = collect($definitions)
@@ -1391,7 +1448,7 @@ class MasterProductController extends Controller
             'barcode' => $variant->barcode,
             'supplier_id' => $variant->supplier_id,
             'supplier_name' => $variant->supplier?->name,
-            'hpp' => (float) $variant->hpp,
+            'hpp' => $this->canViewHpp ? (float) $variant->hpp : null,
             'stock' => (int) ($group?->master_stock ?? $variant->stock),
             'is_active' => $variant->is_active,
             'is_bundle' => $variant->is_bundle,
@@ -1405,7 +1462,7 @@ class MasterProductController extends Controller
                     'name' => $componentVariant?->masterProduct?->name,
                     'variant_name' => $componentVariant?->variant_name,
                     'stock' => (int) ($componentVariant?->syncGroup?->master_stock ?? $componentVariant?->stock ?? 0),
-                    'hpp' => (float) ($componentVariant?->hpp ?? 0),
+                    'hpp' => $this->canViewHpp ? (float) ($componentVariant?->hpp ?? 0) : null,
                 ];
             })->values(),
             'sync_group_id' => $group?->id,

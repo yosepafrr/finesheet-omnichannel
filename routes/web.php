@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\AccessProfileController;
+use App\Http\Controllers\Api\AccessSessionController;
 use App\Http\Controllers\Api\CashflowController;
+use App\Http\Controllers\Api\FulfillmentSettingController;
 use App\Http\Controllers\Api\MasterProductController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\OrderFulfillmentController;
 use App\Http\Controllers\Api\OrderSyncController;
 use App\Http\Controllers\Api\PayableController;
 use App\Http\Controllers\Api\ProductController;
@@ -25,13 +29,20 @@ use Illuminate\Support\Facades\Route;
 require __DIR__.'/auth.php';
 
 // Auth-protected React SPA API Endpoints
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
 
     Route::prefix('api')->group(function () {
         Route::get('/user', function (Request $request) {
             return $request->user();
         });
+        Route::get('/access/context', [AccessSessionController::class, 'context']);
+        Route::post('/access/switch-profile', [AccessSessionController::class, 'switchProfile']);
+        Route::post('/access/switch-owner', [AccessSessionController::class, 'switchOwner']);
+        Route::get('/access-profiles', [AccessProfileController::class, 'index']);
+        Route::post('/access-profiles', [AccessProfileController::class, 'store']);
+        Route::put('/access-profiles/{profile}', [AccessProfileController::class, 'update']);
+        Route::delete('/access-profiles/{profile}', [AccessProfileController::class, 'destroy']);
         Route::put('/profile', [ProfileController::class, 'update']);
         Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
         Route::get('/stores', [StoreController::class, 'index']);
@@ -91,6 +102,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
             return response()->json(['message' => 'Product sync started']);
         });
         Route::get('/orders', [OrderController::class, 'index']);
+        Route::get('/orders/{id}/fulfillment-options', [OrderFulfillmentController::class, 'options']);
+        Route::post('/orders/fulfillment/arrange', [OrderFulfillmentController::class, 'arrange']);
+        Route::get('/orders/{id}/shipping-label', [OrderFulfillmentController::class, 'label']);
+        Route::get('/fulfillment-settings', [FulfillmentSettingController::class, 'index']);
+        Route::put('/fulfillment-settings/stores/{storeId}', [FulfillmentSettingController::class, 'update']);
         Route::get('/orders/{id}', [OrderController::class, 'show']);
         Route::get('/sync/orders/status', [OrderSyncController::class, 'status']);
         Route::post('/sync/orders', [OrderSyncController::class, 'store']);
@@ -145,23 +161,23 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 // SHOPEE AUTHORIZATION
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
     Route::get('/connect/shopee', [ShopeeController::class, 'redirectToShopee'])->name('shopee.connect');
     Route::get('/shopee/callback', [ShopeeController::class, 'handleShopeeCallback'])->name('shopee.callback');
 });
 
 // UPDATE PRODUCTS
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
     Route::get('/shopee/update-product', [ShopeeController::class, 'updateProducts'])->name('shopee.update-product');
 });
 
 // GET SHOPEE ORDERS
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
     Route::get('/shopee/orders', [ShopeeController::class, 'getShopeeOrders'])->name('shopee.orders');
 });
 
 // Tiktok SHOP AUTHORIZATION
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
     Route::get('/tiktok/callback', [TikTokController::class, 'handleTiktokCallback'])->name('tiktok.callback');
     Route::get('/connect/tiktok', [TikTokController::class, 'redirectToTiktok'])->name('tiktok.connect');
     Route::get('/connect/tiktok-ads', [TiktokAdsController::class, 'redirectToTiktokAds'])->name('tiktok-ads.connect');

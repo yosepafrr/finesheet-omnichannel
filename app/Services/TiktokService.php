@@ -544,6 +544,53 @@ class TiktokService
         return $lastResponse;
     }
 
+    public function shipPackage(Store $store, string $packageId, array $shipment = []): array
+    {
+        return $this->authorizedRequest(
+            $store,
+            'POST',
+            "/fulfillment/202309/packages/{$packageId}/ship",
+            $shipment
+        );
+    }
+
+    public function getPackageShippingDocument(Store $store, string $packageId): array
+    {
+        return $this->authorizedRequest(
+            $store,
+            'GET',
+            "/fulfillment/202309/packages/{$packageId}/shipping_documents"
+        );
+    }
+
+    private function authorizedRequest(
+        Store $store,
+        string $method,
+        string $path,
+        array $body = [],
+        array $extraQueries = []
+    ): array {
+        $accessToken = $this->ensureValidToken($store);
+        $queries = [
+            'app_key' => $this->appKey,
+            'timestamp' => time(),
+            'shop_cipher' => $store->shopee_shop_id,
+        ] + $extraQueries;
+        $bodyString = $method === 'GET' ? '' : json_encode((object) $body, JSON_THROW_ON_ERROR);
+        $queries['sign'] = $this->generateSign($path, $queries, $bodyString);
+        $url = $this->baseUrl.$path.'?'.http_build_query($queries, '', '&', PHP_QUERY_RFC3986);
+        $request = $this->httpClient()->withHeaders([
+            'x-tts-access-token' => $accessToken,
+            'Content-Type' => 'application/json',
+        ]);
+
+        $response = $method === 'GET'
+            ? $request->get($url)
+            : $request->withBody($bodyString, 'application/json')->send($method, $url);
+
+        return $response->json() ?? [];
+    }
+
     /**
      * Update Inventory
      */
