@@ -745,11 +745,17 @@ class ShopeeService
         return $this->authorizedGet($store, '/api/v2/logistics/get_tracking_number', $params);
     }
 
+    public function getShippingDocumentParameter(Store $store, array $orders): array
+    {
+        return $this->authorizedPost($store, '/api/v2/logistics/get_shipping_document_parameter', [
+            'order_list' => $orders,
+        ]);
+    }
+
     public function createShippingDocument(Store $store, array $orders): array
     {
         return $this->authorizedPost($store, '/api/v2/logistics/create_shipping_document', [
             'order_list' => $orders,
-            'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
         ]);
     }
 

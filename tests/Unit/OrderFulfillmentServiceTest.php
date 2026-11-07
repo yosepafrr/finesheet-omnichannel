@@ -8,7 +8,10 @@ use App\Models\Store;
 use App\Services\OrderFulfillmentService;
 use App\Services\ShopeeService;
 use App\Services\TiktokService;
+use GuzzleHttp\Psr7\Response as Psr7Response;
+use Illuminate\Http\Client\Response;
 use Mockery;
+use RuntimeException;
 use Tests\TestCase;
 
 class OrderFulfillmentServiceTest extends TestCase
@@ -175,5 +178,125 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $this->assertSame('redirect', $label['type']);
         $this->assertSame('https://example.test/label.pdf', $label['url']);
+    }
+
+    public function test_shopee_platform_label_uses_the_document_parameters_and_tracking_number(): void
+    {
+        $shopee = Mockery::mock(ShopeeService::class);
+        $service = new OrderFulfillmentService(
+            $shopee,
+            Mockery::mock(TiktokService::class),
+        );
+        $store = new Store(['shipping_label_template' => 'platform']);
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_status' => 'PROCESSED',
+            'order_sn' => 'ORDER-SHOPEE-1',
+        ]);
+        $order->setRelation('store', $store);
+        $order->setRelation('packages', collect([
+            new OrderPackage(['package_id' => 'PACKAGE-SHOPEE-1']),
+        ]));
+        $order->setRelation('orderProducts', collect());
+
+        $baseOrder = [
+            'order_sn' => 'ORDER-SHOPEE-1',
+            'package_number' => 'PACKAGE-SHOPEE-1',
+        ];
+        $documentOrder = $baseOrder + [
+            'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+        ];
+        $createOrder = $documentOrder + [
+            'tracking_number' => 'TRACK-SHOPEE-1',
+        ];
+
+        $shopee->shouldReceive('getTrackingNumber')
+            ->once()
+            ->with($store, 'ORDER-SHOPEE-1', 'PACKAGE-SHOPEE-1')
+            ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-SHOPEE-1']]);
+        $shopee->shouldReceive('getShippingDocumentParameter')
+            ->once()
+            ->with($store, [$baseOrder])
+            ->andReturn([
+                'error' => '',
+                'response' => ['result_list' => [[
+                    'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+                ]]],
+            ]);
+        $shopee->shouldReceive('createShippingDocument')
+            ->once()
+            ->with($store, [$createOrder])
+            ->andReturn(['error' => '']);
+        $shopee->shouldReceive('getShippingDocumentResult')
+            ->once()
+            ->with($store, [$documentOrder])
+            ->andReturn([
+                'error' => '',
+                'response' => ['result_list' => [['status' => 'READY']]],
+            ]);
+        $shopee->shouldReceive('downloadShippingDocument')
+            ->once()
+            ->with($store, [$documentOrder])
+            ->andReturn(new Response(new Psr7Response(200, [
+                'Content-Type' => 'application/pdf',
+            ], 'PDF-CONTENT')));
+
+        $label = $service->label($order);
+
+        $this->assertSame('binary', $label['type']);
+        $this->assertSame('PDF-CONTENT', $label['body']);
+        $this->assertSame('application/pdf', $label['content_type']);
+    }
+
+    public function test_shopee_platform_label_surfaces_the_per_order_failure(): void
+    {
+        $shopee = Mockery::mock(ShopeeService::class);
+        $service = new OrderFulfillmentService(
+            $shopee,
+            Mockery::mock(TiktokService::class),
+        );
+        $store = new Store(['shipping_label_template' => 'platform']);
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_status' => 'PROCESSED',
+            'order_sn' => 'ORDER-SHOPEE-FAILED',
+        ]);
+        $order->setRelation('store', $store);
+        $order->setRelation('packages', collect());
+        $order->setRelation('orderProducts', collect());
+
+        $baseOrder = ['order_sn' => 'ORDER-SHOPEE-FAILED'];
+        $documentOrder = $baseOrder + ['shipping_document_type' => 'NORMAL_AIR_WAYBILL'];
+        $createOrder = $documentOrder + ['tracking_number' => 'TRACK-FAILED'];
+
+        $shopee->shouldReceive('getTrackingNumber')
+            ->once()
+            ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-FAILED']]);
+        $shopee->shouldReceive('getShippingDocumentParameter')
+            ->once()
+            ->with($store, [$baseOrder])
+            ->andReturn([
+                'error' => '',
+                'response' => ['result_list' => [[
+                    'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+                ]]],
+            ]);
+        $shopee->shouldReceive('createShippingDocument')
+            ->once()
+            ->with($store, [$createOrder])
+            ->andReturn([
+                'error' => 'common.batch_api_all_failed',
+                'message' => 'All failed, please check result_list for detail',
+                'request_id' => 'REQUEST-1',
+                'response' => ['result_list' => [[
+                    'fail_error' => 'logistics.invalid_shipping_document_type',
+                    'fail_message' => 'Tipe dokumen tidak didukung oleh channel logistik ini.',
+                ]]],
+            ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Tipe dokumen tidak didukung oleh channel logistik ini. [logistics.invalid_shipping_document_type] (request REQUEST-1)');
+
+        $service->label($order);
     }
 }

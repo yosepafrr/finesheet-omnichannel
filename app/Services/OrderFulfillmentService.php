@@ -159,7 +159,18 @@ class OrderFulfillmentService
 
         $tracking = $this->shopee->getTrackingNumber($order->store, $order->order_sn, $packageNumber);
         $this->assertPlatformSuccess($tracking, 'Shopee');
-        $created = $this->shopee->createShippingDocument($order->store, [$documentOrder]);
+        $trackingNumber = $this->shopeeTrackingNumber($tracking);
+
+        $parameters = $this->shopee->getShippingDocumentParameter($order->store, [$documentOrder]);
+        $this->assertPlatformSuccess($parameters, 'Shopee');
+        $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType($parameters);
+
+        $createOrder = $documentOrder;
+        if ($trackingNumber !== '') {
+            $createOrder['tracking_number'] = $trackingNumber;
+        }
+
+        $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
         $this->assertPlatformSuccess($created, 'Shopee');
 
         for ($attempt = 0; $attempt < 6; $attempt++) {
@@ -267,6 +278,27 @@ class OrderFulfillmentService
             ->first(fn ($id) => $id && (string) $id !== (string) $order->order_sn) ?? '');
     }
 
+    private function shopeeTrackingNumber(array $response): string
+    {
+        return trim((string) (
+            data_get($response, 'response.tracking_number')
+            ?? data_get($response, 'response.tracking_no')
+            ?? data_get($response, 'response.tracking_info.tracking_number')
+            ?? data_get($response, 'response.tracking_info.tracking_no')
+            ?? ''
+        ));
+    }
+
+    private function shopeeShippingDocumentType(array $response): string
+    {
+        return trim((string) (
+            data_get($response, 'response.result_list.0.suggest_shipping_document_type')
+            ?? data_get($response, 'response.result_list.0.suggested_shipping_document_type')
+            ?? data_get($response, 'response.result_list.0.shipping_document_type')
+            ?? 'NORMAL_AIR_WAYBILL'
+        ));
+    }
+
     private function platform(Order $order): string
     {
         return strcasecmp((string) $order->platform, 'Shopee') === 0 ? 'Shopee' : 'Tiktokshop';
@@ -324,11 +356,24 @@ class OrderFulfillmentService
         $successful = $platform === 'Shopee'
             ? empty($response['error'])
             : (int) ($response['code'] ?? -1) === 0;
-        if ($successful) {
+        $itemFailure = $platform === 'Shopee'
+            ? collect(Arr::wrap(data_get($response, 'response.result_list', [])))
+                ->first(fn ($item) => filled(data_get($item, 'fail_error')) || filled(data_get($item, 'fail_message')))
+            : null;
+
+        if ($successful && ! $itemFailure) {
             return;
         }
 
-        $message = (string) ($response['message'] ?? $response['error'] ?? "{$platform} menolak permintaan.");
+        $itemError = trim((string) data_get($itemFailure, 'fail_error'));
+        $itemMessage = trim((string) data_get($itemFailure, 'fail_message'));
+        $message = $itemMessage !== '' ? $itemMessage : $itemError;
+        if ($itemMessage !== '' && $itemError !== '' && ! str_contains($itemMessage, $itemError)) {
+            $message .= " [{$itemError}]";
+        }
+        if ($message === '') {
+            $message = (string) ($response['message'] ?? $response['error'] ?? "{$platform} menolak permintaan.");
+        }
         $requestId = $response['request_id'] ?? null;
         if ($requestId) {
             $message .= " (request {$requestId})";

@@ -165,6 +165,47 @@ class ShopeeOrderApiTest extends TestCase
         });
     }
 
+    public function test_shipping_document_requests_put_the_document_type_inside_each_order(): void
+    {
+        Http::fake([
+            '*' => Http::response(['error' => '', 'response' => []]),
+        ]);
+
+        $service = app(ShopeeService::class);
+        $order = [
+            'order_sn' => 'ORDER-1',
+            'package_number' => 'PACKAGE-1',
+            'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+            'tracking_number' => 'TRACK-1',
+        ];
+
+        $service->createShippingDocument($this->store(), [$order]);
+
+        Http::assertSent(function (Request $request) use ($order) {
+            $body = $request->data();
+
+            return str_contains($request->url(), '/api/v2/logistics/create_shipping_document')
+                && ($body['order_list'][0] ?? null) === $order
+                && ! array_key_exists('shipping_document_type', $body);
+        });
+    }
+
+    public function test_shipping_document_parameter_requests_the_order_list(): void
+    {
+        Http::fake([
+            '*' => Http::response(['error' => '', 'response' => []]),
+        ]);
+
+        $order = ['order_sn' => 'ORDER-1', 'package_number' => 'PACKAGE-1'];
+
+        app(ShopeeService::class)->getShippingDocumentParameter($this->store(), [$order]);
+
+        Http::assertSent(function (Request $request) use ($order) {
+            return str_contains($request->url(), '/api/v2/logistics/get_shipping_document_parameter')
+                && ($request->data()['order_list'][0] ?? null) === $order;
+        });
+    }
+
     private function store(): Store
     {
         return new Store([
