@@ -60,6 +60,8 @@ class Order extends Model
                 'sale_escrow_sample_size',
                 'sale_escrow_ratio',
                 'fee_details',
+                'fulfillment_status',
+                'fulfillment_error',
             ]);
 
             if ($shouldBroadcastUpdate) {
@@ -101,6 +103,10 @@ class Order extends Model
         'stock_sync_deductions',
         'stock_sync_reverted_at',
         'stock_sync_shipped_at',
+        'fulfillment_status',
+        'fulfillment_error',
+        'fulfillment_requested_at',
+        'fulfillment_completed_at',
         'created_at',
         'updated_at',
     ];
@@ -124,6 +130,8 @@ class Order extends Model
         'stock_sync_reverted_at' => 'datetime',
         'stock_sync_shipped_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'fulfillment_requested_at' => 'datetime',
+        'fulfillment_completed_at' => 'datetime',
     ];
 
     public function product()

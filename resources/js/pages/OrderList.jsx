@@ -42,6 +42,8 @@ function formatRp(n) {
     return "Rp " + Number(n || 0).toLocaleString("id-ID");
 }
 
+const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
 function FulfillmentModal({ state, busy, onClose, onSubmit }) {
     if (!state) return null;
 
@@ -968,15 +970,64 @@ export default function OrderList() {
 
     const submitArrange = async () => {
         if (!fulfillmentModal?.orderIds?.length) return;
+        const orderIds = [...fulfillmentModal.orderIds];
         setFulfillmentBusy(true);
         try {
             const response = await axios.post("/api/orders/fulfillment/arrange", {
-                order_ids: fulfillmentModal.orderIds,
+                order_ids: orderIds,
             });
-            setFulfillmentNotice({ type: "success", message: response.data.message });
+            setFulfillmentNotice({ type: "success", message: `${response.data.message} Menunggu konfirmasi marketplace...` });
             setFulfillmentModal(null);
             setSelectedOrderIds([]);
-            setTimeout(() => fetchDataRef.current(true), 2500);
+            fetchDataRef.current(true);
+
+            void (async () => {
+                for (let attempt = 0; attempt < 30; attempt += 1) {
+                    await wait(2000);
+
+                    try {
+                        const { data: statusData } = await axios.get("/api/orders/fulfillment/status", {
+                            params: { order_ids: orderIds },
+                        });
+                        const statuses = statusData.orders || [];
+                        const failures = statuses.filter((item) => item.status === "failed");
+                        const pending = statuses.filter((item) => ["queued", "processing", "retrying"].includes(item.status));
+
+                        if (failures.length > 0) {
+                            setFulfillmentNotice({
+                                type: "error",
+                                message: failures.length === 1
+                                    ? (failures[0].error || "Pengaturan pengiriman ditolak marketplace.")
+                                    : `${failures.length} pesanan gagal diatur. ${failures[0].error || "Periksa kembali pengaturan toko."}`,
+                            });
+                            fetchDataRef.current(true);
+                            return;
+                        }
+
+                        if (pending.length === 0 && statuses.length === orderIds.length) {
+                            setFulfillmentNotice({
+                                type: "success",
+                                message: `${statuses.length} pengiriman berhasil diatur. Resi sekarang dapat dicetak.`,
+                            });
+                            fetchDataRef.current(true);
+                            return;
+                        }
+                    } catch (pollError) {
+                        if (attempt === 29) {
+                            setFulfillmentNotice({
+                                type: "warning",
+                                message: "Status pengiriman belum dapat dikonfirmasi. Proses tetap berjalan di latar belakang.",
+                            });
+                        }
+                    }
+                }
+
+                setFulfillmentNotice({
+                    type: "warning",
+                    message: "Marketplace belum memberi konfirmasi setelah 60 detik. Proses tetap dipantau di latar belakang.",
+                });
+                fetchDataRef.current(true);
+            })();
         } catch (error) {
             setFulfillmentModal((current) => ({
                 ...current,

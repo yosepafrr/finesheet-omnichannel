@@ -9,7 +9,10 @@ use App\Services\AccessControlService;
 use App\Services\OrderFulfillmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Throwable;
 
 class OrderFulfillmentController extends Controller
 {
@@ -42,6 +45,13 @@ class OrderFulfillmentController extends Controller
         }
 
         $selection = collect($validated)->except('order_ids')->filter(fn ($value) => $value !== null)->all();
+        Order::whereIn('id', $orders->pluck('id'))->update([
+            'fulfillment_status' => 'queued',
+            'fulfillment_error' => null,
+            'fulfillment_requested_at' => now(),
+            'fulfillment_completed_at' => null,
+        ]);
+
         foreach ($orders as $order) {
             ArrangeOrderShipmentJob::dispatch($order->id, $selection)->onQueue('orders');
         }
@@ -52,10 +62,52 @@ class OrderFulfillmentController extends Controller
         ], 202);
     }
 
+    public function status(Request $request, AccessControlService $access)
+    {
+        abort_unless($access->allows($request, 'orders.view'), 403);
+        $validated = $request->validate([
+            'order_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'order_ids.*' => ['integer'],
+        ]);
+
+        return response()->json([
+            'orders' => $this->ownedOrders($validated['order_ids'])->map(fn (Order $order) => [
+                'id' => $order->id,
+                'status' => $order->fulfillment_status,
+                'error' => $order->fulfillment_error,
+                'requested_at' => $order->fulfillment_requested_at?->toIso8601String(),
+                'completed_at' => $order->fulfillment_completed_at?->toIso8601String(),
+            ])->values(),
+        ]);
+    }
+
     public function label(Request $request, int $id, AccessControlService $access, OrderFulfillmentService $fulfillment)
     {
         abort_unless($access->allows($request, 'orders.print'), 403);
-        $result = $fulfillment->label($this->ownedOrder($id));
+        $order = $this->ownedOrder($id);
+
+        try {
+            $result = $fulfillment->label($order);
+        } catch (RuntimeException $exception) {
+            Log::warning('Shipping label could not be prepared', [
+                'order_id' => $order->id,
+                'order_sn' => $order->order_sn,
+                'platform' => $order->platform,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return response()->view('shipping-labels.error', [
+                'order' => $order,
+                'message' => $exception->getMessage(),
+            ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->view('shipping-labels.error', [
+                'order' => $order,
+                'message' => 'Dokumen resi belum dapat disiapkan. Coba kembali beberapa saat lagi.',
+            ], 503);
+        }
 
         if ($result['type'] === 'finesheet') {
             return response()

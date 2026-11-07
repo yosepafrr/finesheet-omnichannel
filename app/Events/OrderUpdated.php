@@ -66,6 +66,8 @@ class OrderUpdated implements ShouldBroadcastNow
             'order_status' => $this->order->order_status,
             'store_id' => $this->order->store_id,
             'user_id' => $this->resolveUserId(),
+            'fulfillment_status' => $this->order->fulfillment_status,
+            'fulfillment_error' => $this->order->fulfillment_error,
         ];
     }
 }

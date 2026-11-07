@@ -18,23 +18,33 @@ class OrderFulfillmentService
     {
         $platform = $this->platform($order);
         $status = strtoupper((string) $order->order_status);
-        $canArrange = ($platform === 'Shopee' && $status === 'READY_TO_SHIP')
-            || ($platform === 'Tiktokshop' && $status === 'AWAITING_SHIPMENT');
+        $processStatus = strtolower((string) $order->fulfillment_status);
+        $isProcessing = in_array($processStatus, ['queued', 'processing', 'retrying'], true);
+        $canArrange = ! $isProcessing && (
+            ($platform === 'Shopee' && $status === 'READY_TO_SHIP')
+            || ($platform === 'Tiktokshop' && $status === 'AWAITING_SHIPMENT')
+        );
         $canPrint = ($platform === 'Shopee' && in_array($status, ['PROCESSED', 'SHIPPED'], true))
             || ($platform === 'Tiktokshop' && in_array($status, ['AWAITING_COLLECTION', 'IN_TRANSIT', 'SHIPPED'], true));
 
         return [
             'can_arrange' => $canArrange,
             'can_print' => $canPrint,
-            'arrange_reason' => $canArrange ? null : 'Pesanan sudah diatur atau belum siap diproses.',
+            'arrange_reason' => $canArrange
+                ? null
+                : ($isProcessing ? 'Pengaturan pengiriman sedang diproses.' : 'Pesanan sudah diatur atau belum siap diproses.'),
             'print_reason' => $canPrint ? null : 'Resi tersedia setelah pengiriman berhasil diatur.',
+            'status' => $processStatus ?: null,
+            'error' => $order->fulfillment_error,
+            'requested_at' => $order->fulfillment_requested_at?->toIso8601String(),
+            'completed_at' => $order->fulfillment_completed_at?->toIso8601String(),
         ];
     }
 
     public function options(Order $order): array
     {
         $order->loadMissing('store');
-        $this->assertCapable($order, 'can_arrange');
+        $this->assertArrangeStatus($order);
         if ($this->platform($order) === 'Tiktokshop') {
             $defaultMethod = $this->configuredMethod($order) === 'dropoff' ? 'DROP_OFF' : 'PICKUP';
 
@@ -81,7 +91,7 @@ class OrderFulfillmentService
     public function arrange(Order $order, array $selection = []): void
     {
         $order->loadMissing(['store', 'packages']);
-        $this->assertCapable($order, 'can_arrange');
+        $this->assertArrangeStatus($order);
 
         if ($this->platform($order) === 'Tiktokshop') {
             $packageIds = $this->resolveTiktokPackageIds($order);
@@ -298,6 +308,17 @@ class OrderFulfillmentService
         }
     }
 
+    private function assertArrangeStatus(Order $order): void
+    {
+        $status = strtoupper((string) $order->order_status);
+        $allowed = ($this->platform($order) === 'Shopee' && $status === 'READY_TO_SHIP')
+            || ($this->platform($order) === 'Tiktokshop' && $status === 'AWAITING_SHIPMENT');
+
+        if (! $allowed) {
+            throw new RuntimeException('Pesanan sudah diatur atau belum siap diproses.');
+        }
+    }
+
     private function assertPlatformSuccess(array $response, string $platform): void
     {
         $successful = $platform === 'Shopee'
@@ -307,6 +328,12 @@ class OrderFulfillmentService
             return;
         }
 
-        throw new RuntimeException((string) ($response['message'] ?? $response['error'] ?? "{$platform} menolak permintaan."));
+        $message = (string) ($response['message'] ?? $response['error'] ?? "{$platform} menolak permintaan.");
+        $requestId = $response['request_id'] ?? null;
+        if ($requestId) {
+            $message .= " (request {$requestId})";
+        }
+
+        throw new RuntimeException($message);
     }
 }

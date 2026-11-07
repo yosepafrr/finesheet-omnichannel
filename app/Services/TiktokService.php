@@ -559,7 +559,9 @@ class TiktokService
         return $this->authorizedRequest(
             $store,
             'GET',
-            "/fulfillment/202309/packages/{$packageId}/shipping_documents"
+            "/fulfillment/202309/packages/{$packageId}/shipping_documents",
+            [],
+            ['document_type' => 'SHIPPING_LABEL']
         );
     }
 
