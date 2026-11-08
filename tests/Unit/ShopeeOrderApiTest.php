@@ -38,6 +38,7 @@ class ShopeeOrderApiTest extends TestCase
                 && in_array('item_list', $fields, true)
                 && in_array('recipient_address', $fields, true)
                 && in_array('package_list', $fields, true)
+                && in_array('split_up', $fields, true)
                 && in_array('shipping_carrier', $fields, true)
                 && in_array('total_amount', $fields, true);
         });
@@ -204,6 +205,28 @@ class ShopeeOrderApiTest extends TestCase
             return str_contains($request->url(), '/api/v2/logistics/get_shipping_document_parameter')
                 && ($request->data()['order_list'][0] ?? null) === $order;
         });
+    }
+
+    public function test_unsplit_shipping_requests_omit_the_package_and_encode_empty_dropoff_as_an_object(): void
+    {
+        Http::fake(['*' => Http::response(['error' => '', 'response' => []])]);
+        $service = app(ShopeeService::class);
+        $service->getShippingParameter($this->store(), 'ORDER-1');
+        $service->shipOrder($this->store(), 'ORDER-1', ['dropoff' => (object) []]);
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_contains($request->url(), '/api/v2/logistics/get_shipping_parameter')
+                && ($query['order_sn'] ?? null) === 'ORDER-1'
+                && ! array_key_exists('package_number', $query);
+        });
+        Http::assertSent(function (Request $request) {
+            return str_contains($request->url(), '/api/v2/logistics/ship_order')
+                && json_decode($request->body(), true) === ['order_sn' => 'ORDER-1', 'dropoff' => []]
+                && str_contains($request->body(), '"dropoff":{}');
+        });
+        Http::assertSentCount(2);
     }
 
     private function store(): Store

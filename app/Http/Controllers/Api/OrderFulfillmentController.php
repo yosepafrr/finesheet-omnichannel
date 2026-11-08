@@ -53,7 +53,7 @@ class OrderFulfillmentController extends Controller
         ]);
 
         foreach ($orders as $order) {
-            ArrangeOrderShipmentJob::dispatch($order->id, $selection)->onQueue('orders');
+            ArrangeOrderShipmentJob::dispatch($order->id, $selection);
         }
 
         return response()->json([

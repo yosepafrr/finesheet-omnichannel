@@ -11,12 +11,21 @@ use App\Services\TiktokService;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\Response;
 use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
 class OrderFulfillmentServiceTest extends TestCase
 {
     private OrderFulfillmentService $service;
+
+    public static function shopeePackageStates(): array
+    {
+        return [
+            'unsplit with a stored package' => [false, ''],
+            'split order' => [true, 'PACKAGE-SHOPEE-1'],
+        ];
+    }
 
     protected function setUp(): void
     {
@@ -180,7 +189,8 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('https://example.test/label.pdf', $label['url']);
     }
 
-    public function test_shopee_platform_label_uses_the_document_parameters_and_tracking_number(): void
+    #[DataProvider('shopeePackageStates')]
+    public function test_shopee_platform_label_uses_the_document_parameters_and_tracking_number(bool $split, string $packageNumber): void
     {
         $shopee = Mockery::mock(ShopeeService::class);
         $service = new OrderFulfillmentService(
@@ -192,6 +202,7 @@ class OrderFulfillmentServiceTest extends TestCase
             'platform' => 'Shopee',
             'order_status' => 'PROCESSED',
             'order_sn' => 'ORDER-SHOPEE-1',
+            'raw_data' => ['split_up' => $split],
         ]);
         $order->setRelation('store', $store);
         $order->setRelation('packages', collect([
@@ -201,8 +212,10 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $baseOrder = [
             'order_sn' => 'ORDER-SHOPEE-1',
-            'package_number' => 'PACKAGE-SHOPEE-1',
         ];
+        if ($packageNumber !== '') {
+            $baseOrder['package_number'] = $packageNumber;
+        }
         $documentOrder = $baseOrder + [
             'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
         ];
@@ -212,7 +225,7 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $shopee->shouldReceive('getTrackingNumber')
             ->once()
-            ->with($store, 'ORDER-SHOPEE-1', 'PACKAGE-SHOPEE-1')
+            ->with($store, 'ORDER-SHOPEE-1', $packageNumber)
             ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-SHOPEE-1']]);
         $shopee->shouldReceive('getShippingDocumentParameter')
             ->once()
@@ -260,6 +273,7 @@ class OrderFulfillmentServiceTest extends TestCase
             'platform' => 'Shopee',
             'order_status' => 'PROCESSED',
             'order_sn' => 'ORDER-SHOPEE-FAILED',
+            'raw_data' => ['split_up' => false],
         ]);
         $order->setRelation('store', $store);
         $order->setRelation('packages', collect());

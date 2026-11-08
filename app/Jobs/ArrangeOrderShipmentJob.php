@@ -26,7 +26,9 @@ class ArrangeOrderShipmentJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         public readonly int $orderId,
         public readonly array $selection = [],
-    ) {}
+    ) {
+        $this->onQueue('fulfillment');
+    }
 
     public function handle(OrderFulfillmentService $fulfillment): void
     {

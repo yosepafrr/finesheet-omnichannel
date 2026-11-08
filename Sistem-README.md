@@ -6,10 +6,21 @@
 - php artisan schedule:work
 <!-- - php artisan job -->
 - php artisan queue:work --queue=orders,orders-low
+- php artisan queue:work --queue=fulfillment --sleep=1 --timeout=180 --tries=3
 - php artisan queue:work --queue=logistics
 - php artisan queue:work --queue=products
 - php artisan reverb:start
 - php artisan serve
+
+### Worker pengiriman di server
+
+Pengaturan pengiriman menggunakan antrean `fulfillment` dengan worker khusus agar
+tidak menunggu impor pesanan baru atau sinkronisasi riwayat. Saat deploy, pasang
+`deploy/supervisor/finesheet-queue-fulfillment.conf` ke konfigurasi Supervisor server
+(sesuaikan path aplikasi bila diperlukan), lalu jalankan `supervisorctl reread`,
+`supervisorctl update`, dan `php artisan queue:restart`. Pastikan worker
+`finesheet-queue-fulfillment` berstatus RUNNING sebelum menerima pengiriman baru.
+Job pengiriman yang sudah terlanjur masuk antrean `orders` tetap diselesaikan worker lama.
 
 ### Perbaikan data escrow TikTok lama
 - php artisan sync:tiktok-escrow --days=180

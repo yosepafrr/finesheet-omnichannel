@@ -43,7 +43,7 @@ class OrderFulfillmentService
 
     public function options(Order $order): array
     {
-        $order->loadMissing('store');
+        $order->loadMissing(['store', 'packages']);
         $this->assertArrangeStatus($order);
         if ($this->platform($order) === 'Tiktokshop') {
             $defaultMethod = $this->configuredMethod($order) === 'dropoff' ? 'DROP_OFF' : 'PICKUP';
@@ -62,13 +62,14 @@ class OrderFulfillmentService
         $packageNumber = $this->shopeePackageNumber($order);
         $response = $this->shopee->getShippingParameter($order->store, $order->order_sn, $packageNumber);
         $this->assertPlatformSuccess($response, 'Shopee');
-        $info = data_get($response, 'response.info_needed', []);
+        $info = data_get($response, 'response.info_needed') ?? [];
         $methods = [];
 
-        if (! empty($info['pickup'])) {
+        // An empty requirements list still means the method is supported.
+        if (array_key_exists('pickup', $info)) {
             $methods[] = ['id' => 'pickup', 'label' => 'Pickup kurir'];
         }
-        if (! empty($info['dropoff'])) {
+        if (array_key_exists('dropoff', $info)) {
             $methods[] = ['id' => 'dropoff', 'label' => 'Antar ke gerai'];
         }
 
@@ -83,6 +84,7 @@ class OrderFulfillmentService
             'methods' => $methods,
             'default_method' => $defaultMethod,
             'configured_method' => $configuredMethod,
+            'info_needed' => $info,
             'pickup' => data_get($response, 'response.pickup', []),
             'dropoff' => data_get($response, 'response.dropoff', []),
         ];
@@ -204,34 +206,56 @@ class OrderFulfillmentService
     private function buildShopeeShipment(array $options, string $method, array $selection): array
     {
         if ($method === 'pickup') {
+            $required = Arr::wrap(data_get($options, 'info_needed.pickup', []));
             $addresses = Arr::wrap(data_get($options, 'pickup.address_list', []));
             $address = collect($addresses)->firstWhere('address_id', $selection['address_id'] ?? null)
                 ?? $addresses[0] ?? null;
             $slots = Arr::wrap(data_get($address, 'time_slot_list', []));
             $slot = collect($slots)->firstWhere('pickup_time_id', $selection['pickup_time_id'] ?? null)
                 ?? $slots[0] ?? null;
-            if (! $address || ! $slot) {
+            if ((in_array('address_id', $required, true) && ! isset($address['address_id']))
+                || (in_array('pickup_time_id', $required, true) && ! isset($slot['pickup_time_id']))) {
                 throw new RuntimeException('Alamat atau jadwal pickup Shopee tidak tersedia.');
             }
 
-            return ['pickup' => [
-                'address_id' => (int) $address['address_id'],
-                'pickup_time_id' => (string) $slot['pickup_time_id'],
-            ]];
+            $pickup = [];
+            if (isset($address['address_id'])) {
+                $pickup['address_id'] = (int) $address['address_id'];
+            }
+            if (isset($slot['pickup_time_id'])) {
+                $pickup['pickup_time_id'] = (string) $slot['pickup_time_id'];
+            }
+            $this->assertShopeeRequiredFields($required, $pickup);
+
+            return ['pickup' => $pickup === [] ? (object) [] : $pickup];
         }
 
         if ($method === 'dropoff') {
-            $dropoff = ['sender_real_name' => (string) ($selection['sender_real_name'] ?? 'Seller')];
+            $required = Arr::wrap(data_get($options, 'info_needed.dropoff', []));
+            $dropoff = [];
+            if (in_array('sender_real_name', $required, true)) {
+                $dropoff['sender_real_name'] = (string) ($selection['sender_real_name'] ?? 'Seller');
+            }
             $branches = Arr::wrap(data_get($options, 'dropoff.branch_list', []));
             $branchId = $selection['branch_id'] ?? data_get($branches, '0.branch_id');
-            if ($branchId) {
+            if ($branchId && in_array('branch_id', $required, true)) {
                 $dropoff['branch_id'] = (int) $branchId;
             }
+            $this->assertShopeeRequiredFields($required, $dropoff);
 
-            return ['dropoff' => $dropoff];
+            return ['dropoff' => $dropoff === [] ? (object) [] : $dropoff];
         }
 
         throw new RuntimeException('Metode pengiriman tidak tersedia untuk pesanan ini.');
+    }
+
+    private function assertShopeeRequiredFields(array $required, array $payload): void
+    {
+        foreach ($required as $field) {
+            if (! isset($payload[$field]) || $payload[$field] === '') {
+                throw new RuntimeException("Shopee memerlukan {$field} untuk pengiriman pesanan ini.");
+            }
+        }
     }
 
     private function resolveTiktokPackageIds(Order $order): array
@@ -273,9 +297,39 @@ class OrderFulfillmentService
 
     private function shopeePackageNumber(Order $order): string
     {
-        return (string) ($order->packages
+        $raw = $order->raw_data ?? [];
+        if (! array_key_exists('split_up', $raw)) {
+            // Resolve incomplete/legacy orders directly instead of waiting for
+            // a potentially large background import to reach this order.
+            $response = $this->shopee->getOrderDetails($order->store, [$order->order_sn]);
+            $this->assertPlatformSuccess($response, 'Shopee');
+            $detail = collect(data_get($response, 'response.order_list', []))
+                ->firstWhere('order_sn', $order->order_sn);
+            if (! is_array($detail) || ! array_key_exists('split_up', $detail)) {
+                throw new RuntimeException('Status paket Shopee belum tersedia. Coba proses pengiriman kembali.');
+            }
+            $raw = array_replace($raw, $detail);
+            $order->raw_data = $raw;
+        }
+
+        // Shopee also returns package_list for unsplit orders. Its presence
+        // alone does not allow package_number on logistics requests.
+        if (! filter_var($raw['split_up'], FILTER_VALIDATE_BOOLEAN)) {
+            return '';
+        }
+
+        $packageNumber = collect($raw['package_list'] ?? [])->pluck('package_number')
+            ->first(fn ($id) => $id && (string) $id !== (string) $order->order_sn);
+
+        $packageNumber = (string) ($packageNumber ?? $order->packages
             ->pluck('package_id')
             ->first(fn ($id) => $id && (string) $id !== (string) $order->order_sn) ?? '');
+
+        if ($packageNumber === '') {
+            throw new RuntimeException('Nomor paket split Shopee belum tersedia. Sinkronkan pesanan terlebih dahulu.');
+        }
+
+        return $packageNumber;
     }
 
     private function shopeeTrackingNumber(array $response): string
