@@ -107,6 +107,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::get('/orders/fulfillment/status', [OrderFulfillmentController::class, 'status']);
         Route::get('/orders/{id}/shipping-label', [OrderFulfillmentController::class, 'label']);
         Route::get('/fulfillment-settings', [FulfillmentSettingController::class, 'index']);
+        Route::put('/fulfillment-settings/stores', [FulfillmentSettingController::class, 'bulkUpdate']);
         Route::put('/fulfillment-settings/stores/{storeId}', [FulfillmentSettingController::class, 'update']);
         Route::get('/orders/{id}', [OrderController::class, 'show']);
         Route::get('/sync/orders/status', [OrderSyncController::class, 'status']);

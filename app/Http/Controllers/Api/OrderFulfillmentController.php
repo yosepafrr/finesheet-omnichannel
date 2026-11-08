@@ -114,6 +114,7 @@ class OrderFulfillmentController extends Controller
                 ->view('shipping-labels.finesheet', [
                     'order' => $result['order'],
                     'shipping' => $result['shipping'],
+                    'printing' => $result['printing'],
                 ])
                 ->header('Cache-Control', 'private, no-store');
         }

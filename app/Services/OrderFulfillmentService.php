@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderPackage;
+use App\Models\Store;
 use Illuminate\Support\Arr;
 use RuntimeException;
 
@@ -133,6 +134,7 @@ class OrderFulfillmentService
                 'type' => 'finesheet',
                 'order' => $order,
                 'shipping' => $this->shippingLabelData($order),
+                'printing' => $this->printingSettings($order->store),
             ];
         }
 
@@ -141,7 +143,11 @@ class OrderFulfillmentService
             if (! $packageId) {
                 throw new RuntimeException('Package ID TikTok Shop belum tersedia. Sinkronkan pesanan terlebih dahulu.');
             }
-            $response = $this->tiktok->getPackageShippingDocument($order->store, $packageId);
+            $response = $this->tiktok->getPackageShippingDocument(
+                $order->store,
+                $packageId,
+                strtoupper((string) ($order->store?->shipping_label_size ?? 'a6')),
+            );
             $this->assertPlatformSuccess($response, 'TikTok Shop');
             $url = data_get($response, 'data.doc_url')
                 ?? data_get($response, 'data.document_url')
@@ -165,7 +171,10 @@ class OrderFulfillmentService
 
         $parameters = $this->shopee->getShippingDocumentParameter($order->store, [$documentOrder]);
         $this->assertPlatformSuccess($parameters, 'Shopee');
-        $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType($parameters);
+        $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType(
+            $parameters,
+            (string) ($order->store?->shipping_label_size ?? 'a6'),
+        );
 
         $createOrder = $documentOrder;
         if ($trackingNumber !== '') {
@@ -343,14 +352,53 @@ class OrderFulfillmentService
         ));
     }
 
-    private function shopeeShippingDocumentType(array $response): string
+    private function shopeeShippingDocumentType(array $response, string $preferredSize = 'a6'): string
     {
-        return trim((string) (
+        $suggested = trim((string) (
             data_get($response, 'response.result_list.0.suggest_shipping_document_type')
             ?? data_get($response, 'response.result_list.0.suggested_shipping_document_type')
             ?? data_get($response, 'response.result_list.0.shipping_document_type')
             ?? 'NORMAL_AIR_WAYBILL'
         ));
+
+        $selectable = data_get($response, 'response.result_list.0.selectable_shipping_document_type')
+            ?? data_get($response, 'response.result_list.0.selectable_shipping_document_type_list')
+            ?? [];
+        if (is_string($selectable)) {
+            $selectable = [$selectable];
+        }
+        if (! is_array($selectable) || $selectable === []) {
+            return $suggested;
+        }
+
+        $selectable = collect($selectable)
+            ->map(fn ($type) => trim((string) (is_array($type)
+                ? ($type['shipping_document_type'] ?? $type['document_type'] ?? '')
+                : $type)))
+            ->filter()
+            ->values();
+        $wantsThermal = strtolower($preferredSize) === 'a6';
+        $preferred = $selectable->first(function (string $type) use ($wantsThermal) {
+            $isThermal = str_contains(strtoupper($type), 'THERMAL');
+
+            return $wantsThermal ? $isThermal : ! $isThermal;
+        });
+
+        return $preferred ?: ($selectable->contains($suggested) ? $suggested : $selectable->first());
+    }
+
+    private function printingSettings(?Store $store): array
+    {
+        return [
+            'print_shipping_label' => (bool) ($store?->print_shipping_label ?? true),
+            'print_packing_list' => (bool) ($store?->print_packing_list ?? false),
+            'print_pick_list' => (bool) ($store?->print_pick_list ?? false),
+            'shipping_label_size' => $store?->shipping_label_size ?? 'a6',
+            'packing_list_size' => $store?->packing_list_size ?? 'a6',
+            'pick_list_size' => $store?->pick_list_size ?? 'a4',
+            'printing_layout' => $store?->printing_layout ?? 'separate',
+            'printing_file_format' => 'pdf',
+        ];
     }
 
     private function platform(Order $order): string

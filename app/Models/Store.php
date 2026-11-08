@@ -17,7 +17,21 @@ class Store extends Model
         'platform_shop_id',
         'fulfillment_handover_method',
         'shipping_label_template',
+        'print_shipping_label',
+        'print_packing_list',
+        'print_pick_list',
+        'shipping_label_size',
+        'packing_list_size',
+        'pick_list_size',
+        'printing_layout',
+        'printing_file_format',
         'user_id',
+    ];
+
+    protected $casts = [
+        'print_shipping_label' => 'boolean',
+        'print_packing_list' => 'boolean',
+        'print_pick_list' => 'boolean',
     ];
 
     public function user()

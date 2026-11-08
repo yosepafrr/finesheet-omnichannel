@@ -554,14 +554,19 @@ class TiktokService
         );
     }
 
-    public function getPackageShippingDocument(Store $store, string $packageId): array
+    public function getPackageShippingDocument(Store $store, string $packageId, string $documentSize = 'A6'): array
     {
+        $documentSize = strtoupper($documentSize) === 'A4' ? 'A4' : 'A6';
+
         return $this->authorizedRequest(
             $store,
             'GET',
             "/fulfillment/202309/packages/{$packageId}/shipping_documents",
             [],
-            ['document_type' => 'SHIPPING_LABEL']
+            [
+                'document_type' => 'SHIPPING_LABEL',
+                'document_size' => $documentSize,
+            ]
         );
     }
 

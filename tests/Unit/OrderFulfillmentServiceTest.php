@@ -168,6 +168,8 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('finesheet', $label['type']);
         $this->assertSame('TRACK-1', $label['shipping']['tracking_number']);
         $this->assertSame('Penerima', $label['shipping']['recipient_name']);
+        $this->assertTrue($label['printing']['print_shipping_label']);
+        $this->assertSame('a6', $label['printing']['shipping_label_size']);
     }
 
     public function test_tiktok_platform_label_redirects_to_the_shipping_document(): void
@@ -191,7 +193,7 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $tiktok->shouldReceive('getPackageShippingDocument')
             ->once()
-            ->with($store, 'PACKAGE-2')
+            ->with($store, 'PACKAGE-2', 'A6')
             ->andReturn([
                 'code' => 0,
                 'data' => ['doc_url' => 'https://example.test/label.pdf'],
