@@ -82,7 +82,7 @@ function FulfillmentModal({ state, busy, onClose, onSubmit }) {
     );
 }
 
-function FulfillmentRowActions({ order, canArrange, canPrint, onArrange, onPrint, onPrintUnavailable, compact = false }) {
+function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings, onArrange, onPrint, compact = false }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const menuButtonRef = useRef(null);
@@ -124,19 +124,13 @@ function FulfillmentRowActions({ order, canArrange, canPrint, onArrange, onPrint
         setMenuOpen((open) => !open);
     };
 
-    const handlePrint = (event) => {
+    const handleSettings = (event) => {
         event.stopPropagation();
         setMenuOpen(false);
-        if (printAvailable) {
-            onPrint(order.id);
-            return;
-        }
-
-        onPrintUnavailable(
-            order.fulfillment?.print_reason
-                || `Resi pesanan ${order.order_sn} belum tersedia. Atur pengiriman terlebih dahulu.`,
-        );
+        window.location.hash = "#/fulfillment-settings";
     };
+
+    if (!arrangeAvailable && !printAvailable) return null;
 
     return (
         <div
@@ -146,51 +140,64 @@ function FulfillmentRowActions({ order, canArrange, canPrint, onArrange, onPrint
             }`}
             onClick={(event) => event.stopPropagation()}
         >
-            <button
-                type="button"
-                disabled={!arrangeAvailable}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onArrange(order.id);
-                }}
-                title={arrangeAvailable ? "Atur pengiriman" : (order.fulfillment?.arrange_reason || "Pengiriman tidak perlu diatur lagi")}
-                className={`group inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none dark:disabled:border-slate-700 dark:disabled:bg-slate-700 ${compact ? "flex-1" : ""}`}
-            >
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/12 transition group-hover:bg-white/16">
-                    <span className="material-symbols-rounded text-[17px]">local_shipping</span>
-                </span>
-                Atur pengiriman
-            </button>
-            <button
-                ref={menuButtonRef}
-                type="button"
-                onClick={toggleMenu}
-                aria-label={`Opsi pengiriman ${order.order_sn}`}
-                aria-expanded={menuOpen}
-                title="Opsi lainnya"
-                className={`flex min-h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#304674]/20 ${menuOpen ? "border-[#304674]/30 bg-[#304674]/10 text-[#304674] dark:bg-blue-400/15 dark:text-blue-200" : "border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#304674]/30 hover:bg-[#304674]/5 hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/10 dark:hover:text-blue-200"}`}
-            >
-                <span className="material-symbols-rounded text-[20px]">more_horiz</span>
-            </button>
+            {arrangeAvailable ? (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onArrange(order.id);
+                    }}
+                    title="Atur pengiriman"
+                    className={`group inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 ${compact ? "flex-1" : ""}`}
+                >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/12 transition group-hover:bg-white/16">
+                        <span className="material-symbols-rounded text-[17px]">local_shipping</span>
+                    </span>
+                    Atur pengiriman
+                </button>
+            ) : (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onPrint(order.id);
+                    }}
+                    title="Cetak resi"
+                    className={`group inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 ${compact ? "flex-1" : ""}`}
+                >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/12 transition group-hover:bg-white/16">
+                        <span className="material-symbols-rounded text-[17px]">print</span>
+                    </span>
+                    Cetak resi
+                </button>
+            )}
+            {canManageSettings && (
+                <button
+                    ref={menuButtonRef}
+                    type="button"
+                    onClick={toggleMenu}
+                    aria-label={`Opsi pengiriman ${order.order_sn}`}
+                    aria-expanded={menuOpen}
+                    title="Opsi lainnya"
+                    className={`flex min-h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#304674]/20 ${menuOpen ? "border-[#304674]/30 bg-[#304674]/10 text-[#304674] dark:bg-blue-400/15 dark:text-blue-200" : "border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#304674]/30 hover:bg-[#304674]/5 hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/10 dark:hover:text-blue-200"}`}
+                >
+                    <span className="material-symbols-rounded text-[20px]">more_horiz</span>
+                </button>
+            )}
 
-            {menuOpen && typeof document !== "undefined" && createPortal(
+            {canManageSettings && menuOpen && typeof document !== "undefined" && createPortal(
                 <div
                     ref={menuRef}
                     role="menu"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
                     className="fixed z-[520] w-52 overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)] dark:border-slate-600 dark:bg-slate-800"
                 >
-                    {canPrint ? (
-                        <button type="button" role="menuitem" onClick={handlePrint} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
-                                <span className="material-symbols-rounded text-[18px]">print</span>
-                            </span>
-                            <span className="flex-1">Cetak resi</span>
-                            {!printAvailable && <span className="material-symbols-rounded text-[17px] text-amber-500" title="Atur pengiriman terlebih dahulu">warning</span>}
-                        </button>
-                    ) : (
-                        <p className="px-3 py-2 text-xs text-slate-400">Tidak ada opsi lain.</p>
-                    )}
+                    <button type="button" role="menuitem" onClick={handleSettings} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
+                            <span className="material-symbols-rounded text-[18px]">tune</span>
+                        </span>
+                        <span className="flex-1">Pengaturan pengiriman</span>
+                    </button>
                 </div>,
                 document.body,
             )}
@@ -224,6 +231,7 @@ const STATUS_CONFIG_TIKTOK = {
 
 const FILTER_GROUPS = [
     { id: "semua", label: "Semua", statuses: [] },
+    { id: "belum_bayar", label: "Belum Bayar", statuses: ["UNPAID"] },
     { id: "perlu_dikirim", label: "Perlu Dikirim", statuses: ["READY_TO_SHIP", "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "PROCESSED"] },
     { id: "dikirim", label: "Dikirim", statuses: ["SHIPPED", "IN_TRANSIT", "DELIVERED", "TO_CONFIRM_RECEIVE"] },
     { id: "selesai", label: "Selesai", statuses: ["COMPLETED"] },
@@ -476,6 +484,7 @@ export default function OrderList() {
     const canSyncOrders = access.can("orders.sync");
     const canArrangeShipping = access.can("orders.ship");
     const canPrintLabels = access.can("orders.print");
+    const canManageFulfillmentSettings = access.can("fulfillment.settings.manage");
     const hasFulfillmentTools = canArrangeShipping || canPrintLabels;
     const savedStateRef = useRef(getSavedOrderListState());
     const initialSaved = savedStateRef.current;
@@ -1263,7 +1272,7 @@ export default function OrderList() {
                                                 }`}
                                         >
                                             {group.label}
-                                            {count > 0 && (group.id === "perlu_dikirim" || group.id === "dikirim" || group.id === "gagal_kirim") && (
+                                            {count > 0 && (group.id === "belum_bayar" || group.id === "perlu_dikirim" || group.id === "dikirim" || group.id === "gagal_kirim") && (
                                                 <span
                                                     className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${isActive
                                                         ? "bg-[#304674] text-white dark:bg-blue-500"
@@ -1614,7 +1623,7 @@ export default function OrderList() {
                                             <thead className="bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500 font-medium text-xs uppercase border-b border-gray-100 dark:border-slate-700">
                                                 <tr>
                                                     <th className="px-6 py-4 w-12">
-                                                        {hasFulfillmentTools && (
+                                                        {hasFulfillmentTools && eligibleOrders.length > 0 && (
                                                             <input
                                                                 type="checkbox"
                                                                 checked={allEligibleSelected}
@@ -1658,7 +1667,7 @@ export default function OrderList() {
                                                                 className="relative hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                                                             >
                                                                 <td className="px-6 py-4 align-top">
-                                                                    {hasFulfillmentTools && (
+                                                                    {hasFulfillmentTools && canSelectForFulfillment(order) && (
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={selectedOrderIds.includes(order.id)}
@@ -1825,15 +1834,15 @@ export default function OrderList() {
                                                                     ) : (
                                                                         <span className="text-xs text-gray-400 italic">Informasi logistik belum tersedia</span>
                                                                     )}
-                                                                    {hasFulfillmentTools && (
+                                                                    {hasFulfillmentTools && canSelectForFulfillment(order) && (
                                                                     <div className="absolute right-4 top-1/2 z-20 -translate-y-1/2">
                                                                         <FulfillmentRowActions
                                                                             order={order}
                                                                             canArrange={canArrangeShipping}
                                                                             canPrint={canPrintLabels}
+                                                                            canManageSettings={canManageFulfillmentSettings}
                                                                             onArrange={(id) => beginArrange([id])}
                                                                             onPrint={(id) => printLabels([id])}
-                                                                            onPrintUnavailable={(message) => setFulfillmentNotice({ type: "warning", message })}
                                                                         />
                                                                     </div>
                                                                     )}
@@ -1989,7 +1998,7 @@ export default function OrderList() {
                                                     className="tour-order-mobile-card bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-slate-700 relative cursor-pointer"
                                                 >
                                                     <div className="flex justify-between items-start mb-3 gap-2">
-                                                        {hasFulfillmentTools && (
+                                                        {hasFulfillmentTools && canSelectForFulfillment(order) && (
                                                             <input
                                                                 type="checkbox"
                                                                 checked={selectedOrderIds.includes(order.id)}
@@ -2118,15 +2127,15 @@ export default function OrderList() {
                                                         <HppWarning className="mb-3" />
                                                     )}
 
-                                                    {hasFulfillmentTools && (
+                                                    {hasFulfillmentTools && canSelectForFulfillment(order) && (
                                                         <div className="mb-3">
                                                             <FulfillmentRowActions
                                                                 order={order}
                                                                 canArrange={canArrangeShipping}
                                                                 canPrint={canPrintLabels}
+                                                                canManageSettings={canManageFulfillmentSettings}
                                                                 onArrange={(id) => beginArrange([id])}
                                                                 onPrint={(id) => printLabels([id])}
-                                                                onPrintUnavailable={(message) => setFulfillmentNotice({ type: "warning", message })}
                                                                 compact
                                                             />
                                                         </div>
@@ -2367,7 +2376,7 @@ export default function OrderList() {
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-                                        {canArrangeShipping && (
+                                        {selectedArrangeIds.length > 0 && (
                                             <button
                                                 type="button"
                                                 disabled={!selectedArrangeIds.length}
@@ -2378,7 +2387,7 @@ export default function OrderList() {
                                                 Atur kirim{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
                                             </button>
                                         )}
-                                        {canPrintLabels && (
+                                        {selectedPrintIds.length > 0 && (
                                             <button
                                                 type="button"
                                                 disabled={!selectedPrintIds.length}

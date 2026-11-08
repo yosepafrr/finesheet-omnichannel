@@ -13,6 +13,32 @@ class OrderListFilterTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_unpaid_filter_returns_only_unpaid_orders_and_exposes_its_count(): void
+    {
+        $user = User::factory()->create();
+        $shopee = $this->createStore($user, 'Shopee', 'Shopee Utama', 'shop-unpaid-1');
+        $tiktok = $this->createStore($user, 'Tiktokshop', 'TikTok Utama', 'shop-unpaid-2');
+
+        $this->createOrder($shopee, 'SHOPEE-UNPAID', 'UNPAID', now()->subMinute());
+        $this->createOrder($tiktok, 'TIKTOK-UNPAID', 'UNPAID', now());
+        $this->createOrder($shopee, 'SHOPEE-READY', 'READY_TO_SHIP', now()->subMinutes(2));
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=UNPAID')
+            ->assertOk()
+            ->assertJsonPath('status_counts.UNPAID', 2)
+            ->assertJsonCount(2, 'orders')
+            ->assertJsonPath('orders.0.order_sn', 'TIKTOK-UNPAID')
+            ->assertJsonPath('orders.1.order_sn', 'SHOPEE-UNPAID');
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?platform=Shopee&statuses=UNPAID')
+            ->assertOk()
+            ->assertJsonPath('status_counts.UNPAID', 1)
+            ->assertJsonCount(1, 'orders')
+            ->assertJsonPath('orders.0.order_sn', 'SHOPEE-UNPAID');
+    }
+
     public function test_shipping_process_filter_normalizes_shopee_and_tiktok_statuses(): void
     {
         $user = User::factory()->create();

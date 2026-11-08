@@ -24,8 +24,8 @@ class OrderFulfillmentService
             ($platform === 'Shopee' && $status === 'READY_TO_SHIP')
             || ($platform === 'Tiktokshop' && $status === 'AWAITING_SHIPMENT')
         );
-        $canPrint = ($platform === 'Shopee' && in_array($status, ['PROCESSED', 'SHIPPED'], true))
-            || ($platform === 'Tiktokshop' && in_array($status, ['AWAITING_COLLECTION', 'IN_TRANSIT', 'SHIPPED'], true));
+        $canPrint = ($platform === 'Shopee' && $status === 'PROCESSED')
+            || ($platform === 'Tiktokshop' && $status === 'AWAITING_COLLECTION');
 
         return [
             'can_arrange' => $canArrange,

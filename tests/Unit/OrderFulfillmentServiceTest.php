@@ -59,6 +59,20 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertTrue($capabilities['can_print']);
     }
 
+    public function test_shipped_orders_do_not_offer_fulfillment_actions(): void
+    {
+        foreach ([
+            ['platform' => 'Shopee', 'order_status' => 'SHIPPED'],
+            ['platform' => 'Tiktokshop', 'order_status' => 'IN_TRANSIT'],
+            ['platform' => 'Tiktokshop', 'order_status' => 'SHIPPED'],
+        ] as $attributes) {
+            $capabilities = $this->service->capabilities(new Order($attributes));
+
+            $this->assertFalse($capabilities['can_arrange']);
+            $this->assertFalse($capabilities['can_print']);
+        }
+    }
+
     public function test_tiktok_awaiting_shipment_can_be_arranged_but_not_printed(): void
     {
         $capabilities = $this->service->capabilities(new Order([
