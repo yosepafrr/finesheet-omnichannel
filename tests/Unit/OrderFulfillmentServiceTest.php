@@ -22,8 +22,8 @@ class OrderFulfillmentServiceTest extends TestCase
     public static function shopeePackageStates(): array
     {
         return [
-            'unsplit with a stored package' => [false, ''],
-            'split order' => [true, 'PACKAGE-SHOPEE-1'],
+            'unsplit without thermal mode' => [false, '', false, 'NORMAL_AIR_WAYBILL'],
+            'split order with thermal mode' => [true, 'PACKAGE-SHOPEE-1', true, 'THERMAL_AIR_WAYBILL'],
         ];
     }
 
@@ -172,14 +172,19 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('a6', $label['printing']['shipping_label_size']);
     }
 
-    public function test_tiktok_platform_label_redirects_to_the_shipping_document(): void
+    public function test_tiktok_platform_label_requests_the_packing_slip_when_enabled(): void
     {
         $tiktok = Mockery::mock(TiktokService::class);
         $service = new OrderFulfillmentService(
             Mockery::mock(ShopeeService::class),
             $tiktok,
         );
-        $store = new Store(['shipping_label_template' => 'platform']);
+        $store = new Store([
+            'shipping_label_template' => 'platform',
+            'print_shipping_label' => true,
+            'print_packing_list' => true,
+            'shipping_label_size' => 'a6',
+        ]);
         $order = new Order([
             'platform' => 'Tiktokshop',
             'order_status' => 'AWAITING_COLLECTION',
@@ -193,7 +198,7 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $tiktok->shouldReceive('getPackageShippingDocument')
             ->once()
-            ->with($store, 'PACKAGE-2', 'A6')
+            ->with($store, 'PACKAGE-2', 'A6', 'SHIPPING_LABEL_AND_PACKING_SLIP')
             ->andReturn([
                 'code' => 0,
                 'data' => ['doc_url' => 'https://example.test/label.pdf'],
@@ -206,14 +211,21 @@ class OrderFulfillmentServiceTest extends TestCase
     }
 
     #[DataProvider('shopeePackageStates')]
-    public function test_shopee_platform_label_uses_the_document_parameters_and_tracking_number(bool $split, string $packageNumber): void
-    {
+    public function test_shopee_platform_label_uses_the_document_parameters_and_tracking_number(
+        bool $split,
+        string $packageNumber,
+        bool $thermal,
+        string $expectedDocumentType
+    ): void {
         $shopee = Mockery::mock(ShopeeService::class);
         $service = new OrderFulfillmentService(
             $shopee,
             Mockery::mock(TiktokService::class),
         );
-        $store = new Store(['shipping_label_template' => 'platform']);
+        $store = new Store([
+            'shipping_label_template' => 'platform',
+            'shopee_thermal_printing' => $thermal,
+        ]);
         $order = new Order([
             'platform' => 'Shopee',
             'order_status' => 'PROCESSED',
@@ -233,7 +245,7 @@ class OrderFulfillmentServiceTest extends TestCase
             $baseOrder['package_number'] = $packageNumber;
         }
         $documentOrder = $baseOrder + [
-            'shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+            'shipping_document_type' => $expectedDocumentType,
         ];
         $createOrder = $documentOrder + [
             'tracking_number' => 'TRACK-SHOPEE-1',
@@ -250,6 +262,10 @@ class OrderFulfillmentServiceTest extends TestCase
                 'error' => '',
                 'response' => ['result_list' => [[
                     'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+                    'selectable_shipping_document_type' => [
+                        'NORMAL_AIR_WAYBILL',
+                        'THERMAL_AIR_WAYBILL',
+                    ],
                 ]]],
             ]);
         $shopee->shouldReceive('createShippingDocument')

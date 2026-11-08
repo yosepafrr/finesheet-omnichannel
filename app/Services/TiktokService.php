@@ -554,9 +554,18 @@ class TiktokService
         );
     }
 
-    public function getPackageShippingDocument(Store $store, string $packageId, string $documentSize = 'A6'): array
-    {
-        $documentSize = strtoupper($documentSize) === 'A4' ? 'A4' : 'A6';
+    public function getPackageShippingDocument(
+        Store $store,
+        string $packageId,
+        string $documentSize = 'A6',
+        string $documentType = 'SHIPPING_LABEL'
+    ): array {
+        $documentSize = strtoupper($documentSize) === 'A5' ? 'A5' : 'A6';
+        $documentType = in_array($documentType, [
+            'SHIPPING_LABEL',
+            'PACKING_SLIP',
+            'SHIPPING_LABEL_AND_PACKING_SLIP',
+        ], true) ? $documentType : 'SHIPPING_LABEL';
 
         return $this->authorizedRequest(
             $store,
@@ -564,8 +573,9 @@ class TiktokService
             "/fulfillment/202309/packages/{$packageId}/shipping_documents",
             [],
             [
-                'document_type' => 'SHIPPING_LABEL',
+                'document_type' => $documentType,
                 'document_size' => $documentSize,
+                'document_format' => 'PDF',
             ]
         );
     }

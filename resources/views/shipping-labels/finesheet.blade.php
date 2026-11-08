@@ -36,7 +36,6 @@
         th:last-child, td:last-child { text-align: center; }
         .product-name { font-weight: 700; line-height: 1.35; }
         .variant { margin-top: 1mm; color: #64748b; }
-        .check { display: inline-block; width: 4mm; height: 4mm; border: 1px solid #334155; }
         .notice { margin: 4mm 6mm 6mm; padding: 3.5mm; border: 1px solid #f3c96a; border-radius: 6px; background: #fff9e8; font-size: 9px; line-height: 1.45; }
         .notice strong { display: block; margin-bottom: 1mm; color: #92400e; }
         .footer { display: flex; justify-content: space-between; gap: 12px; padding: 4mm 6mm 6mm; color: #64748b; font-size: 8px; }
@@ -55,10 +54,8 @@
         $combined = ($printing['printing_layout'] ?? 'separate') === 'combined';
         $showLabel = (bool) ($printing['print_shipping_label'] ?? true);
         $showPacking = (bool) ($printing['print_packing_list'] ?? false);
-        $showPick = (bool) ($printing['print_pick_list'] ?? false);
         $labelSize = $printing['shipping_label_size'] ?? 'a6';
         $packingSize = $printing['packing_list_size'] ?? 'a6';
-        $pickSize = $printing['pick_list_size'] ?? 'a4';
     @endphp
 
     @if ($combined && ($showLabel || $showPacking))
@@ -73,7 +70,7 @@
             <section class="meta"><div><span class="eyebrow">Nomor pesanan</span><strong class="order-number">{{ $order->order_sn }}</strong></div><div><span class="eyebrow">Nomor resi</span><strong class="order-number">{{ $shipping['tracking_number'] }}</strong></div></section>
             @if ($showPacking)
                 <div class="combined-divider"></div><div class="document-title">Daftar pengemasan</div>
-                @include('shipping-labels.partials.product-table', ['showCheck' => false])
+                @include('shipping-labels.partials.product-table')
             @endif
             @if ($showLabel)<aside class="notice"><strong>Catatan untuk penerima</strong>Mohon rekam video unboxing tanpa jeda sejak paket masih tersegel.</aside>@endif
             <footer class="footer"><span>Paket: {{ $shipping['package_id'] }}</span><span>{{ $order->cod ? 'COD' : 'Non-COD' }}</span></footer>
@@ -92,17 +89,9 @@
             <main class="sheet size-{{ $packingSize }} page-{{ $packingSize }}">
                 <header class="header"><div><div class="brand"><span>fine</span>sheet</div><div class="platform">{{ $order->store?->store_name }}</div></div><div class="route"><small>Pesanan</small><strong>{{ $order->order_sn }}</strong></div></header>
                 <div class="document-title">Daftar pengemasan</div>
-                @include('shipping-labels.partials.product-table', ['showCheck' => false])
+                @include('shipping-labels.partials.product-table')
             </main>
         @endif
-    @endif
-
-    @if ($showPick)
-        <main class="sheet size-{{ $pickSize }} page-{{ $pickSize }}">
-            <header class="header"><div><div class="brand"><span>fine</span>sheet</div><div class="platform">{{ $order->store?->store_name }}</div></div><div class="route"><small>Pesanan</small><strong>{{ $order->order_sn }}</strong></div></header>
-            <div class="document-title">Daftar pengambilan barang</div>
-            @include('shipping-labels.partials.product-table', ['showCheck' => true])
-        </main>
     @endif
 </body>
 </html>

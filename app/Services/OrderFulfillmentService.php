@@ -146,7 +146,8 @@ class OrderFulfillmentService
             $response = $this->tiktok->getPackageShippingDocument(
                 $order->store,
                 $packageId,
-                strtoupper((string) ($order->store?->shipping_label_size ?? 'a6')),
+                $this->tiktokDocumentSize($order->store),
+                $this->tiktokDocumentType($order->store),
             );
             $this->assertPlatformSuccess($response, 'TikTok Shop');
             $url = data_get($response, 'data.doc_url')
@@ -173,7 +174,7 @@ class OrderFulfillmentService
         $this->assertPlatformSuccess($parameters, 'Shopee');
         $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType(
             $parameters,
-            (string) ($order->store?->shipping_label_size ?? 'a6'),
+            (bool) ($order->store?->shopee_thermal_printing ?? false) ? 'a6' : 'a4',
         );
 
         $createOrder = $documentOrder;
@@ -392,13 +393,33 @@ class OrderFulfillmentService
         return [
             'print_shipping_label' => (bool) ($store?->print_shipping_label ?? true),
             'print_packing_list' => (bool) ($store?->print_packing_list ?? false),
-            'print_pick_list' => (bool) ($store?->print_pick_list ?? false),
             'shipping_label_size' => $store?->shipping_label_size ?? 'a6',
             'packing_list_size' => $store?->packing_list_size ?? 'a6',
-            'pick_list_size' => $store?->pick_list_size ?? 'a4',
             'printing_layout' => $store?->printing_layout ?? 'separate',
             'printing_file_format' => 'pdf',
         ];
+    }
+
+    private function tiktokDocumentType(?Store $store): string
+    {
+        $label = (bool) ($store?->print_shipping_label ?? true);
+        $packingSlip = (bool) ($store?->print_packing_list ?? false);
+
+        if ($label && $packingSlip) {
+            return 'SHIPPING_LABEL_AND_PACKING_SLIP';
+        }
+
+        return $packingSlip ? 'PACKING_SLIP' : 'SHIPPING_LABEL';
+    }
+
+    private function tiktokDocumentSize(?Store $store): string
+    {
+        $size = (string) ($store?->shipping_label_size ?? 'a6');
+        if (! ($store?->print_shipping_label ?? true)) {
+            $size = (string) ($store?->packing_list_size ?? 'a6');
+        }
+
+        return strtolower($size) === 'a5' ? 'A5' : 'A6';
     }
 
     private function platform(Order $order): string

@@ -15,12 +15,11 @@ class FulfillmentSettingController extends Controller
     private const SETTING_FIELDS = [
         'fulfillment_handover_method',
         'shipping_label_template',
+        'shopee_thermal_printing',
         'print_shipping_label',
         'print_packing_list',
-        'print_pick_list',
         'shipping_label_size',
         'packing_list_size',
-        'pick_list_size',
         'printing_layout',
         'printing_file_format',
     ];
@@ -37,12 +36,11 @@ class FulfillmentSettingController extends Controller
                     'store_name',
                     'fulfillment_handover_method',
                     'shipping_label_template',
+                    'shopee_thermal_printing',
                     'print_shipping_label',
                     'print_packing_list',
-                    'print_pick_list',
                     'shipping_label_size',
                     'packing_list_size',
-                    'pick_list_size',
                     'printing_layout',
                     'printing_file_format',
                 ])
@@ -95,19 +93,16 @@ class FulfillmentSettingController extends Controller
         $validated = $request->validate([
             'fulfillment_handover_method' => ['required', 'string', Rule::in(['pickup', 'dropoff'])],
             'shipping_label_template' => ['required', 'string', Rule::in(['platform', 'finesheet'])],
+            'shopee_thermal_printing' => ['required', 'boolean'],
             'print_shipping_label' => ['required', 'boolean'],
             'print_packing_list' => ['required', 'boolean'],
-            'print_pick_list' => ['required', 'boolean'],
-            'shipping_label_size' => ['required', 'string', Rule::in(['a6', 'a4'])],
-            'packing_list_size' => ['required', 'string', Rule::in(['a6', 'a4'])],
-            'pick_list_size' => ['required', 'string', Rule::in(['a6', 'a4'])],
+            'shipping_label_size' => ['required', 'string', Rule::in(['a6', 'a5'])],
+            'packing_list_size' => ['required', 'string', Rule::in(['a6', 'a5'])],
             'printing_layout' => ['required', 'string', Rule::in(['combined', 'separate'])],
             'printing_file_format' => ['required', 'string', Rule::in(['pdf'])],
         ]);
 
-        if (! $validated['print_shipping_label']
-            && ! $validated['print_packing_list']
-            && ! $validated['print_pick_list']) {
+        if (! $validated['print_shipping_label'] && ! $validated['print_packing_list']) {
             throw ValidationException::withMessages([
                 'print_shipping_label' => 'Pilih minimal satu dokumen yang akan dicetak.',
             ]);

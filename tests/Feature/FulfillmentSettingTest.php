@@ -53,20 +53,20 @@ class FulfillmentSettingTest extends TestCase
             ->putJson("/api/fulfillment-settings/stores/{$store->id}", $this->settings([
                 'fulfillment_handover_method' => 'dropoff',
                 'shipping_label_template' => 'finesheet',
-                'print_packing_list' => true,
+                'shopee_thermal_printing' => true,
                 'printing_layout' => 'combined',
             ]))
             ->assertOk()
             ->assertJsonPath('store.fulfillment_handover_method', 'dropoff')
             ->assertJsonPath('store.shipping_label_template', 'finesheet')
-            ->assertJsonPath('store.print_packing_list', true)
+            ->assertJsonPath('store.shopee_thermal_printing', true)
             ->assertJsonPath('store.printing_layout', 'combined');
 
         $this->assertDatabaseHas('stores', [
             'id' => $store->id,
             'fulfillment_handover_method' => 'dropoff',
             'shipping_label_template' => 'finesheet',
-            'print_packing_list' => true,
+            'shopee_thermal_printing' => true,
             'printing_layout' => 'combined',
         ]);
     }
@@ -110,8 +110,7 @@ class FulfillmentSettingTest extends TestCase
             ->putJson('/api/fulfillment-settings/stores', $this->settings([
                 'store_ids' => $selected->pluck('id')->all(),
                 'shipping_label_template' => 'finesheet',
-                'print_packing_list' => true,
-                'shipping_label_size' => 'a4',
+                'shopee_thermal_printing' => true,
             ]))
             ->assertOk()
             ->assertJsonCount(2, 'stores');
@@ -120,14 +119,13 @@ class FulfillmentSettingTest extends TestCase
             $this->assertDatabaseHas('stores', [
                 'id' => $store->id,
                 'shipping_label_template' => 'finesheet',
-                'print_packing_list' => true,
-                'shipping_label_size' => 'a4',
+                'shopee_thermal_printing' => true,
             ]);
         }
         $this->assertDatabaseHas('stores', [
             'id' => $untouched->id,
             'shipping_label_template' => 'platform',
-            'print_packing_list' => false,
+            'shopee_thermal_printing' => false,
         ]);
     }
 
@@ -136,7 +134,7 @@ class FulfillmentSettingTest extends TestCase
         $user = User::factory()->create();
         $store = Store::create([
             'user_id' => $user->id,
-            'platform' => 'Shopee',
+            'platform' => 'Tiktokshop',
             'store_name' => 'Toko Dokumen',
             'shopee_shop_id' => 'DOCS-1',
         ]);
@@ -145,7 +143,6 @@ class FulfillmentSettingTest extends TestCase
             ->putJson("/api/fulfillment-settings/stores/{$store->id}", $this->settings([
                 'print_shipping_label' => false,
                 'print_packing_list' => false,
-                'print_pick_list' => false,
             ]))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('print_shipping_label');
@@ -156,12 +153,11 @@ class FulfillmentSettingTest extends TestCase
         return array_replace([
             'fulfillment_handover_method' => 'pickup',
             'shipping_label_template' => 'platform',
+            'shopee_thermal_printing' => false,
             'print_shipping_label' => true,
             'print_packing_list' => false,
-            'print_pick_list' => false,
             'shipping_label_size' => 'a6',
             'packing_list_size' => 'a6',
-            'pick_list_size' => 'a4',
             'printing_layout' => 'separate',
             'printing_file_format' => 'pdf',
         ], $overrides);

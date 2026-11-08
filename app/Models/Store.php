@@ -17,12 +17,11 @@ class Store extends Model
         'platform_shop_id',
         'fulfillment_handover_method',
         'shipping_label_template',
+        'shopee_thermal_printing',
         'print_shipping_label',
         'print_packing_list',
-        'print_pick_list',
         'shipping_label_size',
         'packing_list_size',
-        'pick_list_size',
         'printing_layout',
         'printing_file_format',
         'user_id',
@@ -31,7 +30,7 @@ class Store extends Model
     protected $casts = [
         'print_shipping_label' => 'boolean',
         'print_packing_list' => 'boolean',
-        'print_pick_list' => 'boolean',
+        'shopee_thermal_printing' => 'boolean',
     ];
 
     public function user()

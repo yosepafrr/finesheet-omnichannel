@@ -6,12 +6,11 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 const DEFAULTS = {
     fulfillment_handover_method: "pickup",
     shipping_label_template: "platform",
+    shopee_thermal_printing: false,
     print_shipping_label: true,
     print_packing_list: false,
-    print_pick_list: false,
     shipping_label_size: "a6",
     packing_list_size: "a6",
-    pick_list_size: "a4",
     printing_layout: "separate",
     printing_file_format: "pdf",
 };
@@ -20,7 +19,6 @@ const SETTING_FIELDS = Object.keys(DEFAULTS);
 const DOCUMENTS = [
     { key: "print_shipping_label", sizeKey: "shipping_label_size", label: "Label pengiriman", description: "Resi untuk ditempel pada paket.", icon: "local_shipping" },
     { key: "print_packing_list", sizeKey: "packing_list_size", label: "Daftar pengemasan", description: "Rincian barang untuk proses packing.", icon: "inventory_2" },
-    { key: "print_pick_list", sizeKey: "pick_list_size", label: "Daftar pengambilan", description: "Checklist barang untuk staf gudang.", icon: "checklist" },
 ];
 
 const HANDOVER_OPTIONS = [
@@ -30,7 +28,7 @@ const HANDOVER_OPTIONS = [
 
 const LABEL_OPTIONS = [
     { value: "platform", label: "Template platform", description: "Gunakan label resmi Shopee atau TikTok Shop.", icon: "receipt_long" },
-    { value: "finesheet", label: "Template Finesheet", description: "Dapat menyertakan daftar packing dan picking.", icon: "description" },
+    { value: "finesheet", label: "Template Finesheet", description: "Label internal dengan rincian pengemasan.", icon: "description" },
 ];
 
 const normalizeStore = (store) => ({
@@ -39,7 +37,9 @@ const normalizeStore = (store) => ({
     ...Object.fromEntries(Object.entries(store).filter(([, value]) => value !== null && value !== undefined)),
     print_shipping_label: store.print_shipping_label ?? true,
     print_packing_list: store.print_packing_list ?? false,
-    print_pick_list: store.print_pick_list ?? false,
+    shopee_thermal_printing: store.shopee_thermal_printing ?? false,
+    shipping_label_size: ["a5", "a6"].includes(store.shipping_label_size) ? store.shipping_label_size : "a6",
+    packing_list_size: ["a5", "a6"].includes(store.packing_list_size) ? store.packing_list_size : "a6",
 });
 
 const settingsOf = (store) => Object.fromEntries(SETTING_FIELDS.map((key) => [key, store[key]]));
@@ -80,8 +80,20 @@ function ChoiceGroup({ label, value, options, onChange, disabled }) {
     );
 }
 
-function PrintingSettings({ value, onChange, disabled, compact = false }) {
+function TiktokPrintingSettings({ value, onChange, disabled, compact = false }) {
     const documentCount = DOCUMENTS.filter((item) => value[item.key]).length;
+    const toggleDocument = (document, checked) => {
+        onChange(document.key, checked);
+        const otherDocument = DOCUMENTS.find((item) => item.key !== document.key);
+        if (checked && value[otherDocument.key]) onChange(document.sizeKey, value[otherDocument.sizeKey]);
+    };
+    const changeSize = (document, size) => {
+        onChange(document.sizeKey, size);
+        if (DOCUMENTS.every((item) => value[item.key])) {
+            const otherDocument = DOCUMENTS.find((item) => item.key !== document.key);
+            onChange(otherDocument.sizeKey, size);
+        }
+    };
     return (
         <section className="min-w-0">
             <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -91,7 +103,7 @@ function PrintingSettings({ value, onChange, disabled, compact = false }) {
                 </div>
                 <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{documentCount} dokumen</span>
             </div>
-            <div className={`grid gap-2 ${compact ? "" : "md:grid-cols-3"}`}>
+            <div className={`grid gap-2 ${compact ? "" : "md:grid-cols-2"}`}>
                 {DOCUMENTS.map((document) => {
                     const checked = Boolean(value[document.key]);
                     return (
@@ -102,7 +114,7 @@ function PrintingSettings({ value, onChange, disabled, compact = false }) {
                                     role="checkbox"
                                     aria-checked={checked}
                                     disabled={disabled}
-                                    onClick={() => onChange(document.key, !checked)}
+                                    onClick={() => toggleDocument(document, !checked)}
                                     className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition ${checked ? "border-[#304674] bg-[#304674] text-white dark:border-blue-400 dark:bg-blue-500" : "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800"}`}
                                 >
                                     {checked && <span className="material-symbols-rounded text-[15px]">check</span>}
@@ -114,8 +126,8 @@ function PrintingSettings({ value, onChange, disabled, compact = false }) {
                             </div>
                             <label className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200/80 pt-2.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                 Ukuran kertas
-                                <select disabled={disabled || !checked} value={value[document.sizeKey]} onChange={(event) => onChange(document.sizeKey, event.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-                                    <option value="a6">A6</option><option value="a4">A4</option>
+                                <select disabled={disabled || !checked} value={value[document.sizeKey]} onChange={(event) => changeSize(document, event.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-[#304674] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                    <option value="a6">A6</option><option value="a5">A5</option>
                                 </select>
                             </label>
                         </div>
@@ -123,28 +135,51 @@ function PrintingSettings({ value, onChange, disabled, compact = false }) {
                 })}
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tata letak
+                {value.shipping_label_template === "finesheet" ? <label className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tata letak
                     <select disabled={disabled} value={value.printing_layout} onChange={(event) => onChange("printing_layout", event.target.value)} className="mt-2 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-slate-700 outline-none focus:border-[#304674] dark:border-slate-700 dark:bg-slate-800 dark:text-white">
                         <option value="separate">Setiap dokumen di halaman terpisah</option>
                         <option value="combined">Gabungkan label dan daftar pengemasan</option>
                     </select>
-                </label>
+                </label> : <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/20"><div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tata letak</div><p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Mengikuti format resmi TikTok Shop</p></div>}
                 <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5 text-xs leading-relaxed text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200">
-                    Dokumen packing/picking dibuat oleh Finesheet. Pilih Template Finesheet untuk mencetaknya bersama resi.
+                    Pada template platform, pilihan ini langsung meminta dokumen resmi TikTok Shop. Jika keduanya aktif, satu PDF memakai ukuran kertas yang sama.
                 </div>
             </div>
         </section>
     );
 }
 
-function SettingsForm({ value, onChange, disabled, compact = false }) {
+function ShopeeThermalSettings({ value, onChange, disabled }) {
+    const enabled = Boolean(value.shopee_thermal_printing);
+    return (
+        <section className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 dark:border-slate-700 dark:bg-slate-900/20">
+            <div className="flex items-center justify-between gap-5">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><span className="material-symbols-rounded text-[20px] text-orange-500">print</span>Cetak Mode Thermal</div>
+                    <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">Aktifkan untuk memprioritaskan label A6 thermal pada semua jasa kirim Shopee. Jika jasa kirim tidak mendukungnya, tipe rekomendasi Shopee tetap digunakan.</p>
+                </div>
+                <button type="button" role="switch" aria-checked={enabled} disabled={disabled} onClick={() => onChange("shopee_thermal_printing", !enabled)} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:cursor-not-allowed disabled:opacity-60 ${enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}>
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+            </div>
+        </section>
+    );
+}
+
+function SettingsForm({ value, onChange, disabled, compact = false, platform = "Tiktokshop" }) {
+    const showShopee = platform === "Shopee" || platform === "mixed";
+    const showTiktok = platform !== "Shopee";
     return (
         <div className="space-y-6">
             <div className={`grid gap-6 ${compact ? "" : "lg:grid-cols-2"}`}>
                 <ChoiceGroup label="Metode serah terima otomatis" value={value.fulfillment_handover_method} options={HANDOVER_OPTIONS} onChange={(next) => onChange("fulfillment_handover_method", next)} disabled={disabled} />
                 <ChoiceGroup label="Template resi" value={value.shipping_label_template} options={LABEL_OPTIONS} onChange={(next) => onChange("shipping_label_template", next)} disabled={disabled} />
             </div>
-            <div className="border-t border-slate-100 pt-5 dark:border-slate-700"><PrintingSettings value={value} onChange={onChange} disabled={disabled} compact={compact} /></div>
+            <div className="space-y-4 border-t border-slate-100 pt-5 dark:border-slate-700">
+                {platform === "mixed" && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">Toko terpilih mencakup Shopee dan TikTok Shop. Masing-masing akan memakai pengaturan pencetakan sesuai platformnya.</div>}
+                {showShopee && <ShopeeThermalSettings value={value} onChange={onChange} disabled={disabled} />}
+                {showTiktok && <TiktokPrintingSettings value={value} onChange={onChange} disabled={disabled} compact={compact} />}
+            </div>
         </div>
     );
 }
@@ -181,6 +216,10 @@ export default function FulfillmentSettings() {
 
     const dirtyIds = useMemo(() => stores.filter((store) => JSON.stringify(settingsOf(store)) !== JSON.stringify(original[store.id])).map((store) => store.id), [stores, original]);
     const allSelected = stores.length > 0 && selectedIds.length === stores.length;
+    const selectedPlatform = useMemo(() => {
+        const platforms = [...new Set(stores.filter((store) => selectedIds.includes(store.id)).map((store) => store.platform))];
+        return platforms.length === 1 ? platforms[0] : "mixed";
+    }, [stores, selectedIds]);
     const updateStore = (storeId, key, value) => { setStores((current) => current.map((store) => store.id === storeId ? { ...store, [key]: value } : store)); setNotice(null); };
     const toggleSelected = (storeId) => setSelectedIds((current) => current.includes(storeId) ? current.filter((id) => id !== storeId) : [...current, storeId]);
 
@@ -245,17 +284,17 @@ export default function FulfillmentSettings() {
                                     <div className="flex min-w-0 items-center gap-3"><input type="checkbox" checked={selected} onChange={() => toggleSelected(store.id)} aria-label={`Pilih ${store.store_name}`} className="h-4 w-4 rounded border-slate-300 text-[#304674] focus:ring-[#304674]" /><StoreLogo platform={store.platform} /><div className="min-w-0"><h2 className="truncate font-bold text-slate-900 dark:text-white">{store.store_name}</h2><p className="mt-0.5 text-xs font-medium text-slate-500">{store.platform === "Tiktokshop" ? "TikTok Shop" : store.platform}</p></div>{dirty && <span className="rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">Belum disimpan</span>}</div>
                                     <button type="button" disabled={!dirty || saving[store.id]} onClick={() => saveStore(store)} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-bold text-[#304674] transition hover:bg-[#304674]/5 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-600 dark:text-blue-300"><span className={`material-symbols-rounded text-[18px] ${saving[store.id] ? "animate-spin" : ""}`}>{saving[store.id] ? "progress_activity" : "save"}</span>Simpan toko</button>
                                 </div>
-                                <div className="p-4 sm:p-5"><SettingsForm value={store} onChange={(key, value) => updateStore(store.id, key, value)} disabled={saving[store.id]} /></div>
+                                <div className="p-4 sm:p-5"><SettingsForm value={store} onChange={(key, value) => updateStore(store.id, key, value)} disabled={saving[store.id]} platform={store.platform} /></div>
                             </motion.section>;
                         })}</div>}
 
-                <div className="mt-5 flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs leading-relaxed text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200"><span className="material-symbols-rounded mt-0.5 text-[18px]">info</span><p>Ukuran label marketplace hanya dipakai bila didukung untuk pesanan tersebut. Jika tidak, Finesheet memakai tipe dokumen yang direkomendasikan marketplace agar pencetakan tetap berjalan.</p></div>
+                <div className="mt-5 flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs leading-relaxed text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200"><span className="material-symbols-rounded mt-0.5 text-[18px]">info</span><p>TikTok Shop menyediakan label dan daftar pengemasan melalui dokumen paket. Untuk Shopee, mode thermal hanya dipilih bila tipe tersebut tersedia; jika tidak, Finesheet mengikuti tipe rekomendasi Shopee.</p></div>
             </div>
 
             <AnimatePresence>{bulkOpen && <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => event.target === event.currentTarget && !bulkSaving && setBulkOpen(false)}>
                 <motion.div initial={{ opacity: 0, scale: 0.98, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-800">
                     <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700"><div><h2 className="text-lg font-bold text-slate-900 dark:text-white">Edit massal fulfillment</h2><p className="mt-1 text-xs text-slate-500">Pengaturan ini akan diterapkan ke {selectedIds.length} toko terpilih.</p></div><button type="button" disabled={bulkSaving} onClick={() => setBulkOpen(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"><span className="material-symbols-rounded">close</span></button></div>
-                    <div className="max-h-[calc(92vh-140px)] overflow-y-auto p-5"><SettingsForm value={bulkDraft} onChange={(key, value) => setBulkDraft((current) => ({ ...current, [key]: value }))} disabled={bulkSaving} compact /></div>
+                    <div className="max-h-[calc(92vh-140px)] overflow-y-auto p-5"><SettingsForm value={bulkDraft} onChange={(key, value) => setBulkDraft((current) => ({ ...current, [key]: value }))} disabled={bulkSaving} compact platform={selectedPlatform} /></div>
                     <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-700"><button type="button" disabled={bulkSaving} onClick={() => setBulkOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 dark:border-slate-600 dark:text-slate-300">Batal</button><button type="button" disabled={bulkSaving} onClick={saveBulk} className="inline-flex items-center gap-2 rounded-lg bg-[#304674] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"><span className={`material-symbols-rounded text-[18px] ${bulkSaving ? "animate-spin" : ""}`}>{bulkSaving ? "progress_activity" : "done_all"}</span>Terapkan dan simpan</button></div>
                 </motion.div>
             </motion.div>}</AnimatePresence>
