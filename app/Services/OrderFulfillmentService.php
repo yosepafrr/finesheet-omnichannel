@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderPackage;
 use App\Models\Store;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class OrderFulfillmentService
@@ -172,10 +173,17 @@ class OrderFulfillmentService
 
         $parameters = $this->shopee->getShippingDocumentParameter($order->store, [$documentOrder]);
         $this->assertPlatformSuccess($parameters, 'Shopee');
+        $suggestedDocumentType = $this->shopeeSuggestedShippingDocumentType($parameters);
         $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType(
             $parameters,
             (bool) ($order->store?->shopee_thermal_printing ?? false) ? 'a6' : 'a4',
         );
+        Log::info('Shopee shipping document type selected', [
+            'order_sn' => $order->order_sn,
+            'thermal_enabled' => (bool) ($order->store?->shopee_thermal_printing ?? false),
+            'selected_type' => $documentOrder['shipping_document_type'],
+            'suggested_type' => $suggestedDocumentType,
+        ]);
 
         $createOrder = $documentOrder;
         if ($trackingNumber !== '') {
@@ -183,6 +191,17 @@ class OrderFulfillmentService
         }
 
         $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
+        if ($this->shopeeDocumentTypeRejected($created)
+            && $suggestedDocumentType !== ''
+            && $documentOrder['shipping_document_type'] !== $suggestedDocumentType) {
+            $documentOrder['shipping_document_type'] = $suggestedDocumentType;
+            $createOrder['shipping_document_type'] = $suggestedDocumentType;
+            Log::warning('Shopee rejected preferred shipping document type; retrying suggested type', [
+                'order_sn' => $order->order_sn,
+                'suggested_type' => $suggestedDocumentType,
+            ]);
+            $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
+        }
         $this->assertPlatformSuccess($created, 'Shopee');
 
         for ($attempt = 0; $attempt < 6; $attempt++) {
@@ -355,12 +374,9 @@ class OrderFulfillmentService
 
     private function shopeeShippingDocumentType(array $response, string $preferredSize = 'a6'): string
     {
-        $suggested = trim((string) (
-            data_get($response, 'response.result_list.0.suggest_shipping_document_type')
-            ?? data_get($response, 'response.result_list.0.suggested_shipping_document_type')
-            ?? data_get($response, 'response.result_list.0.shipping_document_type')
-            ?? 'NORMAL_AIR_WAYBILL'
-        ));
+        $suggested = $this->shopeeSuggestedShippingDocumentType($response);
+        $wantsThermal = strtolower($preferredSize) === 'a6';
+        $preferredType = $wantsThermal ? 'THERMAL_AIR_WAYBILL' : 'NORMAL_AIR_WAYBILL';
 
         $selectable = data_get($response, 'response.result_list.0.selectable_shipping_document_type')
             ?? data_get($response, 'response.result_list.0.selectable_shipping_document_type_list')
@@ -369,7 +385,7 @@ class OrderFulfillmentService
             $selectable = [$selectable];
         }
         if (! is_array($selectable) || $selectable === []) {
-            return $suggested;
+            return $preferredType;
         }
 
         $selectable = collect($selectable)
@@ -378,7 +394,6 @@ class OrderFulfillmentService
                 : $type)))
             ->filter()
             ->values();
-        $wantsThermal = strtolower($preferredSize) === 'a6';
         $preferred = $selectable->first(function (string $type) use ($wantsThermal) {
             $isThermal = str_contains(strtoupper($type), 'THERMAL');
 
@@ -386,6 +401,43 @@ class OrderFulfillmentService
         });
 
         return $preferred ?: ($selectable->contains($suggested) ? $suggested : $selectable->first());
+    }
+
+    private function shopeeSuggestedShippingDocumentType(array $response): string
+    {
+        return trim((string) (
+            data_get($response, 'response.result_list.0.suggest_shipping_document_type')
+            ?? data_get($response, 'response.result_list.0.suggested_shipping_document_type')
+            ?? data_get($response, 'response.result_list.0.shipping_document_type')
+            ?? 'NORMAL_AIR_WAYBILL'
+        ));
+    }
+
+    private function shopeeResponseSucceeded(array $response): bool
+    {
+        if (! empty($response['error'])) {
+            return false;
+        }
+
+        return ! collect(Arr::wrap(data_get($response, 'response.result_list', [])))
+            ->contains(fn ($item) => filled(data_get($item, 'fail_error')) || filled(data_get($item, 'fail_message')));
+    }
+
+    private function shopeeDocumentTypeRejected(array $response): bool
+    {
+        if ($this->shopeeResponseSucceeded($response)) {
+            return false;
+        }
+
+        $details = strtolower((string) json_encode([
+            $response['error'] ?? null,
+            $response['message'] ?? null,
+            data_get($response, 'response.result_list', []),
+        ]));
+
+        return str_contains($details, 'shipping_document_type')
+            || str_contains($details, 'document type')
+            || str_contains($details, 'tipe dokumen');
     }
 
     private function printingSettings(?Store $store): array

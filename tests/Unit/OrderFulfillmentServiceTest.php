@@ -262,10 +262,6 @@ class OrderFulfillmentServiceTest extends TestCase
                 'error' => '',
                 'response' => ['result_list' => [[
                     'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
-                    'selectable_shipping_document_type' => [
-                        'NORMAL_AIR_WAYBILL',
-                        'THERMAL_AIR_WAYBILL',
-                    ],
                 ]]],
             ]);
         $shopee->shouldReceive('createShippingDocument')
@@ -300,7 +296,10 @@ class OrderFulfillmentServiceTest extends TestCase
             $shopee,
             Mockery::mock(TiktokService::class),
         );
-        $store = new Store(['shipping_label_template' => 'platform']);
+        $store = new Store([
+            'shipping_label_template' => 'platform',
+            'shopee_thermal_printing' => true,
+        ]);
         $order = new Order([
             'platform' => 'Shopee',
             'order_status' => 'PROCESSED',
@@ -314,6 +313,10 @@ class OrderFulfillmentServiceTest extends TestCase
         $baseOrder = ['order_sn' => 'ORDER-SHOPEE-FAILED'];
         $documentOrder = $baseOrder + ['shipping_document_type' => 'NORMAL_AIR_WAYBILL'];
         $createOrder = $documentOrder + ['tracking_number' => 'TRACK-FAILED'];
+        $thermalCreateOrder = $baseOrder + [
+            'shipping_document_type' => 'THERMAL_AIR_WAYBILL',
+            'tracking_number' => 'TRACK-FAILED',
+        ];
 
         $shopee->shouldReceive('getTrackingNumber')
             ->once()
@@ -329,7 +332,20 @@ class OrderFulfillmentServiceTest extends TestCase
             ]);
         $shopee->shouldReceive('createShippingDocument')
             ->once()
+            ->with($store, [$thermalCreateOrder])
+            ->ordered()
+            ->andReturn([
+                'error' => 'common.batch_api_all_failed',
+                'message' => 'All failed, please check result_list for detail',
+                'response' => ['result_list' => [[
+                    'fail_error' => 'logistics.invalid_shipping_document_type',
+                    'fail_message' => 'Tipe dokumen thermal tidak didukung.',
+                ]]],
+            ]);
+        $shopee->shouldReceive('createShippingDocument')
+            ->once()
             ->with($store, [$createOrder])
+            ->ordered()
             ->andReturn([
                 'error' => 'common.batch_api_all_failed',
                 'message' => 'All failed, please check result_list for detail',

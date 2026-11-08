@@ -158,8 +158,8 @@ function ShopeeThermalSettings({ value, onChange, disabled }) {
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><span className="material-symbols-rounded text-[20px] text-orange-500">print</span>Cetak Mode Thermal</div>
                     <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">Aktifkan untuk memprioritaskan label A6 thermal pada semua jasa kirim Shopee. Jika jasa kirim tidak mendukungnya, tipe rekomendasi Shopee tetap digunakan.</p>
                 </div>
-                <button type="button" role="switch" aria-checked={enabled} disabled={disabled} onClick={() => onChange("shopee_thermal_printing", !enabled)} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:cursor-not-allowed disabled:opacity-60 ${enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}>
-                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+                <button type="button" role="switch" aria-label="Cetak Mode Thermal Shopee" aria-checked={enabled} disabled={disabled} onClick={() => onChange("shopee_thermal_printing", !enabled)} className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:cursor-not-allowed disabled:opacity-60 ${enabled ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-slate-300 dark:border-slate-600 dark:bg-slate-600"}`}>
+                    <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
             </div>
         </section>
