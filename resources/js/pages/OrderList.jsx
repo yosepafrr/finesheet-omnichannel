@@ -439,7 +439,7 @@ function getNotificationNavigationState() {
     }
 
     return {
-        selectedStore: params.get("store_id"),
+        selectedStoreIds: [params.get("store_id")],
         selectedFilterId: params.get("filter") || "perlu_dikirim",
         selectedShippingProcess: params.get("shipping_process") || "needs_processing",
     };
@@ -500,8 +500,11 @@ export default function OrderList() {
     const [selectedCancelCategory, setSelectedCancelCategory] = useState(
         () => initialSaved?.selectedCancelCategory || "all"
     );
-    const [selectedStore, setSelectedStore] = useState(
-        () => initialNavigation?.selectedStore || (initialSaved?.selectedStore ? String(initialSaved.selectedStore) : "")
+    const [selectedStoreIds, setSelectedStoreIds] = useState(
+        () => initialNavigation?.selectedStoreIds
+            || (Array.isArray(initialSaved?.selectedStoreIds)
+                ? initialSaved.selectedStoreIds.map(String)
+                : (initialSaved?.selectedStore ? [String(initialSaved.selectedStore)] : []))
     );
     const [selectedPlatform, setSelectedPlatform] = useState(
         () => initialSaved?.selectedPlatform || "all"
@@ -531,6 +534,7 @@ export default function OrderList() {
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [fulfillmentModal, setFulfillmentModal] = useState(null);
     const [fulfillmentBusy, setFulfillmentBusy] = useState(false);
+    const [printingLabels, setPrintingLabels] = useState(false);
     const [fulfillmentNotice, setFulfillmentNotice] = useState(null);
     const {
         syncs,
@@ -539,7 +543,9 @@ export default function OrderList() {
         refresh: refreshSyncStatus,
     } = useOrderSyncStatus();
     const isSyncBusy = syncing || syncingStoreId !== null || isAnySyncing;
-    const paginationKey = selectedStore || "all";
+    const paginationKey = selectedStoreIds.length > 0
+        ? [...selectedStoreIds].sort().join("-")
+        : "all";
     const requestedPage = pageByStore[paginationKey] || 1;
     const requestedPerPage = limitByStore[paginationKey] || 30;
 
@@ -553,7 +559,7 @@ export default function OrderList() {
             const navigation = getNotificationNavigationState();
             if (!navigation) return;
 
-            setSelectedStore(navigation.selectedStore);
+            setSelectedStoreIds(navigation.selectedStoreIds);
             setSelectedFilterId("perlu_dikirim");
             setSelectedShippingProcess("needs_processing");
             setSelectedPlatform("all");
@@ -598,7 +604,7 @@ export default function OrderList() {
         const stateToSave = {
             selectedFilterId,
             selectedCancelCategory,
-            selectedStore,
+            selectedStoreIds,
             selectedPlatform,
             selectedShippingProcess,
             searchQuery,
@@ -612,7 +618,7 @@ export default function OrderList() {
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders]);
 
     const handleNavigateToDetail = (orderId) => {
         const currentPos = getScrollTop();
@@ -636,7 +642,7 @@ export default function OrderList() {
         setPageByStore({});
         scrollPosRef.current = 0;
         setScrollTop(0);
-    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, excludeReturns]);
+    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, excludeReturns]);
 
     useEffect(() => {
         const timeout = setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 300);
@@ -649,7 +655,7 @@ export default function OrderList() {
         if (!isInitialMount.current) {
             saveStateToStorage();
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStore, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
 
     // Track scroll events
     useEffect(() => {
@@ -759,7 +765,7 @@ export default function OrderList() {
                     params.cancel_category = selectedCancelCategory;
                 }
             }
-            if (selectedStore) params.store_id = selectedStore;
+            if (selectedStoreIds.length > 0) params.store_ids = selectedStoreIds.join(",");
             if (selectedPlatform !== "all") params.platform = selectedPlatform;
             if (debouncedSearchQuery) params.search = debouncedSearchQuery;
             if (selectedFilterId === "dikirim" && excludeReturns) {
@@ -787,7 +793,7 @@ export default function OrderList() {
     }, [
         selectedFilterId,
         selectedCancelCategory,
-        selectedStore,
+        selectedStoreIds,
         selectedPlatform,
         selectedShippingProcess,
         debouncedSearchQuery,
@@ -801,19 +807,16 @@ export default function OrderList() {
     }, [fetchData]);
 
     useEffect(() => {
-        if (!selectedStore || !Array.isArray(data?.stores)) {
+        if (selectedStoreIds.length === 0 || !Array.isArray(data?.stores)) {
             return;
         }
 
-        const storeStillExists = data.stores.some(
-            (store) => String(store.id) === String(selectedStore),
-        );
-
-        if (!storeStillExists) {
-            setSelectedStore("");
-            setIsStoreDropdownOpen(false);
+        const availableStoreIds = new Set(data.stores.map((store) => String(store.id)));
+        const validSelections = selectedStoreIds.filter((id) => availableStoreIds.has(String(id)));
+        if (validSelections.length !== selectedStoreIds.length) {
+            setSelectedStoreIds(validSelections);
         }
-    }, [data?.stores, selectedStore]);
+    }, [data?.stores, selectedStoreIds]);
 
     useEffect(() => {
         if (recentlyCompleted) {
@@ -917,8 +920,8 @@ export default function OrderList() {
         setExpandedOrders((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
     };
 
-    // A selected store keeps the existing grouped view. "Semua Toko" uses one
-    // chronological stream so orders from different stores can be compared directly.
+    // Keep a dedicated store header for one selected store. Multiple stores use
+    // one chronological stream so their orders can be compared directly.
     const ordersByStore = {};
     const visibleOrders = [];
     if (data?.orders) {
@@ -933,8 +936,8 @@ export default function OrderList() {
         return timeB - timeA;
     });
 
-    if (selectedStore) {
-        ordersByStore[selectedStore] = visibleOrders;
+    if (selectedStoreIds.length === 1) {
+        ordersByStore[selectedStoreIds[0]] = visibleOrders;
     } else {
         ordersByStore.all = visibleOrders;
     }
@@ -1049,22 +1052,66 @@ export default function OrderList() {
         }
     };
 
-    const printLabels = (orderIds = selectedOrderIds) => {
+    const printLabels = async (orderIds = selectedOrderIds) => {
         if (!orderIds.length) return;
-        orderIds.slice(0, 20).forEach((id) => window.open(`/api/orders/${id}/shipping-label`, "_blank", "noopener,noreferrer"));
-        if (orderIds.length > 20) {
-            setFulfillmentNotice({ type: "error", message: "Maksimal 20 resi dapat dibuka sekaligus." });
-        } else {
-            setFulfillmentNotice({ type: "success", message: `${orderIds.length} dokumen resi dibuka untuk dicetak.` });
+
+        if (orderIds.length === 1) {
+            window.open(`/api/orders/${orderIds[0]}/shipping-label`, "_blank", "noopener,noreferrer");
+            setFulfillmentNotice({ type: "success", message: "Dokumen resi dibuka untuk dicetak." });
+            setSelectedOrderIds([]);
+            return;
         }
-        setSelectedOrderIds([]);
+
+        if (orderIds.length > 50) {
+            setFulfillmentNotice({ type: "error", message: "Maksimal 50 resi dapat dicetak sekaligus." });
+            return;
+        }
+
+        setPrintingLabels(true);
+        try {
+            const response = await axios.post(
+                "/api/orders/fulfillment/shipping-labels",
+                { order_ids: orderIds },
+                { responseType: "blob" },
+            );
+            const contentDisposition = response.headers["content-disposition"] || "";
+            const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+            const filename = filenameMatch?.[1] || `resi-${orderIds.length}-pesanan.pdf`;
+            const documentUrl = URL.createObjectURL(response.data);
+            const link = document.createElement("a");
+            link.href = documentUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(documentUrl), 1000);
+
+            setFulfillmentNotice({
+                type: "success",
+                message: `${orderIds.length} resi berhasil digabungkan dalam satu dokumen.`,
+            });
+            setSelectedOrderIds([]);
+        } catch (error) {
+            let message = error.response?.data?.message || "Dokumen resi massal gagal disiapkan.";
+            if (error.response?.data instanceof Blob) {
+                try {
+                    const payload = JSON.parse(await error.response.data.text());
+                    message = payload.message || message;
+                } catch {
+                    // Keep the generic message for a non-JSON response.
+                }
+            }
+            setFulfillmentNotice({ type: "error", message });
+        } finally {
+            setPrintingLabels(false);
+        }
     };
 
     const handleResetFilter = () => {
         setSearchQuery("");
         setSelectedFilterId("semua");
         setSelectedCancelCategory("all");
-        setSelectedStore("");
+        setSelectedStoreIds([]);
         setSelectedPlatform("all");
         setSelectedShippingProcess("needs_processing");
     };
@@ -1073,19 +1120,26 @@ export default function OrderList() {
         Boolean(searchQuery) ||
         (selectedFilterId !== "semua" && selectedFilterId !== "all") ||
         (selectedFilterId === "batal" && selectedCancelCategory !== "all") ||
-        Boolean(selectedStore) ||
+        selectedStoreIds.length > 0 ||
         selectedPlatform !== "all" ||
         (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "needs_processing");
 
-    const selectedStoreOption = data?.stores?.find(
-        (store) => String(store.id) === String(selectedStore),
-    );
-    const selectedStoreLabel = selectedStore === ""
+    const selectedStoreOption = selectedStoreIds.length === 1
+        ? data?.stores?.find((store) => String(store.id) === selectedStoreIds[0])
+        : null;
+    const selectedStoreLabel = selectedStoreIds.length === 0
         ? "Semua Toko"
-        : selectedStoreOption?.store_name || (data ? "Semua Toko" : "Memuat toko...");
-    const displayStores = selectedStore
-        ? (data?.stores || []).filter((store) => String(store.id) === String(selectedStore))
-        : [{ id: "all", store_name: "Semua Pesanan", platform: null, isCombined: true }];
+        : selectedStoreIds.length === 1
+            ? selectedStoreOption?.store_name || "1 Toko Dipilih"
+            : `${selectedStoreIds.length} Toko Dipilih`;
+    const displayStores = selectedStoreIds.length === 1 && selectedStoreOption
+        ? [selectedStoreOption]
+        : [{
+            id: "all",
+            store_name: selectedStoreIds.length > 1 ? `${selectedStoreIds.length} Toko Dipilih` : "Semua Pesanan",
+            platform: null,
+            isCombined: true,
+        }];
 
     return (
         <AppLayout>
@@ -1148,13 +1202,18 @@ export default function OrderList() {
                                         }
                                         className="flex items-center justify-between w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 py-2.5 pl-4 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#304674] dark:focus:ring-blue-500 shadow-sm text-sm transition-all hover:border-gray-300 dark:hover:border-slate-600"
                                     >
-                                        <span className="truncate pr-2">
-                                            {selectedStoreLabel}
-                                        </span>
-                                        <span
-                                            className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}
-                                        >
-                                            expand_more
+                                        <span className="truncate pr-2 font-medium">{selectedStoreLabel}</span>
+                                        <span className="flex shrink-0 items-center gap-1.5">
+                                            {selectedStoreIds.length > 0 && (
+                                                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#304674]/10 px-1 text-[10px] font-bold text-[#304674] dark:bg-blue-500/20 dark:text-blue-300">
+                                                    {selectedStoreIds.length}
+                                                </span>
+                                            )}
+                                            <span
+                                                className={`material-symbols-rounded text-gray-400 dark:text-slate-500 transition-transform duration-300 ${isStoreDropdownOpen ? "rotate-180" : ""}`}
+                                            >
+                                                expand_more
+                                            </span>
                                         </span>
                                     </button>
 
@@ -1182,60 +1241,61 @@ export default function OrderList() {
                                                 }}
                                                 className="absolute right-0 md:left-0 mt-2 w-full min-w-[240px] bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 overflow-hidden z-50 origin-top"
                                             >
-                                                <div className="max-h-64 overflow-y-auto p-2">
+                                                <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Filter toko</p>
+                                                    <p className="mt-0.5 text-[11px] text-slate-400">Pilih satu atau beberapa toko.</p>
+                                                </div>
+                                                <div className="max-h-64 space-y-1 overflow-y-auto p-2">
                                                     <button
+                                                        type="button"
                                                         onClick={() => {
-                                                            setSelectedStore(
-                                                                "",
-                                                            );
-                                                            setIsStoreDropdownOpen(
-                                                                false,
-                                                            );
+                                                            setSelectedStoreIds([]);
                                                         }}
-                                                        className={`w-full text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${selectedStore === ""
-                                                            ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                        className={`w-full flex items-center justify-between text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${selectedStoreIds.length === 0
+                                                            ? "bg-blue-50 text-[#304674] dark:bg-blue-900/30 dark:text-blue-300"
                                                             : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
                                                             }`}
                                                     >
-                                                        Semua Toko
+                                                        <span className="flex items-center gap-2">
+                                                            <span className={`flex h-4 w-4 items-center justify-center rounded border ${selectedStoreIds.length === 0 ? "border-[#304674] bg-[#304674] text-white dark:border-blue-500 dark:bg-blue-500" : "border-slate-300 dark:border-slate-600"}`}>
+                                                                {selectedStoreIds.length === 0 && <span className="material-symbols-rounded text-[13px]">check</span>}
+                                                            </span>
+                                                            Semua Toko
+                                                        </span>
+                                                        <span className="text-[10px] font-semibold text-slate-400">{data?.stores?.length || 0} toko</span>
                                                     </button>
+                                                    <div className="mx-2 h-px bg-slate-100 dark:bg-slate-800" />
                                                     {data?.stores?.map(
-                                                        (store) => (
+                                                        (store) => {
+                                                            const isSelected = selectedStoreIds.includes(String(store.id));
+                                                            return (
                                                             <button
                                                                 key={store.id}
+                                                                type="button"
                                                                 onClick={() => {
-                                                                    setSelectedStore(
-                                                                        String(store.id),
-                                                                    );
-                                                                    setSelectedPlatform(store.platform);
-                                                                    setIsStoreDropdownOpen(
-                                                                        false,
-                                                                    );
+                                                                    setSelectedStoreIds((current) => current.includes(String(store.id))
+                                                                        ? current.filter((id) => id !== String(store.id))
+                                                                        : [...current, String(store.id)]);
                                                                 }}
-                                                                className={`w-full flex items-center justify-between text-left px-3 py-2 mt-1 text-sm font-medium rounded-xl transition-colors ${selectedStore ==
-                                                                    store.id
-                                                                    ? "bg-[#304674] text-white dark:bg-blue-600"
+                                                                className={`w-full flex items-center justify-between text-left px-3 py-2 text-sm font-medium rounded-xl transition-colors ${isSelected
+                                                                    ? "bg-blue-50 text-[#304674] dark:bg-blue-900/30 dark:text-blue-300"
                                                                     : "text-gray-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
                                                                     }`}
                                                             >
-                                                                <span className="truncate">
-                                                                    {
-                                                                        store.store_name
-                                                                    }
+                                                                <span className="flex min-w-0 items-center gap-2">
+                                                                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${isSelected ? "border-[#304674] bg-[#304674] text-white dark:border-blue-500 dark:bg-blue-500" : "border-slate-300 dark:border-slate-600"}`}>
+                                                                        {isSelected && <span className="material-symbols-rounded text-[13px]">check</span>}
+                                                                    </span>
+                                                                    <span className="truncate">{store.store_name}</span>
                                                                 </span>
                                                                 <span
-                                                                    className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${selectedStore ==
-                                                                        store.id
-                                                                        ? "bg-white/20 text-white"
-                                                                        : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
-                                                                        }`}
+                                                                    className="ml-2 shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-gray-500 dark:bg-slate-700 dark:text-slate-400"
                                                                 >
-                                                                    {
-                                                                        store.platform
-                                                                    }
+                                                                    {store.platform}
                                                                 </span>
                                                             </button>
-                                                        ),
+                                                            );
+                                                        },
                                                     )}
                                                 </div>
                                             </motion.div>
@@ -1304,11 +1364,11 @@ export default function OrderList() {
                                             aria-label={`Platform: ${platform.label}`}
                                             onClick={() => {
                                                 setSelectedPlatform(platform.id);
-                                                if (
-                                                    platform.id !== "all" &&
-                                                    selectedStoreOption?.platform !== platform.id
-                                                ) {
-                                                    setSelectedStore("");
+                                                if (platform.id !== "all") {
+                                                    setSelectedStoreIds((current) => current.filter((id) => {
+                                                        const store = data?.stores?.find((item) => String(item.id) === id);
+                                                        return store?.platform === platform.id;
+                                                    }));
                                                 }
                                             }}
                                             className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
@@ -1505,7 +1565,7 @@ export default function OrderList() {
                                     "Tidak ada pesanan pembatalan dari sisi buyer / pembayaran."
                                 ) : selectedFilterId !== "semua" && selectedFilterId !== "all" ? (
                                     `Tidak ada pesanan dalam status ${FILTER_GROUPS.find(g => g.id === selectedFilterId)?.label || "ini"}.`
-                                ) : selectedStore ? (
+                                ) : selectedStoreIds.length > 0 ? (
                                     "Toko yang Anda pilih saat ini belum memiliki pesanan."
                                 ) : (
                                     "Saat ini belum ada pesanan yang masuk atau data pesanan belum disinkronisasi."
@@ -2390,12 +2450,14 @@ export default function OrderList() {
                                         {selectedPrintIds.length > 0 && (
                                             <button
                                                 type="button"
-                                                disabled={!selectedPrintIds.length}
+                                                disabled={!selectedPrintIds.length || printingLabels}
                                                 onClick={() => printLabels(selectedPrintIds)}
                                                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 dark:disabled:text-slate-500"
                                             >
-                                                <span className="material-symbols-rounded text-[18px]">print</span>
-                                                Cetak resi{selectedPrintIds.length ? ` (${selectedPrintIds.length})` : ""}
+                                                <span className={`material-symbols-rounded text-[18px] ${printingLabels ? "animate-spin" : ""}`}>
+                                                    {printingLabels ? "progress_activity" : "print"}
+                                                </span>
+                                                {printingLabels ? "Menyiapkan..." : `Cetak resi (${selectedPrintIds.length})`}
                                             </button>
                                         )}
                                     </div>

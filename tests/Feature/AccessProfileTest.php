@@ -242,5 +242,10 @@ class AccessProfileTest extends TestCase
             ->withSession($session)
             ->get('/api/orders/999999/shipping-label')
             ->assertForbidden();
+
+        $this->actingAs($user)
+            ->withSession($session)
+            ->postJson('/api/orders/fulfillment/shipping-labels', ['order_ids' => [999998, 999999]])
+            ->assertForbidden();
     }
 }

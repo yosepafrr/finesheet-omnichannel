@@ -367,4 +367,91 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $service->label($order);
     }
+
+    public function test_shopee_bulk_labels_are_downloaded_as_one_document(): void
+    {
+        $shopee = Mockery::mock(ShopeeService::class);
+        $service = new OrderFulfillmentService(
+            $shopee,
+            Mockery::mock(TiktokService::class),
+        );
+        $store = new Store([
+            'shipping_label_template' => 'platform',
+            'shopee_thermal_printing' => false,
+        ]);
+        $store->id = 10;
+
+        $orders = collect(['ORDER-BULK-1', 'ORDER-BULK-2'])->map(function (string $orderSn) use ($store) {
+            $order = new Order([
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'order_status' => 'PROCESSED',
+                'order_sn' => $orderSn,
+                'raw_data' => ['split_up' => false],
+            ]);
+            $order->setRelation('store', $store);
+            $order->setRelation('packages', collect());
+            $order->setRelation('orderProducts', collect());
+
+            return $order;
+        });
+
+        $baseOrders = [
+            ['order_sn' => 'ORDER-BULK-1'],
+            ['order_sn' => 'ORDER-BULK-2'],
+        ];
+        $documentOrders = [
+            ['order_sn' => 'ORDER-BULK-1', 'shipping_document_type' => 'NORMAL_AIR_WAYBILL'],
+            ['order_sn' => 'ORDER-BULK-2', 'shipping_document_type' => 'NORMAL_AIR_WAYBILL'],
+        ];
+        $createOrders = [
+            $documentOrders[0] + ['tracking_number' => 'TRACK-BULK-1'],
+            $documentOrders[1] + ['tracking_number' => 'TRACK-BULK-2'],
+        ];
+
+        $shopee->shouldReceive('getTrackingNumber')
+            ->once()
+            ->with($store, 'ORDER-BULK-1', '')
+            ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-BULK-1']]);
+        $shopee->shouldReceive('getTrackingNumber')
+            ->once()
+            ->with($store, 'ORDER-BULK-2', '')
+            ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-BULK-2']]);
+        $shopee->shouldReceive('getShippingDocumentParameter')
+            ->once()
+            ->with($store, $baseOrders)
+            ->andReturn([
+                'error' => '',
+                'response' => ['result_list' => [
+                    ['order_sn' => 'ORDER-BULK-1', 'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL'],
+                    ['order_sn' => 'ORDER-BULK-2', 'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL'],
+                ]],
+            ]);
+        $shopee->shouldReceive('createShippingDocument')
+            ->once()
+            ->with($store, $createOrders)
+            ->andReturn(['error' => '']);
+        $shopee->shouldReceive('getShippingDocumentResult')
+            ->once()
+            ->with($store, $documentOrders)
+            ->andReturn([
+                'error' => '',
+                'response' => ['result_list' => [
+                    ['order_sn' => 'ORDER-BULK-1', 'status' => 'READY'],
+                    ['order_sn' => 'ORDER-BULK-2', 'status' => 'READY'],
+                ]],
+            ]);
+        $shopee->shouldReceive('downloadShippingDocument')
+            ->once()
+            ->with($store, $documentOrders)
+            ->andReturn(new Response(new Psr7Response(200, [
+                'Content-Type' => 'application/pdf',
+            ], 'PDF-BULK-CONTENT')));
+
+        $label = $service->labels($orders);
+
+        $this->assertSame('binary', $label['type']);
+        $this->assertSame('PDF-BULK-CONTENT', $label['body']);
+        $this->assertSame('resi-shopee-2-pesanan.pdf', $label['filename']);
+    }
 }

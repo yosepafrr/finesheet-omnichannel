@@ -135,6 +135,45 @@ class OrderFulfillmentController extends Controller
         return response($result['body'], 200, $headers);
     }
 
+    public function labels(Request $request, AccessControlService $access, OrderFulfillmentService $fulfillment)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $validated = $request->validate([
+            'order_ids' => ['required', 'array', 'min:2', 'max:50'],
+            'order_ids.*' => ['integer', 'distinct'],
+        ]);
+        $orders = $this->ownedOrders($validated['order_ids']);
+
+        try {
+            $result = $fulfillment->labels($orders);
+        } catch (RuntimeException $exception) {
+            Log::warning('Bulk shipping labels could not be prepared', [
+                'order_ids' => $orders->pluck('id')->all(),
+                'message' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['message' => $exception->getMessage()], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'Dokumen resi massal belum dapat disiapkan. Coba kembali beberapa saat lagi.',
+            ], 503);
+        }
+
+        if (($result['type'] ?? null) !== 'binary') {
+            return response()->json([
+                'message' => 'Dokumen resi massal tidak tersedia untuk pilihan pesanan ini.',
+            ], 422);
+        }
+
+        return response($result['body'], 200, [
+            'Content-Type' => $result['content_type'],
+            'Content-Disposition' => 'attachment; filename="'.$result['filename'].'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
     private function ownedOrder(int $id): Order
     {
         return Order::with(['store', 'packages'])

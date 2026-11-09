@@ -91,6 +91,37 @@ class OrderListFilterTest extends TestCase
             ->assertJsonPath('orders.0.store_name', 'Shopee Utama');
     }
 
+    public function test_store_filter_accepts_multiple_owned_stores(): void
+    {
+        $user = User::factory()->create();
+        $firstStore = $this->createStore($user, 'Shopee', 'Toko Pertama', 'shop-multi-1');
+        $secondStore = $this->createStore($user, 'Shopee', 'Toko Kedua', 'shop-multi-2');
+        $excludedStore = $this->createStore($user, 'Tiktokshop', 'Toko Lain', 'shop-multi-3');
+
+        $this->createOrder($firstStore, 'MULTI-FIRST', 'PROCESSED', now()->subMinutes(2));
+        $this->createOrder($secondStore, 'MULTI-SECOND', 'PROCESSED', now()->subMinute());
+        $this->createOrder($excludedStore, 'MULTI-EXCLUDED', 'PROCESSED', now());
+
+        $this->actingAs($user)
+            ->getJson("/api/orders?statuses=PROCESSED&store_ids={$firstStore->id},{$secondStore->id}")
+            ->assertOk()
+            ->assertJsonCount(2, 'orders')
+            ->assertJsonPath('orders.0.order_sn', 'MULTI-SECOND')
+            ->assertJsonPath('orders.1.order_sn', 'MULTI-FIRST');
+    }
+
+    public function test_store_filter_rejects_a_store_owned_by_another_user(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $ownedStore = $this->createStore($user, 'Shopee', 'Toko Sendiri', 'shop-owned');
+        $foreignStore = $this->createStore($otherUser, 'Shopee', 'Toko Asing', 'shop-foreign');
+
+        $this->actingAs($user)
+            ->getJson("/api/orders?store_ids={$ownedStore->id},{$foreignStore->id}")
+            ->assertNotFound();
+    }
+
     public function test_order_list_and_detail_can_serialize_package_data(): void
     {
         $user = User::factory()->create();

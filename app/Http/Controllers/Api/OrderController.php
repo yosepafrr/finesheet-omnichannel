@@ -36,9 +36,21 @@ class OrderController extends Controller
 
         $baseQuery = Order::whereIn('store_id', $storeIds);
 
-        // Filter by store
-        if ($request->has('store_id') && ! empty($request->store_id)) {
-            $baseQuery->where('store_id', $request->store_id);
+        // Support the multi-store filter while keeping store_id compatible with
+        // notification links and older clients.
+        $requestedStoreIds = collect(explode(',', (string) $request->input('store_ids', '')))
+            ->map(fn ($id) => filter_var(trim($id), FILTER_VALIDATE_INT))
+            ->filter(fn ($id) => $id !== false && $id > 0)
+            ->unique()
+            ->values();
+
+        if ($requestedStoreIds->isNotEmpty()) {
+            abort_if($requestedStoreIds->diff($storeIds)->isNotEmpty(), 404);
+            $baseQuery->whereIn('store_id', $requestedStoreIds);
+        } elseif ($request->filled('store_id')) {
+            $requestedStoreId = filter_var($request->input('store_id'), FILTER_VALIDATE_INT);
+            abort_if($requestedStoreId === false || ! $storeIds->contains($requestedStoreId), 404);
+            $baseQuery->where('store_id', $requestedStoreId);
         }
 
         $platform = match (strtolower((string) $request->input('platform'))) {

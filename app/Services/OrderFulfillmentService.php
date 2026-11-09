@@ -238,6 +238,128 @@ class OrderFulfillmentService
         throw new RuntimeException('Resi Shopee masih diproses. Coba cetak kembali beberapa saat lagi.');
     }
 
+    /**
+     * Prepare one marketplace document containing multiple Shopee labels.
+     * Shopee's download endpoint accepts an order_list, so the browser only
+     * needs to open one response instead of one popup per selected order.
+     */
+    public function labels(iterable $orders): array
+    {
+        $orders = collect($orders)->values();
+        if ($orders->isEmpty()) {
+            throw new RuntimeException('Pilih minimal satu pesanan untuk mencetak resi.');
+        }
+        if ($orders->count() === 1) {
+            return $this->label($orders->first());
+        }
+
+        $orders->each(function (Order $order) {
+            $order->loadMissing(['store', 'packages', 'orderProducts']);
+            $this->assertCapable($order, 'can_print');
+        });
+
+        $storeIds = $orders->pluck('store_id')->filter()->unique();
+        if ($storeIds->count() !== 1) {
+            throw new RuntimeException('Cetak resi massal hanya dapat dilakukan untuk pesanan dari satu toko.');
+        }
+
+        $store = $orders->first()->store;
+        if ($orders->contains(fn (Order $order) => $this->platform($order) !== 'Shopee')) {
+            throw new RuntimeException('Cetak resi massal dalam satu dokumen saat ini tersedia untuk pesanan Shopee.');
+        }
+        if (($store?->shipping_label_template ?? 'platform') !== 'platform') {
+            throw new RuntimeException('Cetak resi massal memerlukan template resi dari marketplace.');
+        }
+
+        $baseOrders = [];
+        $trackingNumbers = [];
+        foreach ($orders as $order) {
+            $baseOrder = ['order_sn' => $order->order_sn];
+            $packageNumber = $this->shopeePackageNumber($order);
+            if ($packageNumber !== '') {
+                $baseOrder['package_number'] = $packageNumber;
+            }
+            $baseOrders[] = $baseOrder;
+
+            $tracking = $this->shopee->getTrackingNumber($store, $order->order_sn, $packageNumber);
+            $this->assertPlatformSuccess($tracking, 'Shopee');
+            $trackingNumbers[$order->order_sn] = $this->shopeeTrackingNumber($tracking);
+        }
+
+        $parameters = $this->shopee->getShippingDocumentParameter($store, $baseOrders);
+        $this->assertPlatformSuccess($parameters, 'Shopee');
+
+        $documentOrders = [];
+        $createOrders = [];
+        foreach ($baseOrders as $index => $baseOrder) {
+            $parameter = $this->shopeeShippingDocumentParameter($parameters, $baseOrder, $index);
+            $parameterResponse = ['response' => ['result_list' => [$parameter]]];
+            $documentOrder = $baseOrder + [
+                'shipping_document_type' => $this->shopeeShippingDocumentType(
+                    $parameterResponse,
+                    (bool) ($store?->shopee_thermal_printing ?? false) ? 'a6' : 'a4',
+                ),
+            ];
+            $createOrder = $documentOrder;
+            $trackingNumber = $trackingNumbers[$baseOrder['order_sn']] ?? '';
+            if ($trackingNumber !== '') {
+                $createOrder['tracking_number'] = $trackingNumber;
+            }
+
+            $documentOrders[] = $documentOrder;
+            $createOrders[] = $createOrder;
+        }
+
+        $created = $this->shopee->createShippingDocument($store, $createOrders);
+        $this->assertPlatformSuccess($created, 'Shopee');
+
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            if ($attempt > 0) {
+                sleep(1);
+            }
+
+            $result = $this->shopee->getShippingDocumentResult($store, $documentOrders);
+            $this->assertPlatformSuccess($result, 'Shopee');
+            $resultItems = collect(Arr::wrap(data_get($result, 'response.result_list', [])));
+            $statuses = $resultItems
+                ->map(fn ($item) => strtoupper((string) data_get($item, 'status', '')))
+                ->filter();
+
+            if ($statuses->count() === count($documentOrders)
+                && $statuses->every(fn (string $status) => in_array($status, ['READY', 'SUCCESS'], true))) {
+                $download = $this->shopee->downloadShippingDocument($store, $documentOrders);
+                if (! $download->successful()) {
+                    throw new RuntimeException('Shopee gagal mengunduh dokumen resi massal.');
+                }
+
+                $contentType = $download->header('Content-Type') ?: 'application/pdf';
+                $extension = str_contains(strtolower($contentType), 'zip') ? 'zip' : 'pdf';
+
+                return [
+                    'type' => 'binary',
+                    'body' => $download->body(),
+                    'content_type' => $contentType,
+                    'filename' => 'resi-shopee-'.$orders->count().'-pesanan.'.$extension,
+                ];
+            }
+
+            $failed = $resultItems->first(fn ($item) => in_array(
+                strtoupper((string) data_get($item, 'status', '')),
+                ['FAILED', 'ERROR'],
+                true,
+            ));
+            if ($failed) {
+                throw new RuntimeException(
+                    data_get($failed, 'fail_message')
+                    ?: data_get($failed, 'fail_error')
+                    ?: 'Pembuatan resi massal Shopee gagal.',
+                );
+            }
+        }
+
+        throw new RuntimeException('Resi massal Shopee masih diproses. Coba cetak kembali beberapa saat lagi.');
+    }
+
     private function buildShopeeShipment(array $options, string $method, array $selection): array
     {
         if ($method === 'pickup') {
@@ -376,6 +498,21 @@ class OrderFulfillmentService
             ?? data_get($response, 'response.tracking_info.tracking_no')
             ?? ''
         ));
+    }
+
+    private function shopeeShippingDocumentParameter(array $response, array $order, int $index): array
+    {
+        $items = Arr::wrap(data_get($response, 'response.result_list', []));
+        $matched = collect($items)->first(function ($item) use ($order) {
+            if ((string) data_get($item, 'order_sn') !== (string) $order['order_sn']) {
+                return false;
+            }
+
+            return ! isset($order['package_number'])
+                || (string) data_get($item, 'package_number') === (string) $order['package_number'];
+        });
+
+        return is_array($matched) ? $matched : (is_array($items[$index] ?? null) ? $items[$index] : []);
     }
 
     private function shopeeShippingDocumentType(array $response, string $preferredSize = 'a6'): string
