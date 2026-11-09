@@ -194,10 +194,12 @@ class OrderFulfillmentService
         if ($this->shopeeDocumentTypeRejected($created)
             && $suggestedDocumentType !== ''
             && $documentOrder['shipping_document_type'] !== $suggestedDocumentType) {
+            $rejectedDocumentType = $documentOrder['shipping_document_type'];
             $documentOrder['shipping_document_type'] = $suggestedDocumentType;
             $createOrder['shipping_document_type'] = $suggestedDocumentType;
             Log::warning('Shopee rejected preferred shipping document type; retrying suggested type', [
                 'order_sn' => $order->order_sn,
+                'rejected_type' => $rejectedDocumentType,
                 'suggested_type' => $suggestedDocumentType,
             ]);
             $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
@@ -216,12 +218,16 @@ class OrderFulfillmentService
                 if (! $download->successful()) {
                     throw new RuntimeException('Shopee gagal mengunduh dokumen resi.');
                 }
+                $printMode = str_contains($documentOrder['shipping_document_type'], 'THERMAL')
+                    ? 'thermal'
+                    : 'normal';
 
                 return [
                     'type' => 'binary',
                     'body' => $download->body(),
                     'content_type' => $download->header('Content-Type') ?: 'application/pdf',
-                    'filename' => "resi-shopee-{$order->order_sn}.pdf",
+                    'filename' => "resi-shopee-{$printMode}-{$order->order_sn}.pdf",
+                    'document_type' => $documentOrder['shipping_document_type'],
                 ];
             }
             if (in_array($status, ['FAILED', 'ERROR'], true)) {
@@ -376,7 +382,7 @@ class OrderFulfillmentService
     {
         $suggested = $this->shopeeSuggestedShippingDocumentType($response);
         $wantsThermal = strtolower($preferredSize) === 'a6';
-        $preferredType = $wantsThermal ? 'THERMAL_AIR_WAYBILL' : 'NORMAL_AIR_WAYBILL';
+        $preferredType = $this->shopeePreferredDocumentType($suggested, $wantsThermal);
 
         $selectable = data_get($response, 'response.result_list.0.selectable_shipping_document_type')
             ?? data_get($response, 'response.result_list.0.selectable_shipping_document_type_list')
@@ -401,6 +407,19 @@ class OrderFulfillmentService
         });
 
         return $preferred ?: ($selectable->contains($suggested) ? $suggested : $selectable->first());
+    }
+
+    private function shopeePreferredDocumentType(string $suggested, bool $wantsThermal): string
+    {
+        $suggested = strtoupper($suggested);
+        if (str_contains($suggested, 'UNPACKAGED')) {
+            return $suggested;
+        }
+        if (str_contains($suggested, '_JOB_AIR_WAYBILL')) {
+            return $wantsThermal ? 'THERMAL_JOB_AIR_WAYBILL' : 'NORMAL_JOB_AIR_WAYBILL';
+        }
+
+        return $wantsThermal ? 'THERMAL_AIR_WAYBILL' : 'NORMAL_AIR_WAYBILL';
     }
 
     private function shopeeSuggestedShippingDocumentType(array $response): string

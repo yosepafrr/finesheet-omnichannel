@@ -22,8 +22,8 @@ class OrderFulfillmentServiceTest extends TestCase
     public static function shopeePackageStates(): array
     {
         return [
-            'unsplit without thermal mode' => [false, '', false, 'NORMAL_AIR_WAYBILL'],
-            'split order with thermal mode' => [true, 'PACKAGE-SHOPEE-1', true, 'THERMAL_AIR_WAYBILL'],
+            'unsplit job label without thermal mode' => [false, '', false, 'NORMAL_JOB_AIR_WAYBILL', 'THERMAL_JOB_AIR_WAYBILL'],
+            'split standard label with thermal mode' => [true, 'PACKAGE-SHOPEE-1', true, 'THERMAL_AIR_WAYBILL', 'NORMAL_AIR_WAYBILL'],
         ];
     }
 
@@ -215,7 +215,8 @@ class OrderFulfillmentServiceTest extends TestCase
         bool $split,
         string $packageNumber,
         bool $thermal,
-        string $expectedDocumentType
+        string $expectedDocumentType,
+        string $suggestedDocumentType
     ): void {
         $shopee = Mockery::mock(ShopeeService::class);
         $service = new OrderFulfillmentService(
@@ -261,7 +262,7 @@ class OrderFulfillmentServiceTest extends TestCase
             ->andReturn([
                 'error' => '',
                 'response' => ['result_list' => [[
-                    'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+                    'suggest_shipping_document_type' => $suggestedDocumentType,
                 ]]],
             ]);
         $shopee->shouldReceive('createShippingDocument')
@@ -287,6 +288,11 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('binary', $label['type']);
         $this->assertSame('PDF-CONTENT', $label['body']);
         $this->assertSame('application/pdf', $label['content_type']);
+        $this->assertSame($expectedDocumentType, $label['document_type']);
+        $this->assertSame(
+            'resi-shopee-'.($thermal ? 'thermal' : 'normal').'-ORDER-SHOPEE-1.pdf',
+            $label['filename'],
+        );
     }
 
     public function test_shopee_platform_label_surfaces_the_per_order_failure(): void

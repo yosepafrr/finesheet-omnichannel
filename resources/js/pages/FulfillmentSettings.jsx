@@ -149,16 +149,21 @@ function TiktokPrintingSettings({ value, onChange, disabled, compact = false }) 
     );
 }
 
-function ShopeeThermalSettings({ value, onChange, disabled }) {
+function ShopeeThermalSettings({ value, onChange, onThermalChange, disabled }) {
     const enabled = Boolean(value.shopee_thermal_printing);
+    const toggleThermal = () => {
+        const nextValue = !enabled;
+        if (onThermalChange) onThermalChange(nextValue);
+        else onChange("shopee_thermal_printing", nextValue);
+    };
     return (
         <section className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 dark:border-slate-700 dark:bg-slate-900/20">
             <div className="flex items-center justify-between gap-5">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><span className="material-symbols-rounded text-[20px] text-orange-500">print</span>Cetak Mode Thermal</div>
-                    <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">Aktifkan untuk memprioritaskan label A6 thermal pada semua jasa kirim Shopee. Jika jasa kirim tidak mendukungnya, tipe rekomendasi Shopee tetap digunakan.</p>
+                    <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">Aktifkan untuk mencetak satu label A6 per halaman. Saat dimatikan, Finesheet meminta format normal Shopee. Perubahan disimpan otomatis.</p>
                 </div>
-                <button type="button" role="switch" aria-label="Cetak Mode Thermal Shopee" aria-checked={enabled} disabled={disabled} onClick={() => onChange("shopee_thermal_printing", !enabled)} className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:cursor-not-allowed disabled:opacity-60 ${enabled ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-slate-300 dark:border-slate-600 dark:bg-slate-600"}`}>
+                <button type="button" role="switch" aria-label="Cetak Mode Thermal Shopee" aria-checked={enabled} disabled={disabled} onClick={toggleThermal} className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400/30 disabled:cursor-not-allowed disabled:opacity-60 ${enabled ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-slate-300 dark:border-slate-600 dark:bg-slate-600"}`}>
                     <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${enabled ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
             </div>
@@ -166,7 +171,7 @@ function ShopeeThermalSettings({ value, onChange, disabled }) {
     );
 }
 
-function SettingsForm({ value, onChange, disabled, compact = false, platform = "Tiktokshop" }) {
+function SettingsForm({ value, onChange, onThermalChange, disabled, compact = false, platform = "Tiktokshop" }) {
     const showShopee = platform === "Shopee" || platform === "mixed";
     const showTiktok = platform !== "Shopee";
     return (
@@ -177,7 +182,7 @@ function SettingsForm({ value, onChange, disabled, compact = false, platform = "
             </div>
             <div className="space-y-4 border-t border-slate-100 pt-5 dark:border-slate-700">
                 {platform === "mixed" && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">Toko terpilih mencakup Shopee dan TikTok Shop. Masing-masing akan memakai pengaturan pencetakan sesuai platformnya.</div>}
-                {showShopee && <ShopeeThermalSettings value={value} onChange={onChange} disabled={disabled} />}
+                {showShopee && <ShopeeThermalSettings value={value} onChange={onChange} onThermalChange={onThermalChange} disabled={disabled} />}
                 {showTiktok && <TiktokPrintingSettings value={value} onChange={onChange} disabled={disabled} compact={compact} />}
             </div>
         </div>
@@ -231,9 +236,18 @@ export default function FulfillmentSettings() {
             setStores((current) => current.map((item) => item.id === store.id ? saved : item));
             setOriginal((current) => ({ ...current, [store.id]: settingsOf(saved) }));
             setNotice({ type: "success", message: data.message });
+            return true;
         } catch (error) {
             setNotice({ type: "error", message: errorMessage(error, `Pengaturan ${store.store_name} gagal disimpan.`) });
+            return false;
         } finally { setSaving((current) => ({ ...current, [store.id]: false })); }
+    };
+
+    const saveThermalMode = async (store, enabled) => {
+        const updatedStore = { ...store, shopee_thermal_printing: enabled };
+        setStores((current) => current.map((item) => item.id === store.id ? updatedStore : item));
+        const saved = await saveStore(updatedStore);
+        if (!saved) setStores((current) => current.map((item) => item.id === store.id ? store : item));
     };
 
     const saveAll = async () => {
@@ -284,7 +298,7 @@ export default function FulfillmentSettings() {
                                     <div className="flex min-w-0 items-center gap-3"><input type="checkbox" checked={selected} onChange={() => toggleSelected(store.id)} aria-label={`Pilih ${store.store_name}`} className="h-4 w-4 rounded border-slate-300 text-[#304674] focus:ring-[#304674]" /><StoreLogo platform={store.platform} /><div className="min-w-0"><h2 className="truncate font-bold text-slate-900 dark:text-white">{store.store_name}</h2><p className="mt-0.5 text-xs font-medium text-slate-500">{store.platform === "Tiktokshop" ? "TikTok Shop" : store.platform}</p></div>{dirty && <span className="rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">Belum disimpan</span>}</div>
                                     <button type="button" disabled={!dirty || saving[store.id]} onClick={() => saveStore(store)} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-bold text-[#304674] transition hover:bg-[#304674]/5 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-600 dark:text-blue-300"><span className={`material-symbols-rounded text-[18px] ${saving[store.id] ? "animate-spin" : ""}`}>{saving[store.id] ? "progress_activity" : "save"}</span>Simpan toko</button>
                                 </div>
-                                <div className="p-4 sm:p-5"><SettingsForm value={store} onChange={(key, value) => updateStore(store.id, key, value)} disabled={saving[store.id]} platform={store.platform} /></div>
+                                <div className="p-4 sm:p-5"><SettingsForm value={store} onChange={(key, value) => updateStore(store.id, key, value)} onThermalChange={(enabled) => saveThermalMode(store, enabled)} disabled={saving[store.id]} platform={store.platform} /></div>
                             </motion.section>;
                         })}</div>}
 

@@ -123,11 +123,16 @@ class OrderFulfillmentController extends Controller
             return redirect()->away($result['url']);
         }
 
-        return response($result['body'], 200, [
+        $headers = [
             'Content-Type' => $result['content_type'],
             'Content-Disposition' => 'inline; filename="'.$result['filename'].'"',
             'Cache-Control' => 'private, no-store',
-        ]);
+        ];
+        if (! empty($result['document_type'])) {
+            $headers['X-Finesheet-Shipping-Document-Type'] = $result['document_type'];
+        }
+
+        return response($result['body'], 200, $headers);
     }
 
     private function ownedOrder(int $id): Order
