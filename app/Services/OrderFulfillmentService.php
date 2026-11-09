@@ -8,6 +8,8 @@ use App\Models\Store;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use setasign\Fpdi\PdfParser\StreamReader;
+use setasign\Fpdi\Tcpdf\Fpdi;
 
 class OrderFulfillmentService
 {
@@ -258,19 +260,27 @@ class OrderFulfillmentService
             $this->assertCapable($order, 'can_print');
         });
 
-        $storeIds = $orders->pluck('store_id')->filter()->unique();
-        if ($storeIds->count() !== 1) {
-            throw new RuntimeException('Cetak resi massal hanya dapat dilakukan untuk pesanan dari satu toko.');
-        }
-
-        $store = $orders->first()->store;
         if ($orders->contains(fn (Order $order) => $this->platform($order) !== 'Shopee')) {
             throw new RuntimeException('Cetak resi massal dalam satu dokumen saat ini tersedia untuk pesanan Shopee.');
         }
-        if (($store?->shipping_label_template ?? 'platform') !== 'platform') {
+        if ($orders->contains(fn (Order $order) => ($order->store?->shipping_label_template ?? 'platform') !== 'platform')) {
             throw new RuntimeException('Cetak resi massal memerlukan template resi dari marketplace.');
         }
 
+        $ordersByStore = $orders->groupBy('store_id')->values();
+        if ($ordersByStore->count() > 1) {
+            $documents = $ordersByStore->map(fn ($storeOrders) => $this->shopeeLabelsForStore($storeOrders));
+
+            return $this->mergeShippingLabelPdfs($ordersByStore->count(), $documents, $orders->count());
+        }
+
+        return $this->shopeeLabelsForStore($ordersByStore->first());
+    }
+
+    private function shopeeLabelsForStore(iterable $orders): array
+    {
+        $orders = collect($orders)->values();
+        $store = $orders->first()->store;
         $baseOrders = [];
         $trackingNumbers = [];
         foreach ($orders as $order) {
@@ -358,6 +368,50 @@ class OrderFulfillmentService
         }
 
         throw new RuntimeException('Resi massal Shopee masih diproses. Coba cetak kembali beberapa saat lagi.');
+    }
+
+    private function mergeShippingLabelPdfs(int $storeCount, $documents, int $orderCount): array
+    {
+        try {
+            $pdf = new Fpdi('P', 'mm', 'A4', true, 'UTF-8', false);
+            $pdf->setPrintHeader(false);
+            $pdf->setPrintFooter(false);
+            $pdf->SetMargins(0, 0, 0);
+            $pdf->SetAutoPageBreak(false, 0);
+
+            foreach ($documents as $document) {
+                if (! str_contains(strtolower((string) $document['content_type']), 'pdf')) {
+                    throw new RuntimeException('Salah satu toko tidak mengembalikan dokumen PDF yang dapat digabungkan.');
+                }
+
+                $pageCount = $pdf->setSourceFile(StreamReader::createByString($document['body']));
+                for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
+                    $template = $pdf->importPage($pageNumber);
+                    $size = $pdf->getTemplateSize($template);
+                    $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+
+                    $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+                    $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
+                }
+            }
+
+            return [
+                'type' => 'binary',
+                'body' => $pdf->Output('resi-massal.pdf', 'S'),
+                'content_type' => 'application/pdf',
+                'filename' => 'resi-massal-'.$storeCount.'-toko-'.$orderCount.'-pesanan.pdf',
+            ];
+        } catch (RuntimeException $exception) {
+            throw $exception;
+        } catch (\Throwable $exception) {
+            Log::warning('Shipping label PDFs could not be merged', [
+                'store_count' => $storeCount,
+                'order_count' => $orderCount,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw new RuntimeException('Dokumen resi dari beberapa toko gagal digabungkan menjadi satu PDF.');
+        }
     }
 
     private function buildShopeeShipment(array $options, string $method, array $selection): array

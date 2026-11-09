@@ -13,6 +13,8 @@ use Illuminate\Http\Client\Response;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
+use setasign\Fpdi\PdfParser\StreamReader;
+use setasign\Fpdi\Tcpdf\Fpdi;
 use Tests\TestCase;
 
 class OrderFulfillmentServiceTest extends TestCase
@@ -453,5 +455,113 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('binary', $label['type']);
         $this->assertSame('PDF-BULK-CONTENT', $label['body']);
         $this->assertSame('resi-shopee-2-pesanan.pdf', $label['filename']);
+    }
+
+    public function test_shopee_bulk_labels_from_multiple_stores_are_merged_into_one_pdf(): void
+    {
+        $shopee = Mockery::mock(ShopeeService::class);
+        $service = new OrderFulfillmentService(
+            $shopee,
+            Mockery::mock(TiktokService::class),
+        );
+        $stores = collect([
+            new Store(['store_name' => 'Toko Pertama', 'shipping_label_template' => 'platform']),
+            new Store(['store_name' => 'Toko Kedua', 'shipping_label_template' => 'platform']),
+        ]);
+        $stores[0]->id = 21;
+        $stores[1]->id = 22;
+
+        $orders = $stores->values()->map(function (Store $store, int $index) {
+            $number = $index + 1;
+            $order = new Order([
+                'store_id' => $store->id,
+                'platform' => 'Shopee',
+                'order_status' => 'PROCESSED',
+                'order_sn' => "ORDER-MULTI-{$number}",
+                'raw_data' => ['split_up' => false],
+            ]);
+            $order->setRelation('store', $store);
+            $order->setRelation('packages', collect());
+            $order->setRelation('orderProducts', collect());
+
+            return $order;
+        });
+
+        foreach ($orders as $index => $order) {
+            $number = $index + 1;
+            $store = $order->store;
+            $baseOrder = ['order_sn' => "ORDER-MULTI-{$number}"];
+            $documentOrder = $baseOrder + ['shipping_document_type' => 'NORMAL_AIR_WAYBILL'];
+            $createOrder = $documentOrder + ['tracking_number' => "TRACK-MULTI-{$number}"];
+            $sourcePdf = $this->makeTestPdf(
+                "LABEL STORE {$number}",
+                $index === 0 ? [105, 148] : [210, 297],
+            );
+
+            $shopee->shouldReceive('getTrackingNumber')
+                ->once()
+                ->with($store, "ORDER-MULTI-{$number}", '')
+                ->andReturn(['error' => '', 'response' => ['tracking_number' => "TRACK-MULTI-{$number}"]]);
+            $shopee->shouldReceive('getShippingDocumentParameter')
+                ->once()
+                ->with($store, [$baseOrder])
+                ->andReturn([
+                    'error' => '',
+                    'response' => ['result_list' => [[
+                        'order_sn' => "ORDER-MULTI-{$number}",
+                        'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+                    ]]],
+                ]);
+            $shopee->shouldReceive('createShippingDocument')
+                ->once()
+                ->with($store, [$createOrder])
+                ->andReturn(['error' => '']);
+            $shopee->shouldReceive('getShippingDocumentResult')
+                ->once()
+                ->with($store, [$documentOrder])
+                ->andReturn([
+                    'error' => '',
+                    'response' => ['result_list' => [[
+                        'order_sn' => "ORDER-MULTI-{$number}",
+                        'status' => 'READY',
+                    ]]],
+                ]);
+            $shopee->shouldReceive('downloadShippingDocument')
+                ->once()
+                ->with($store, [$documentOrder])
+                ->andReturn(new Response(new Psr7Response(200, [
+                    'Content-Type' => 'application/pdf',
+                ], $sourcePdf)));
+        }
+
+        $label = $service->labels($orders);
+
+        $this->assertSame('application/pdf', $label['content_type']);
+        $this->assertSame('resi-massal-2-toko-2-pesanan.pdf', $label['filename']);
+
+        $mergedPdf = new Fpdi;
+        $pageCount = $mergedPdf->setSourceFile(StreamReader::createByString($label['body']));
+        $this->assertSame(2, $pageCount);
+
+        $firstPage = $mergedPdf->getTemplateSize($mergedPdf->importPage(1));
+        $secondPage = $mergedPdf->getTemplateSize($mergedPdf->importPage(2));
+        $this->assertEqualsWithDelta(105, $firstPage['width'], 0.5);
+        $this->assertEqualsWithDelta(148, $firstPage['height'], 0.5);
+        $this->assertEqualsWithDelta(210, $secondPage['width'], 0.5);
+        $this->assertEqualsWithDelta(297, $secondPage['height'], 0.5);
+    }
+
+    private function makeTestPdf(string $label, array $size): string
+    {
+        $pdf = new \TCPDF('P', 'mm', $size, true, 'UTF-8', false);
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetMargins(5, 5, 5);
+        $pdf->SetAutoPageBreak(false, 0);
+        $pdf->AddPage();
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Text(10, 15, $label);
+
+        return $pdf->Output('test-label.pdf', 'S');
     }
 }

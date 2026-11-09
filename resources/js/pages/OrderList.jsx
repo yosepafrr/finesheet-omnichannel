@@ -1088,7 +1088,7 @@ export default function OrderList() {
 
             setFulfillmentNotice({
                 type: "success",
-                message: `${orderIds.length} resi berhasil digabungkan dalam satu dokumen.`,
+                message: `${orderIds.length} resi berhasil digabungkan dalam satu dokumen PDF.`,
             });
             setSelectedOrderIds([]);
         } catch (error) {
