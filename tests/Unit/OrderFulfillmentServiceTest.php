@@ -391,8 +391,8 @@ class OrderFulfillmentServiceTest extends TestCase
             $documentOrders[0] + ['tracking_number' => 'TRACK-BULK-1'],
             $documentOrders[1] + ['tracking_number' => 'TRACK-BULK-2'],
         ];
-        $zipBody = $this->makeTestZip([
-            'label-1.pdf' => $this->makeTestPdf('SHOPEE BULK 1', [105, 148]),
+        $firstPdf = $this->makeTestPdf('SHOPEE BULK 1', [105, 148]);
+        $secondZip = $this->makeTestZip([
             'label-2.pdf' => $this->makeTestPdf('SHOPEE BULK 2', [105, 148]),
         ]);
 
@@ -430,16 +430,22 @@ class OrderFulfillmentServiceTest extends TestCase
             ]);
         $shopee->shouldReceive('downloadShippingDocument')
             ->once()
-            ->with($store, $documentOrders)
+            ->with($store, [$documentOrders[0]])
+            ->andReturn(new Response(new Psr7Response(200, [
+                'Content-Type' => 'application/pdf',
+            ], $firstPdf)));
+        $shopee->shouldReceive('downloadShippingDocument')
+            ->once()
+            ->with($store, [$documentOrders[1]])
             ->andReturn(new Response(new Psr7Response(200, [
                 'Content-Type' => 'application/zip',
-            ], $zipBody)));
+            ], $secondZip)));
 
         $label = $service->labels($orders);
 
         $this->assertSame('binary', $label['type']);
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame('resi-shopee-2-pesanan.pdf', $label['filename']);
+        $this->assertSame('resi-massal-1-toko-2-pesanan.pdf', $label['filename']);
         $pdf = new Fpdi;
         $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
     }

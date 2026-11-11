@@ -9,7 +9,6 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
-use setasign\Fpdi\PdfParser\StreamReader;
 use setasign\Fpdi\Tcpdf\Fpdi;
 use ZipArchive;
 
@@ -252,7 +251,9 @@ class OrderFulfillmentService
         $documents = collect();
         $shopeeOrders = $orders->filter(fn (Order $order) => $this->platform($order) === 'Shopee');
         foreach ($shopeeOrders->groupBy('store_id') as $storeOrders) {
-            $documents->push($this->shopeeLabelsForStore($storeOrders));
+            foreach ($this->shopeeLabelDocumentsForStore($storeOrders) as $document) {
+                $documents->push($document);
+            }
         }
         foreach ($orders->filter(fn (Order $order) => $this->platform($order) === 'Tiktokshop') as $order) {
             $documents->push($this->tiktokLabelDocument($order));
@@ -270,7 +271,8 @@ class OrderFulfillmentService
         return $this->mergeShippingLabelPdfs($sourceCount, $documents, $orders->count());
     }
 
-    private function shopeeLabelsForStore(iterable $orders): array
+    /** @return array<int, array<string, mixed>> */
+    private function shopeeLabelDocumentsForStore(iterable $orders): array
     {
         $orders = collect($orders)->values();
         $store = $orders->first()->store;
@@ -327,15 +329,21 @@ class OrderFulfillmentService
 
             if ($statuses->count() === count($documentOrders)
                 && $statuses->every(fn (string $status) => in_array($status, ['READY', 'SUCCESS'], true))) {
-                $download = $this->shopee->downloadShippingDocument($store, $documentOrders);
-                $document = $this->documentFromResponse($download, 'Shopee');
+                return collect($documentOrders)
+                    ->map(function (array $documentOrder) use ($store) {
+                        // Shopee rejects some otherwise printable packages when they
+                        // are submitted together to the download endpoint.
+                        $download = $this->shopee->downloadShippingDocument($store, [$documentOrder]);
+                        $document = $this->documentFromResponse($download, 'Shopee');
 
-                return [
-                    'type' => 'binary',
-                    'body' => $document['body'],
-                    'content_type' => $document['content_type'],
-                    'filename' => 'resi-shopee-'.$orders->count().'-pesanan.pdf',
-                ];
+                        return [
+                            'type' => 'binary',
+                            'body' => $document['body'],
+                            'content_type' => $document['content_type'],
+                            'filename' => 'resi-shopee-'.$documentOrder['order_sn'].'.pdf',
+                        ];
+                    })
+                    ->all();
             }
 
             $failed = $resultItems->first(fn ($item) => in_array(
@@ -357,6 +365,8 @@ class OrderFulfillmentService
 
     private function mergeShippingLabelPdfs(int $storeCount, $documents, int $orderCount): array
     {
+        $temporaryFiles = [];
+
         try {
             $pdf = new Fpdi('P', 'mm', 'A4', true, 'UTF-8', false);
             $pdf->setPrintHeader(false);
@@ -366,7 +376,15 @@ class OrderFulfillmentService
 
             foreach ($documents as $document) {
                 foreach ($this->pdfBodiesFromDocument($document) as $pdfBody) {
-                    $pageCount = $pdf->setSourceFile(StreamReader::createByString($pdfBody));
+                    $path = tempnam(sys_get_temp_dir(), 'finesheet-pdf-');
+                    if ($path === false || file_put_contents($path, $pdfBody) === false) {
+                        throw new RuntimeException('Dokumen resi sementara tidak dapat dibuat.');
+                    }
+                    $temporaryFiles[] = $path;
+
+                    // A file path works across the FPDI versions used locally and
+                    // in production, unlike the version-specific stream reader.
+                    $pageCount = $pdf->setSourceFile($path);
                     for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
                         $template = $pdf->importPage($pageNumber);
                         $size = $pdf->getTemplateSize($template);
@@ -394,6 +412,10 @@ class OrderFulfillmentService
             ]);
 
             throw new RuntimeException('Dokumen resi dari beberapa toko gagal digabungkan menjadi satu PDF.');
+        } finally {
+            foreach ($temporaryFiles as $path) {
+                @unlink($path);
+            }
         }
     }
 
