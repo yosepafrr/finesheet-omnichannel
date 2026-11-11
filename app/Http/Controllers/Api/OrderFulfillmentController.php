@@ -169,7 +169,7 @@ class OrderFulfillmentController extends Controller
 
         return response($result['body'], 200, [
             'Content-Type' => $result['content_type'],
-            'Content-Disposition' => 'attachment; filename="'.$result['filename'].'"',
+            'Content-Disposition' => 'inline; filename="'.$result['filename'].'"',
             'Cache-Control' => 'private, no-store',
         ]);
     }

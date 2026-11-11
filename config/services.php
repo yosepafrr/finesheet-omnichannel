@@ -71,6 +71,7 @@ return [
 
     'shipping_labels' => [
         'pdfunite_binary' => env('PDFUNITE_BINARY'),
+        'cache_ttl_days' => (int) env('SHIPPING_LABEL_CACHE_TTL_DAYS', 14),
     ],
 
 ];

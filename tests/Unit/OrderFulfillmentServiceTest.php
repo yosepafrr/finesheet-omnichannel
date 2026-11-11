@@ -10,6 +10,7 @@ use App\Services\ShopeeService;
 use App\Services\TiktokService;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Storage;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
@@ -32,6 +33,8 @@ class OrderFulfillmentServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Storage::fake('local');
 
         $this->service = new OrderFulfillmentService(
             Mockery::mock(ShopeeService::class),
@@ -448,6 +451,11 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('resi-massal-1-toko-2-pesanan.pdf', $label['filename']);
         $pdf = new Fpdi;
         $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
+
+        $cachedLabel = $service->labels($orders);
+        $cachedPdf = new Fpdi;
+        $this->assertSame(2, $cachedPdf->setSourceFile(StreamReader::createByString($cachedLabel['body'])));
+        $this->assertCount(2, Storage::disk('local')->allFiles('shipping-labels'));
     }
 
     public function test_shopee_bulk_labels_from_multiple_stores_are_merged_into_one_pdf(): void

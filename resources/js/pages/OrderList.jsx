@@ -1067,6 +1067,27 @@ export default function OrderList() {
             return;
         }
 
+        const previewWindow = window.open("", `finesheet-labels-${Date.now()}`);
+        if (!previewWindow) {
+            setFulfillmentNotice({
+                type: "error",
+                message: "Browser memblokir tab resi. Izinkan pop-up untuk Finesheet lalu coba kembali.",
+            });
+            return;
+        }
+        previewWindow.opener = null;
+        previewWindow.document.title = "Menyiapkan resi";
+        previewWindow.document.body.innerHTML = `
+            <main style="min-height:100vh;display:grid;place-items:center;background:#f6f8fc;font-family:Arial,sans-serif;color:#172033">
+                <section style="text-align:center;padding:32px">
+                    <div style="width:34px;height:34px;margin:0 auto 18px;border:3px solid #dce3f1;border-top-color:#35477d;border-radius:50%;animation:spin .8s linear infinite"></div>
+                    <strong style="display:block;font-size:18px">Menyiapkan resi</strong>
+                    <span style="display:block;margin-top:8px;color:#667085;font-size:14px">Dokumen akan tampil otomatis di tab ini.</span>
+                </section>
+                <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+            </main>
+        `;
+
         setPrintingLabels(true);
         try {
             const response = await axios.post(
@@ -1077,18 +1098,14 @@ export default function OrderList() {
             const contentDisposition = response.headers["content-disposition"] || "";
             const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
             const filename = filenameMatch?.[1] || `resi-${orderIds.length}-pesanan.pdf`;
-            const documentUrl = URL.createObjectURL(response.data);
-            const link = document.createElement("a");
-            link.href = documentUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.setTimeout(() => URL.revokeObjectURL(documentUrl), 1000);
+            const pdf = new File([response.data], filename, { type: "application/pdf" });
+            const documentUrl = URL.createObjectURL(pdf);
+            previewWindow.location.replace(documentUrl);
+            window.setTimeout(() => URL.revokeObjectURL(documentUrl), 5 * 60 * 1000);
 
             setFulfillmentNotice({
                 type: "success",
-                message: `${orderIds.length} resi berhasil digabungkan dalam satu dokumen PDF.`,
+                message: `${orderIds.length} resi berhasil dibuka di tab baru.`,
             });
             setSelectedOrderIds([]);
         } catch (error) {
@@ -1101,6 +1118,7 @@ export default function OrderList() {
                     // Keep the generic message for a non-JSON response.
                 }
             }
+            previewWindow.close();
             setFulfillmentNotice({ type: "error", message });
         } finally {
             setPrintingLabels(false);

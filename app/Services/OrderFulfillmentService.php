@@ -8,6 +8,7 @@ use App\Models\Store;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use setasign\Fpdi\Tcpdf\Fpdi;
 use Symfony\Component\Process\ExecutableFinder;
@@ -172,9 +173,17 @@ class OrderFulfillmentService
             $documentOrder['package_number'] = $packageNumber;
         }
 
-        $tracking = $this->shopee->getTrackingNumber($order->store, $order->order_sn, $packageNumber);
-        $this->assertPlatformSuccess($tracking, 'Shopee');
-        $trackingNumber = $this->shopeeTrackingNumber($tracking);
+        $cached = $this->cachedPlatformLabel($order);
+        if ($cached) {
+            return $cached;
+        }
+
+        $trackingNumber = $this->localTrackingNumber($order);
+        if ($trackingNumber === '') {
+            $tracking = $this->shopee->getTrackingNumber($order->store, $order->order_sn, $packageNumber);
+            $this->assertPlatformSuccess($tracking, 'Shopee');
+            $trackingNumber = $this->shopeeTrackingNumber($tracking);
+        }
 
         $parameters = $this->shopee->getShippingDocumentParameter($order->store, [$documentOrder]);
         $this->assertPlatformSuccess($parameters, 'Shopee');
@@ -214,13 +223,17 @@ class OrderFulfillmentService
                     ? 'thermal'
                     : 'normal';
 
-                return [
+                $label = [
                     'type' => 'binary',
                     'body' => $normalized['body'],
                     'content_type' => 'application/pdf',
                     'filename' => "resi-shopee-{$printMode}-{$order->order_sn}.pdf",
                     'document_type' => $documentOrder['shipping_document_type'],
                 ];
+
+                $this->cachePlatformLabel($order, $label);
+
+                return $label;
             }
             if (in_array($status, ['FAILED', 'ERROR'], true)) {
                 throw new RuntimeException(data_get($result, 'response.result_list.0.fail_error') ?: 'Pembuatan resi Shopee gagal.');
@@ -278,19 +291,43 @@ class OrderFulfillmentService
     {
         $orders = collect($orders)->values();
         $store = $orders->first()->store;
+        $documentsByOrder = [];
+        $uncachedOrders = $orders->filter(function (Order $order) use (&$documentsByOrder) {
+            $cached = $this->cachedPlatformLabel($order);
+            if ($cached) {
+                $documentsByOrder[$order->order_sn] = $cached;
+
+                return false;
+            }
+
+            return true;
+        })->values();
+
+        if ($uncachedOrders->isEmpty()) {
+            return $orders
+                ->map(fn (Order $order) => $documentsByOrder[$order->order_sn])
+                ->all();
+        }
+
         $baseOrders = [];
         $trackingNumbers = [];
-        foreach ($orders as $order) {
+        $ordersByNumber = [];
+        foreach ($uncachedOrders as $order) {
             $baseOrder = ['order_sn' => $order->order_sn];
             $packageNumber = $this->shopeePackageNumber($order);
             if ($packageNumber !== '') {
                 $baseOrder['package_number'] = $packageNumber;
             }
             $baseOrders[] = $baseOrder;
+            $ordersByNumber[$order->order_sn] = $order;
 
-            $tracking = $this->shopee->getTrackingNumber($store, $order->order_sn, $packageNumber);
-            $this->assertPlatformSuccess($tracking, 'Shopee');
-            $trackingNumbers[$order->order_sn] = $this->shopeeTrackingNumber($tracking);
+            $trackingNumber = $this->localTrackingNumber($order);
+            if ($trackingNumber === '') {
+                $tracking = $this->shopee->getTrackingNumber($store, $order->order_sn, $packageNumber);
+                $this->assertPlatformSuccess($tracking, 'Shopee');
+                $trackingNumber = $this->shopeeTrackingNumber($tracking);
+            }
+            $trackingNumbers[$order->order_sn] = $trackingNumber;
         }
 
         $parameters = $this->shopee->getShippingDocumentParameter($store, $baseOrders);
@@ -331,20 +368,22 @@ class OrderFulfillmentService
 
             if ($statuses->count() === count($documentOrders)
                 && $statuses->every(fn (string $status) => in_array($status, ['READY', 'SUCCESS'], true))) {
-                return collect($documentOrders)
-                    ->map(function (array $documentOrder) use ($store) {
-                        // Shopee rejects some otherwise printable packages when they
-                        // are submitted together to the download endpoint.
-                        $download = $this->shopee->downloadShippingDocument($store, [$documentOrder]);
-                        $document = $this->documentFromResponse($download, 'Shopee');
+                foreach ($documentOrders as $documentOrder) {
+                    // Shopee rejects some otherwise printable packages when they
+                    // are submitted together to the download endpoint.
+                    $download = $this->shopee->downloadShippingDocument($store, [$documentOrder]);
+                    $document = $this->documentFromResponse($download, 'Shopee');
+                    $order = $ordersByNumber[$documentOrder['order_sn']];
+                    $documentsByOrder[$order->order_sn] = $this->cachePlatformLabel($order, [
+                        'type' => 'binary',
+                        'body' => $document['body'],
+                        'content_type' => $document['content_type'],
+                        'filename' => 'resi-shopee-'.$documentOrder['order_sn'].'.pdf',
+                    ]);
+                }
 
-                        return [
-                            'type' => 'binary',
-                            'body' => $document['body'],
-                            'content_type' => $document['content_type'],
-                            'filename' => 'resi-shopee-'.$documentOrder['order_sn'].'.pdf',
-                        ];
-                    })
+                return $orders
+                    ->map(fn (Order $order) => $documentsByOrder[$order->order_sn])
                     ->all();
             }
 
@@ -489,6 +528,11 @@ class OrderFulfillmentService
 
     private function tiktokLabelDocument(Order $order): array
     {
+        $cached = $this->cachedPlatformLabel($order);
+        if ($cached) {
+            return $cached;
+        }
+
         $packageId = $this->resolveTiktokPackageIds($order)[0] ?? null;
         if (! $packageId) {
             throw new RuntimeException('Package ID TikTok Shop belum tersedia. Sinkronkan pesanan terlebih dahulu.');
@@ -513,12 +557,85 @@ class OrderFulfillmentService
             'TikTok Shop',
         );
 
-        return [
+        return $this->cachePlatformLabel($order, [
             'type' => 'binary',
             'body' => $document['body'],
             'content_type' => $document['content_type'],
             'filename' => "resi-tiktok-{$order->order_sn}.pdf",
+        ]);
+    }
+
+    private function cachedPlatformLabel(Order $order): ?array
+    {
+        $disk = Storage::disk('local');
+        $path = $this->platformLabelCachePath($order);
+        if (! $disk->exists($path)) {
+            return null;
+        }
+
+        $ttlDays = max(0, (int) config('services.shipping_labels.cache_ttl_days', 14));
+        if ($ttlDays > 0 && $disk->lastModified($path) < now()->subDays($ttlDays)->timestamp) {
+            $disk->delete($path);
+
+            return null;
+        }
+
+        $body = $disk->get($path);
+        if (! is_string($body) || ! str_starts_with($body, '%PDF-')) {
+            $disk->delete($path);
+
+            return null;
+        }
+
+        return [
+            'type' => 'binary',
+            'body' => $body,
+            'content_type' => 'application/pdf',
+            'filename' => 'resi-'.strtolower($this->platform($order)).'-'.$order->order_sn.'.pdf',
         ];
+    }
+
+    private function cachePlatformLabel(Order $order, array $document): array
+    {
+        $normalized = $this->normalizeSingleLabelDocument($document, 1);
+        $normalized['filename'] = $document['filename']
+            ?? 'resi-'.strtolower($this->platform($order)).'-'.$order->order_sn.'.pdf';
+
+        if (str_starts_with((string) ($normalized['body'] ?? ''), '%PDF-')) {
+            Storage::disk('local')->put($this->platformLabelCachePath($order), $normalized['body']);
+        }
+
+        return $normalized;
+    }
+
+    private function platformLabelCachePath(Order $order): string
+    {
+        $packages = $order->packages
+            ->map(fn (OrderPackage $package) => [
+                'id' => (string) $package->package_id,
+                'tracking' => (string) $package->tracking_number,
+            ])
+            ->values()
+            ->all();
+        $fingerprint = hash('sha256', json_encode([
+            'platform' => $this->platform($order),
+            'store_id' => $order->store_id,
+            'order_sn' => $order->order_sn,
+            'packages' => $packages,
+            'printing' => $this->printingSettings($order->store),
+        ], JSON_UNESCAPED_SLASHES));
+
+        return 'shipping-labels/'.strtolower($this->platform($order)).'/'.$fingerprint.'.pdf';
+    }
+
+    private function localTrackingNumber(Order $order): string
+    {
+        return trim((string) (
+            $order->packages->pluck('tracking_number')->first(fn ($number) => filled($number))
+            ?? data_get($order->raw_data, 'tracking_no')
+            ?? data_get($order->raw_data, 'tracking_number')
+            ?? ''
+        ));
     }
 
     private function documentFromResponse(Response $response, string $platform): array
