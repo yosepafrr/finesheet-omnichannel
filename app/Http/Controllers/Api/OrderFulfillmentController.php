@@ -4,12 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ArrangeOrderShipmentJob;
+use App\Jobs\PrepareBulkShippingLabelsJob;
 use App\Models\Order;
 use App\Services\AccessControlService;
 use App\Services\OrderFulfillmentService;
+use App\Services\PickingListPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Throwable;
@@ -174,6 +179,85 @@ class OrderFulfillmentController extends Controller
         ]);
     }
 
+    public function createLabelJob(Request $request, AccessControlService $access)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $validated = $request->validate([
+            'order_ids' => ['required', 'array', 'min:2', 'max:50'],
+            'order_ids.*' => ['integer', 'distinct'],
+        ]);
+        $orders = $this->ownedOrders($validated['order_ids']);
+        $token = (string) Str::uuid();
+        $status = [
+            'user_id' => (int) Auth::id(),
+            'status' => 'queued',
+            'progress' => 0,
+            'message' => 'Menunggu giliran untuk menyiapkan resi.',
+            'updated_at' => now()->toIso8601String(),
+        ];
+        Cache::put(PrepareBulkShippingLabelsJob::statusKey($token), $status, now()->addHour());
+
+        PrepareBulkShippingLabelsJob::dispatch(
+            (int) Auth::id(),
+            $orders->pluck('id')->all(),
+            $token,
+        );
+
+        return response()->json([
+            'token' => $token,
+            'status' => $status['status'],
+            'progress' => $status['progress'],
+            'status_url' => url("/api/orders/fulfillment/shipping-label-jobs/{$token}"),
+            'download_url' => url("/api/orders/fulfillment/shipping-label-jobs/{$token}/document"),
+        ], 202);
+    }
+
+    public function labelJobStatus(Request $request, string $token, AccessControlService $access)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $status = $this->ownedLabelJobStatus($token);
+
+        return response()->json(collect($status)->except(['user_id', 'path'])->all());
+    }
+
+    public function labelJobDocument(Request $request, string $token, AccessControlService $access)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $status = $this->ownedLabelJobStatus($token);
+        abort_unless(($status['status'] ?? null) === 'ready', 409, 'Dokumen resi belum selesai disiapkan.');
+        $path = (string) ($status['path'] ?? '');
+        abort_unless($path !== '' && Storage::disk('local')->exists($path), 404);
+
+        return response(Storage::disk('local')->get($path), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.basename((string) ($status['filename'] ?? 'resi-massal.pdf')).'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    public function pickingList(Request $request, AccessControlService $access, PickingListPdfService $pickingList)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $validated = $request->validate([
+            'order_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'order_ids.*' => ['integer', 'distinct'],
+        ]);
+        $orders = $this->ownedOrders($validated['order_ids'])->loadMissing(['store', 'orderProducts']);
+        $invalidOrders = $orders->reject(fn (Order $order) => $this->isProcessedOrder($order));
+        if ($invalidOrders->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'order_ids' => 'Picking list hanya dapat dibuat untuk pesanan yang telah diproses.',
+            ]);
+        }
+        $result = $pickingList->generate($orders);
+
+        return response($result['body'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$result['filename'].'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
     private function ownedOrder(int $id): Order
     {
         return Order::with(['store', 'packages'])
@@ -190,5 +274,23 @@ class OrderFulfillmentController extends Controller
         abort_unless($orders->count() === count(array_unique($ids)), 404);
 
         return $orders;
+    }
+
+    private function ownedLabelJobStatus(string $token): array
+    {
+        abort_unless(Str::isUuid($token), 404);
+        $status = Cache::get(PrepareBulkShippingLabelsJob::statusKey($token));
+        abort_unless(is_array($status) && (int) ($status['user_id'] ?? 0) === (int) Auth::id(), 404);
+
+        return $status;
+    }
+
+    private function isProcessedOrder(Order $order): bool
+    {
+        $platform = strtolower((string) $order->platform);
+        $status = strtoupper(trim((string) $order->order_status));
+
+        return ($platform === 'shopee' && $status === 'PROCESSED')
+            || (in_array($platform, ['tiktokshop', 'tiktok'], true) && $status === 'AWAITING_COLLECTION');
     }
 }

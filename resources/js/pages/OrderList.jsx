@@ -44,6 +44,53 @@ function formatRp(n) {
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
+function renderDocumentPreparation(previewWindow, title, description, note = "") {
+    previewWindow.document.title = title;
+    previewWindow.document.body.innerHTML = `
+        <main style="min-height:100vh;display:grid;place-items:center;background:#f6f8fc;font-family:Arial,sans-serif;color:#172033">
+            <section style="width:min(420px,calc(100vw - 48px));text-align:center;padding:32px">
+                <div style="margin:0 auto 22px;display:flex;height:64px;width:64px;align-items:center;justify-content:center;border-radius:16px;background:#eaf0fb;color:#304674">
+                    <span style="font-size:28px;line-height:1">&#128438;</span>
+                </div>
+                <strong style="display:block;font-size:24px">${title}</strong>
+                <span style="display:block;margin-top:8px;color:#667085;font-size:14px">${description}</span>
+                ${note ? `<span style="display:block;margin:10px auto 0;max-width:360px;color:#7c879b;font-size:12px;line-height:1.55">${note}</span>` : ""}
+                <div style="margin-top:24px;height:10px;overflow:hidden;border-radius:999px;background:#dce3f1">
+                    <div id="document-progress-bar" style="height:100%;width:0%;border-radius:inherit;background:#304674;transition:width .45s ease"></div>
+                </div>
+                <div style="margin-top:10px;display:flex;align-items-center;justify-content:space-between;color:#667085;font-size:12px">
+                    <span id="document-progress-message">Memulai proses...</span>
+                    <strong id="document-progress-value" style="color:#304674;font-size:13px">0%</strong>
+                </div>
+            </section>
+        </main>
+    `;
+}
+
+function updateDocumentPreparation(previewWindow, progress, message) {
+    if (!previewWindow || previewWindow.closed) return;
+    const value = Math.max(0, Math.min(100, Number(progress) || 0));
+    const bar = previewWindow.document.getElementById("document-progress-bar");
+    const percentage = previewWindow.document.getElementById("document-progress-value");
+    const status = previewWindow.document.getElementById("document-progress-message");
+    if (bar) bar.style.width = `${value}%`;
+    if (percentage) percentage.textContent = `${value}%`;
+    if (status && message) status.textContent = message;
+}
+
+function renderDocumentPreparationError(previewWindow, message) {
+    if (!previewWindow || previewWindow.closed) return;
+    previewWindow.document.title = "Dokumen gagal disiapkan";
+    previewWindow.document.body.innerHTML = `
+        <main style="min-height:100vh;display:grid;place-items:center;background:#f6f8fc;font-family:Arial,sans-serif;color:#172033">
+            <section style="width:min(440px,calc(100vw - 48px));border:1px solid #fecaca;border-radius:14px;background:#fff;padding:30px;text-align:center;box-shadow:0 18px 48px rgba(15,23,42,.12)">
+                <strong style="display:block;font-size:20px">Dokumen gagal disiapkan</strong>
+                <span style="display:block;margin-top:10px;color:#b42318;font-size:13px;line-height:1.55">${String(message || "Silakan coba kembali.").replace(/[<>]/g, "")}</span>
+            </section>
+        </main>
+    `;
+}
+
 function FulfillmentModal({ state, busy, onClose, onSubmit }) {
     if (!state) return null;
 
@@ -535,6 +582,7 @@ export default function OrderList() {
     const [fulfillmentModal, setFulfillmentModal] = useState(null);
     const [fulfillmentBusy, setFulfillmentBusy] = useState(false);
     const [printingLabels, setPrintingLabels] = useState(false);
+    const [printingPickingList, setPrintingPickingList] = useState(false);
     const [fulfillmentNotice, setFulfillmentNotice] = useState(null);
     const {
         syncs,
@@ -944,10 +992,13 @@ export default function OrderList() {
 
     const totalOrdersCount = Number(data?.pagination?.total ?? visibleOrders.length);
 
+    const isPickingListMode = selectedFilterId === "perlu_dikirim"
+        && selectedShippingProcess === "processed";
     const canSelectForFulfillment = useCallback((order) => (
         (canArrangeShipping && Boolean(order.fulfillment?.can_arrange))
         || (canPrintLabels && Boolean(order.fulfillment?.can_print))
-    ), [canArrangeShipping, canPrintLabels]);
+        || (canPrintLabels && isPickingListMode)
+    ), [canArrangeShipping, canPrintLabels, isPickingListMode]);
     const eligibleOrders = visibleOrders.filter((order) => canSelectForFulfillment(order));
     const allEligibleSelected = eligibleOrders.length > 0
         && eligibleOrders.every((order) => selectedOrderIds.includes(order.id));
@@ -958,6 +1009,9 @@ export default function OrderList() {
     const selectedPrintIds = selectedOrders
         .filter((order) => canPrintLabels && order.fulfillment?.can_print)
         .map((order) => order.id);
+    const selectedPickingListIds = isPickingListMode
+        ? selectedOrders.map((order) => order.id)
+        : [];
 
     useEffect(() => {
         const visibleEligibleIds = new Set(visibleOrders.filter((order) => canSelectForFulfillment(order)).map((order) => order.id));
@@ -1076,32 +1130,44 @@ export default function OrderList() {
             return;
         }
         previewWindow.opener = null;
-        previewWindow.document.title = "Menyiapkan resi";
-        previewWindow.document.body.innerHTML = `
-            <main style="min-height:100vh;display:grid;place-items:center;background:#f6f8fc;font-family:Arial,sans-serif;color:#172033">
-                <section style="text-align:center;padding:32px">
-                    <div style="width:34px;height:34px;margin:0 auto 18px;border:3px solid #dce3f1;border-top-color:#35477d;border-radius:50%;animation:spin .8s linear infinite"></div>
-                    <strong style="display:block;font-size:18px">Menyiapkan resi</strong>
-                    <span style="display:block;margin-top:8px;color:#667085;font-size:14px">Dokumen akan tampil otomatis di tab ini.</span>
-                </section>
-                <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-            </main>
-        `;
+        renderDocumentPreparation(
+            previewWindow,
+            "Menyiapkan resi",
+            "Dokumen akan tampil otomatis di tab ini.",
+            "Semakin banyak resi yang dicetak mungkin akan membutuhkan waktu lebih lama. Harap bersabar.",
+        );
 
         setPrintingLabels(true);
         try {
-            const response = await axios.post(
-                "/api/orders/fulfillment/shipping-labels",
+            const { data: job } = await axios.post(
+                "/api/orders/fulfillment/shipping-label-jobs",
                 { order_ids: orderIds },
-                { responseType: "blob" },
             );
-            const contentDisposition = response.headers["content-disposition"] || "";
-            const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-            const filename = filenameMatch?.[1] || `resi-${orderIds.length}-pesanan.pdf`;
-            const pdf = new File([response.data], filename, { type: "application/pdf" });
-            const documentUrl = URL.createObjectURL(pdf);
-            previewWindow.location.replace(documentUrl);
-            window.setTimeout(() => URL.revokeObjectURL(documentUrl), 5 * 60 * 1000);
+
+            let completed = false;
+            for (let attempt = 0; attempt < 800; attempt += 1) {
+                const { data: status } = await axios.get(job.status_url, {
+                    params: { t: Date.now() },
+                });
+                updateDocumentPreparation(previewWindow, status.progress, status.message);
+
+                if (status.status === "failed") {
+                    throw new Error(status.message || "Dokumen resi massal gagal disiapkan.");
+                }
+                if (status.status === "ready") {
+                    updateDocumentPreparation(previewWindow, 100, "Dokumen siap dibuka.");
+                    await wait(450);
+                    previewWindow.location.replace(job.download_url);
+                    completed = true;
+                    break;
+                }
+
+                await wait(750);
+            }
+
+            if (!completed) {
+                throw new Error("Waktu menyiapkan resi terlalu lama. Silakan coba kembali.");
+            }
 
             setFulfillmentNotice({
                 type: "success",
@@ -1109,7 +1175,53 @@ export default function OrderList() {
             });
             setSelectedOrderIds([]);
         } catch (error) {
-            let message = error.response?.data?.message || "Dokumen resi massal gagal disiapkan.";
+            const message = error.response?.data?.message || error.message || "Dokumen resi massal gagal disiapkan.";
+            renderDocumentPreparationError(previewWindow, message);
+            setFulfillmentNotice({ type: "error", message });
+        } finally {
+            setPrintingLabels(false);
+        }
+    };
+
+    const printPickingList = async (orderIds = selectedPickingListIds) => {
+        if (!orderIds.length) return;
+
+        const previewWindow = window.open("", `finesheet-picking-list-${Date.now()}`);
+        if (!previewWindow) {
+            setFulfillmentNotice({
+                type: "error",
+                message: "Browser memblokir tab picking list. Izinkan pop-up untuk Finesheet lalu coba kembali.",
+            });
+            return;
+        }
+
+        previewWindow.opener = null;
+        renderDocumentPreparation(
+            previewWindow,
+            "Menyiapkan picking list",
+            "Daftar produk akan tampil otomatis di tab ini.",
+        );
+        updateDocumentPreparation(previewWindow, 15, "Mengumpulkan produk pesanan...");
+        setPrintingPickingList(true);
+
+        try {
+            const response = await axios.post(
+                "/api/orders/fulfillment/picking-list",
+                { order_ids: orderIds },
+                { responseType: "blob" },
+            );
+            updateDocumentPreparation(previewWindow, 100, "Picking list siap dibuka.");
+            const disposition = response.headers["content-disposition"] || "";
+            const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+                || `picking-list-${orderIds.length}-pesanan.pdf`;
+            const pdf = new File([response.data], filename, { type: "application/pdf" });
+            const documentUrl = URL.createObjectURL(pdf);
+            await wait(350);
+            previewWindow.location.replace(documentUrl);
+            window.setTimeout(() => URL.revokeObjectURL(documentUrl), 5 * 60 * 1000);
+            setFulfillmentNotice({ type: "success", message: "Picking list berhasil dibuka di tab baru." });
+        } catch (error) {
+            let message = error.response?.data?.message || "Picking list gagal disiapkan.";
             if (error.response?.data instanceof Blob) {
                 try {
                     const payload = JSON.parse(await error.response.data.text());
@@ -1118,10 +1230,10 @@ export default function OrderList() {
                     // Keep the generic message for a non-JSON response.
                 }
             }
-            previewWindow.close();
+            renderDocumentPreparationError(previewWindow, message);
             setFulfillmentNotice({ type: "error", message });
         } finally {
-            setPrintingLabels(false);
+            setPrintingPickingList(false);
         }
     };
 
@@ -2463,6 +2575,19 @@ export default function OrderList() {
                                             >
                                                 <span className="material-symbols-rounded text-[18px]">local_shipping</span>
                                                 Atur kirim{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
+                                            </button>
+                                        )}
+                                        {selectedPickingListIds.length > 0 && (
+                                            <button
+                                                type="button"
+                                                disabled={printingPickingList}
+                                                onClick={() => printPickingList(selectedPickingListIds)}
+                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:border-[#304674] hover:text-[#304674] disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-blue-400 dark:hover:text-blue-300"
+                                            >
+                                                <span className={`material-symbols-rounded text-[18px] ${printingPickingList ? "animate-spin" : ""}`}>
+                                                    {printingPickingList ? "progress_activity" : "checklist"}
+                                                </span>
+                                                {printingPickingList ? "Menyiapkan..." : `Picking list (${selectedPickingListIds.length})`}
                                             </button>
                                         )}
                                         {selectedPrintIds.length > 0 && (

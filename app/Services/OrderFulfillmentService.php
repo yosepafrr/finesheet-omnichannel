@@ -244,9 +244,15 @@ class OrderFulfillmentService
     }
 
     /** Prepare one PDF containing labels from every selected marketplace. */
-    public function labels(iterable $orders): array
+    public function labels(iterable $orders, ?callable $progress = null): array
     {
         $orders = collect($orders)->values();
+        $report = function (int $percentage, string $message) use ($progress): void {
+            if ($progress) {
+                $progress(max(0, min(100, $percentage)), $message);
+            }
+        };
+        $report(4, 'Memeriksa kesiapan dokumen resi.');
         if ($orders->isEmpty()) {
             throw new RuntimeException('Pilih minimal satu pesanan untuk mencetak resi.');
         }
@@ -264,14 +270,20 @@ class OrderFulfillmentService
         }
 
         $documents = collect();
+        $completed = 0;
+        $total = max(1, $orders->count());
         $shopeeOrders = $orders->filter(fn (Order $order) => $this->platform($order) === 'Shopee');
         foreach ($shopeeOrders->groupBy('store_id') as $storeOrders) {
             foreach ($this->shopeeLabelDocumentsForStore($storeOrders) as $document) {
                 $documents->push($document);
             }
+            $completed += $storeOrders->count();
+            $report(8 + (int) floor(($completed / $total) * 76), "Menyiapkan {$completed} dari {$total} resi.");
         }
         foreach ($orders->filter(fn (Order $order) => $this->platform($order) === 'Tiktokshop') as $order) {
             $documents->push($this->tiktokLabelDocument($order));
+            $completed++;
+            $report(8 + (int) floor(($completed / $total) * 76), "Menyiapkan {$completed} dari {$total} resi.");
         }
 
         if ($documents->count() === 1) {
@@ -283,7 +295,11 @@ class OrderFulfillmentService
             ->unique()
             ->count();
 
-        return $this->mergeShippingLabelPdfs($sourceCount, $documents, $orders->count());
+        $report(90, 'Menggabungkan seluruh resi menjadi satu PDF.');
+        $result = $this->mergeShippingLabelPdfs($sourceCount, $documents, $orders->count());
+        $report(97, 'Menyimpan dokumen resi.');
+
+        return $result;
     }
 
     /** @return array<int, array<string, mixed>> */

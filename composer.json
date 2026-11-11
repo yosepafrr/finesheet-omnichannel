@@ -54,7 +54,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74,#f59e0b\" \"php artisan serve\" \"php artisan queue:listen --queue=default,orders,orders-low,logistics,products --tries=1\" \"php artisan pail --timeout=0\" \"npm run dev\" \"php artisan queue:listen --queue=fulfillment --timeout=180 --tries=3\" --names=server,queue,logs,vite,fulfillment"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74,#f59e0b\" \"php artisan serve\" \"php artisan queue:listen --queue=default,orders,orders-low,logistics,products --tries=1\" \"php artisan pail --timeout=0\" \"npm run dev\" \"php artisan queue:listen --queue=fulfillment --timeout=650 --tries=3\" --names=server,queue,logs,vite,fulfillment"
         ],
         "test": [
             "@php artisan config:clear --ansi",
