@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Store;
 use Carbon\Carbon;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -578,6 +579,18 @@ class TiktokService
                 'document_format' => 'PDF',
             ]
         );
+    }
+
+    public function downloadShippingDocument(string $url): Response
+    {
+        if (! str_starts_with(strtolower($url), 'https://')) {
+            throw new RuntimeException('URL dokumen resi TikTok Shop tidak valid.');
+        }
+
+        return $this->httpClient()
+            ->timeout(60)
+            ->accept('application/pdf, application/zip, application/octet-stream')
+            ->get($url);
     }
 
     private function authorizedRequest(

@@ -5,11 +5,13 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\OrderPackage;
 use App\Models\Store;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use setasign\Fpdi\PdfParser\StreamReader;
 use setasign\Fpdi\Tcpdf\Fpdi;
+use ZipArchive;
 
 class OrderFulfillmentService
 {
@@ -176,13 +178,9 @@ class OrderFulfillmentService
         $parameters = $this->shopee->getShippingDocumentParameter($order->store, [$documentOrder]);
         $this->assertPlatformSuccess($parameters, 'Shopee');
         $suggestedDocumentType = $this->shopeeSuggestedShippingDocumentType($parameters);
-        $documentOrder['shipping_document_type'] = $this->shopeeShippingDocumentType(
-            $parameters,
-            (bool) ($order->store?->shopee_thermal_printing ?? false) ? 'a6' : 'a4',
-        );
+        $documentOrder['shipping_document_type'] = $suggestedDocumentType;
         Log::info('Shopee shipping document type selected', [
             'order_sn' => $order->order_sn,
-            'thermal_enabled' => (bool) ($order->store?->shopee_thermal_printing ?? false),
             'selected_type' => $documentOrder['shipping_document_type'],
             'suggested_type' => $suggestedDocumentType,
         ]);
@@ -193,19 +191,6 @@ class OrderFulfillmentService
         }
 
         $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
-        if ($this->shopeeDocumentTypeRejected($created)
-            && $suggestedDocumentType !== ''
-            && $documentOrder['shipping_document_type'] !== $suggestedDocumentType) {
-            $rejectedDocumentType = $documentOrder['shipping_document_type'];
-            $documentOrder['shipping_document_type'] = $suggestedDocumentType;
-            $createOrder['shipping_document_type'] = $suggestedDocumentType;
-            Log::warning('Shopee rejected preferred shipping document type; retrying suggested type', [
-                'order_sn' => $order->order_sn,
-                'rejected_type' => $rejectedDocumentType,
-                'suggested_type' => $suggestedDocumentType,
-            ]);
-            $created = $this->shopee->createShippingDocument($order->store, [$createOrder]);
-        }
         $this->assertPlatformSuccess($created, 'Shopee');
 
         for ($attempt = 0; $attempt < 6; $attempt++) {
@@ -217,17 +202,21 @@ class OrderFulfillmentService
             $status = strtoupper((string) data_get($result, 'response.result_list.0.status', ''));
             if (in_array($status, ['READY', 'SUCCESS'], true)) {
                 $download = $this->shopee->downloadShippingDocument($order->store, [$documentOrder]);
-                if (! $download->successful()) {
-                    throw new RuntimeException('Shopee gagal mengunduh dokumen resi.');
-                }
+                $document = $this->documentFromResponse($download, 'Shopee');
+                $normalized = $this->normalizeSingleLabelDocument([
+                    'type' => 'binary',
+                    'body' => $document['body'],
+                    'content_type' => $document['content_type'],
+                    'filename' => "resi-shopee-{$order->order_sn}.pdf",
+                ], 1);
                 $printMode = str_contains($documentOrder['shipping_document_type'], 'THERMAL')
                     ? 'thermal'
                     : 'normal';
 
                 return [
                     'type' => 'binary',
-                    'body' => $download->body(),
-                    'content_type' => $download->header('Content-Type') ?: 'application/pdf',
+                    'body' => $normalized['body'],
+                    'content_type' => 'application/pdf',
                     'filename' => "resi-shopee-{$printMode}-{$order->order_sn}.pdf",
                     'document_type' => $documentOrder['shipping_document_type'],
                 ];
@@ -240,11 +229,7 @@ class OrderFulfillmentService
         throw new RuntimeException('Resi Shopee masih diproses. Coba cetak kembali beberapa saat lagi.');
     }
 
-    /**
-     * Prepare one marketplace document containing multiple Shopee labels.
-     * Shopee's download endpoint accepts an order_list, so the browser only
-     * needs to open one response instead of one popup per selected order.
-     */
+    /** Prepare one PDF containing labels from every selected marketplace. */
     public function labels(iterable $orders): array
     {
         $orders = collect($orders)->values();
@@ -260,21 +245,29 @@ class OrderFulfillmentService
             $this->assertCapable($order, 'can_print');
         });
 
-        if ($orders->contains(fn (Order $order) => $this->platform($order) !== 'Shopee')) {
-            throw new RuntimeException('Cetak resi massal dalam satu dokumen saat ini tersedia untuk pesanan Shopee.');
-        }
         if ($orders->contains(fn (Order $order) => ($order->store?->shipping_label_template ?? 'platform') !== 'platform')) {
             throw new RuntimeException('Cetak resi massal memerlukan template resi dari marketplace.');
         }
 
-        $ordersByStore = $orders->groupBy('store_id')->values();
-        if ($ordersByStore->count() > 1) {
-            $documents = $ordersByStore->map(fn ($storeOrders) => $this->shopeeLabelsForStore($storeOrders));
-
-            return $this->mergeShippingLabelPdfs($ordersByStore->count(), $documents, $orders->count());
+        $documents = collect();
+        $shopeeOrders = $orders->filter(fn (Order $order) => $this->platform($order) === 'Shopee');
+        foreach ($shopeeOrders->groupBy('store_id') as $storeOrders) {
+            $documents->push($this->shopeeLabelsForStore($storeOrders));
+        }
+        foreach ($orders->filter(fn (Order $order) => $this->platform($order) === 'Tiktokshop') as $order) {
+            $documents->push($this->tiktokLabelDocument($order));
         }
 
-        return $this->shopeeLabelsForStore($ordersByStore->first());
+        if ($documents->count() === 1) {
+            return $this->normalizeSingleLabelDocument($documents->first(), $orders->count());
+        }
+
+        $sourceCount = $orders
+            ->map(fn (Order $order) => $this->platform($order).':'.$order->store_id)
+            ->unique()
+            ->count();
+
+        return $this->mergeShippingLabelPdfs($sourceCount, $documents, $orders->count());
     }
 
     private function shopeeLabelsForStore(iterable $orders): array
@@ -305,10 +298,7 @@ class OrderFulfillmentService
             $parameter = $this->shopeeShippingDocumentParameter($parameters, $baseOrder, $index);
             $parameterResponse = ['response' => ['result_list' => [$parameter]]];
             $documentOrder = $baseOrder + [
-                'shipping_document_type' => $this->shopeeShippingDocumentType(
-                    $parameterResponse,
-                    (bool) ($store?->shopee_thermal_printing ?? false) ? 'a6' : 'a4',
-                ),
+                'shipping_document_type' => $this->shopeeSuggestedShippingDocumentType($parameterResponse),
             ];
             $createOrder = $documentOrder;
             $trackingNumber = $trackingNumbers[$baseOrder['order_sn']] ?? '';
@@ -338,18 +328,13 @@ class OrderFulfillmentService
             if ($statuses->count() === count($documentOrders)
                 && $statuses->every(fn (string $status) => in_array($status, ['READY', 'SUCCESS'], true))) {
                 $download = $this->shopee->downloadShippingDocument($store, $documentOrders);
-                if (! $download->successful()) {
-                    throw new RuntimeException('Shopee gagal mengunduh dokumen resi massal.');
-                }
-
-                $contentType = $download->header('Content-Type') ?: 'application/pdf';
-                $extension = str_contains(strtolower($contentType), 'zip') ? 'zip' : 'pdf';
+                $document = $this->documentFromResponse($download, 'Shopee');
 
                 return [
                     'type' => 'binary',
-                    'body' => $download->body(),
-                    'content_type' => $contentType,
-                    'filename' => 'resi-shopee-'.$orders->count().'-pesanan.'.$extension,
+                    'body' => $document['body'],
+                    'content_type' => $document['content_type'],
+                    'filename' => 'resi-shopee-'.$orders->count().'-pesanan.pdf',
                 ];
             }
 
@@ -380,18 +365,16 @@ class OrderFulfillmentService
             $pdf->SetAutoPageBreak(false, 0);
 
             foreach ($documents as $document) {
-                if (! str_contains(strtolower((string) $document['content_type']), 'pdf')) {
-                    throw new RuntimeException('Salah satu toko tidak mengembalikan dokumen PDF yang dapat digabungkan.');
-                }
+                foreach ($this->pdfBodiesFromDocument($document) as $pdfBody) {
+                    $pageCount = $pdf->setSourceFile(StreamReader::createByString($pdfBody));
+                    for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
+                        $template = $pdf->importPage($pageNumber);
+                        $size = $pdf->getTemplateSize($template);
+                        $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
 
-                $pageCount = $pdf->setSourceFile(StreamReader::createByString($document['body']));
-                for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
-                    $template = $pdf->importPage($pageNumber);
-                    $size = $pdf->getTemplateSize($template);
-                    $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
-
-                    $pdf->AddPage($orientation, [$size['width'], $size['height']]);
-                    $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
+                        $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+                        $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
+                    }
                 }
             }
 
@@ -412,6 +395,134 @@ class OrderFulfillmentService
 
             throw new RuntimeException('Dokumen resi dari beberapa toko gagal digabungkan menjadi satu PDF.');
         }
+    }
+
+    private function tiktokLabelDocument(Order $order): array
+    {
+        $packageId = $this->resolveTiktokPackageIds($order)[0] ?? null;
+        if (! $packageId) {
+            throw new RuntimeException('Package ID TikTok Shop belum tersedia. Sinkronkan pesanan terlebih dahulu.');
+        }
+
+        $response = $this->tiktok->getPackageShippingDocument(
+            $order->store,
+            $packageId,
+            $this->tiktokDocumentSize($order->store),
+            $this->tiktokDocumentType($order->store),
+        );
+        $this->assertPlatformSuccess($response, 'TikTok Shop');
+        $url = data_get($response, 'data.doc_url')
+            ?? data_get($response, 'data.document_url')
+            ?? data_get($response, 'data.shipping_document_url');
+        if (! $url) {
+            throw new RuntimeException('TikTok Shop belum menyediakan dokumen resi untuk paket ini.');
+        }
+
+        $document = $this->documentFromResponse(
+            $this->tiktok->downloadShippingDocument($url),
+            'TikTok Shop',
+        );
+
+        return [
+            'type' => 'binary',
+            'body' => $document['body'],
+            'content_type' => $document['content_type'],
+            'filename' => "resi-tiktok-{$order->order_sn}.pdf",
+        ];
+    }
+
+    private function documentFromResponse(Response $response, string $platform): array
+    {
+        if (! $response->successful()) {
+            throw new RuntimeException("{$platform} gagal mengunduh dokumen resi (HTTP {$response->status()}).");
+        }
+
+        $body = $response->body();
+        $contentType = strtolower((string) $response->header('Content-Type'));
+        $trimmed = ltrim($body);
+        if (str_contains($contentType, 'json') || str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
+            $payload = json_decode($body, true);
+            if (is_array($payload)) {
+                $this->assertPlatformSuccess($payload, $platform === 'Shopee' ? 'Shopee' : 'TikTok Shop');
+            }
+
+            throw new RuntimeException("{$platform} tidak mengembalikan dokumen resi yang valid.");
+        }
+
+        $isPdf = str_starts_with($body, '%PDF-') || str_contains($contentType, 'pdf');
+        $isZip = str_starts_with($body, "PK\x03\x04") || str_contains($contentType, 'zip');
+        if (! $isPdf && ! $isZip) {
+            throw new RuntimeException("{$platform} tidak mengembalikan file PDF atau ZIP yang valid.");
+        }
+
+        return [
+            'body' => $body,
+            'content_type' => $isZip ? 'application/zip' : 'application/pdf',
+        ];
+    }
+
+    private function normalizeSingleLabelDocument(array $document, int $orderCount): array
+    {
+        $pdfBodies = $this->pdfBodiesFromDocument($document);
+        if (count($pdfBodies) === 1) {
+            return [
+                'type' => 'binary',
+                'body' => $pdfBodies[0],
+                'content_type' => 'application/pdf',
+                'filename' => $document['filename'] ?? "resi-massal-{$orderCount}-pesanan.pdf",
+            ];
+        }
+
+        $merged = $this->mergeShippingLabelPdfs(1, [$document], $orderCount);
+        $merged['filename'] = $document['filename'] ?? $merged['filename'];
+
+        return $merged;
+    }
+
+    /** @return array<int, string> */
+    private function pdfBodiesFromDocument(array $document): array
+    {
+        $body = (string) ($document['body'] ?? '');
+        $contentType = strtolower((string) ($document['content_type'] ?? ''));
+        if (str_starts_with($body, '%PDF-') || str_contains($contentType, 'pdf')) {
+            return [$body];
+        }
+        if (! str_starts_with($body, "PK\x03\x04") && ! str_contains($contentType, 'zip')) {
+            throw new RuntimeException('Salah satu sumber tidak mengembalikan dokumen PDF yang dapat digabungkan.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'finesheet-label-');
+        if ($path === false || file_put_contents($path, $body) === false) {
+            throw new RuntimeException('Dokumen ZIP resi tidak dapat diproses.');
+        }
+
+        $zip = new ZipArchive;
+        $opened = false;
+        $pdfs = [];
+        try {
+            if ($zip->open($path) !== true) {
+                throw new RuntimeException('Dokumen ZIP resi tidak valid.');
+            }
+            $opened = true;
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $name = (string) $zip->getNameIndex($index);
+                $contents = $zip->getFromIndex($index);
+                if (str_ends_with(strtolower($name), '.pdf') && is_string($contents) && str_starts_with($contents, '%PDF-')) {
+                    $pdfs[] = $contents;
+                }
+            }
+        } finally {
+            if ($opened) {
+                $zip->close();
+            }
+            @unlink($path);
+        }
+
+        if ($pdfs === []) {
+            throw new RuntimeException('Dokumen ZIP resi tidak berisi file PDF.');
+        }
+
+        return $pdfs;
     }
 
     private function buildShopeeShipment(array $options, string $method, array $selection): array
@@ -569,50 +680,6 @@ class OrderFulfillmentService
         return is_array($matched) ? $matched : (is_array($items[$index] ?? null) ? $items[$index] : []);
     }
 
-    private function shopeeShippingDocumentType(array $response, string $preferredSize = 'a6'): string
-    {
-        $suggested = $this->shopeeSuggestedShippingDocumentType($response);
-        $wantsThermal = strtolower($preferredSize) === 'a6';
-        $preferredType = $this->shopeePreferredDocumentType($suggested, $wantsThermal);
-
-        $selectable = data_get($response, 'response.result_list.0.selectable_shipping_document_type')
-            ?? data_get($response, 'response.result_list.0.selectable_shipping_document_type_list')
-            ?? [];
-        if (is_string($selectable)) {
-            $selectable = [$selectable];
-        }
-        if (! is_array($selectable) || $selectable === []) {
-            return $preferredType;
-        }
-
-        $selectable = collect($selectable)
-            ->map(fn ($type) => trim((string) (is_array($type)
-                ? ($type['shipping_document_type'] ?? $type['document_type'] ?? '')
-                : $type)))
-            ->filter()
-            ->values();
-        $preferred = $selectable->first(function (string $type) use ($wantsThermal) {
-            $isThermal = str_contains(strtoupper($type), 'THERMAL');
-
-            return $wantsThermal ? $isThermal : ! $isThermal;
-        });
-
-        return $preferred ?: ($selectable->contains($suggested) ? $suggested : $selectable->first());
-    }
-
-    private function shopeePreferredDocumentType(string $suggested, bool $wantsThermal): string
-    {
-        $suggested = strtoupper($suggested);
-        if (str_contains($suggested, 'UNPACKAGED')) {
-            return $suggested;
-        }
-        if (str_contains($suggested, '_JOB_AIR_WAYBILL')) {
-            return $wantsThermal ? 'THERMAL_JOB_AIR_WAYBILL' : 'NORMAL_JOB_AIR_WAYBILL';
-        }
-
-        return $wantsThermal ? 'THERMAL_AIR_WAYBILL' : 'NORMAL_AIR_WAYBILL';
-    }
-
     private function shopeeSuggestedShippingDocumentType(array $response): string
     {
         return trim((string) (
@@ -621,33 +688,6 @@ class OrderFulfillmentService
             ?? data_get($response, 'response.result_list.0.shipping_document_type')
             ?? 'NORMAL_AIR_WAYBILL'
         ));
-    }
-
-    private function shopeeResponseSucceeded(array $response): bool
-    {
-        if (! empty($response['error'])) {
-            return false;
-        }
-
-        return ! collect(Arr::wrap(data_get($response, 'response.result_list', [])))
-            ->contains(fn ($item) => filled(data_get($item, 'fail_error')) || filled(data_get($item, 'fail_message')));
-    }
-
-    private function shopeeDocumentTypeRejected(array $response): bool
-    {
-        if ($this->shopeeResponseSucceeded($response)) {
-            return false;
-        }
-
-        $details = strtolower((string) json_encode([
-            $response['error'] ?? null,
-            $response['message'] ?? null,
-            data_get($response, 'response.result_list', []),
-        ]));
-
-        return str_contains($details, 'shipping_document_type')
-            || str_contains($details, 'document type')
-            || str_contains($details, 'tipe dokumen');
     }
 
     private function printingSettings(?Store $store): array

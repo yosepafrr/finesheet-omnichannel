@@ -24,8 +24,8 @@ class OrderFulfillmentServiceTest extends TestCase
     public static function shopeePackageStates(): array
     {
         return [
-            'unsplit job label without thermal mode' => [false, '', false, 'NORMAL_JOB_AIR_WAYBILL', 'THERMAL_JOB_AIR_WAYBILL'],
-            'split standard label with thermal mode' => [true, 'PACKAGE-SHOPEE-1', true, 'THERMAL_AIR_WAYBILL', 'NORMAL_AIR_WAYBILL'],
+            'unsplit job label without thermal mode' => [false, '', false, 'THERMAL_JOB_AIR_WAYBILL'],
+            'split standard label with thermal mode' => [true, 'PACKAGE-SHOPEE-1', true, 'NORMAL_AIR_WAYBILL'],
         ];
     }
 
@@ -217,7 +217,6 @@ class OrderFulfillmentServiceTest extends TestCase
         bool $split,
         string $packageNumber,
         bool $thermal,
-        string $expectedDocumentType,
         string $suggestedDocumentType
     ): void {
         $shopee = Mockery::mock(ShopeeService::class);
@@ -248,7 +247,7 @@ class OrderFulfillmentServiceTest extends TestCase
             $baseOrder['package_number'] = $packageNumber;
         }
         $documentOrder = $baseOrder + [
-            'shipping_document_type' => $expectedDocumentType,
+            'shipping_document_type' => $suggestedDocumentType,
         ];
         $createOrder = $documentOrder + [
             'tracking_number' => 'TRACK-SHOPEE-1',
@@ -290,9 +289,9 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertSame('binary', $label['type']);
         $this->assertSame('PDF-CONTENT', $label['body']);
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame($expectedDocumentType, $label['document_type']);
+        $this->assertSame($suggestedDocumentType, $label['document_type']);
         $this->assertSame(
-            'resi-shopee-'.($thermal ? 'thermal' : 'normal').'-ORDER-SHOPEE-1.pdf',
+            'resi-shopee-'.(str_contains($suggestedDocumentType, 'THERMAL') ? 'thermal' : 'normal').'-ORDER-SHOPEE-1.pdf',
             $label['filename'],
         );
     }
@@ -321,11 +320,6 @@ class OrderFulfillmentServiceTest extends TestCase
         $baseOrder = ['order_sn' => 'ORDER-SHOPEE-FAILED'];
         $documentOrder = $baseOrder + ['shipping_document_type' => 'NORMAL_AIR_WAYBILL'];
         $createOrder = $documentOrder + ['tracking_number' => 'TRACK-FAILED'];
-        $thermalCreateOrder = $baseOrder + [
-            'shipping_document_type' => 'THERMAL_AIR_WAYBILL',
-            'tracking_number' => 'TRACK-FAILED',
-        ];
-
         $shopee->shouldReceive('getTrackingNumber')
             ->once()
             ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-FAILED']]);
@@ -340,20 +334,7 @@ class OrderFulfillmentServiceTest extends TestCase
             ]);
         $shopee->shouldReceive('createShippingDocument')
             ->once()
-            ->with($store, [$thermalCreateOrder])
-            ->ordered()
-            ->andReturn([
-                'error' => 'common.batch_api_all_failed',
-                'message' => 'All failed, please check result_list for detail',
-                'response' => ['result_list' => [[
-                    'fail_error' => 'logistics.invalid_shipping_document_type',
-                    'fail_message' => 'Tipe dokumen thermal tidak didukung.',
-                ]]],
-            ]);
-        $shopee->shouldReceive('createShippingDocument')
-            ->once()
             ->with($store, [$createOrder])
-            ->ordered()
             ->andReturn([
                 'error' => 'common.batch_api_all_failed',
                 'message' => 'All failed, please check result_list for detail',
@@ -410,6 +391,10 @@ class OrderFulfillmentServiceTest extends TestCase
             $documentOrders[0] + ['tracking_number' => 'TRACK-BULK-1'],
             $documentOrders[1] + ['tracking_number' => 'TRACK-BULK-2'],
         ];
+        $zipBody = $this->makeTestZip([
+            'label-1.pdf' => $this->makeTestPdf('SHOPEE BULK 1', [105, 148]),
+            'label-2.pdf' => $this->makeTestPdf('SHOPEE BULK 2', [105, 148]),
+        ]);
 
         $shopee->shouldReceive('getTrackingNumber')
             ->once()
@@ -447,14 +432,16 @@ class OrderFulfillmentServiceTest extends TestCase
             ->once()
             ->with($store, $documentOrders)
             ->andReturn(new Response(new Psr7Response(200, [
-                'Content-Type' => 'application/pdf',
-            ], 'PDF-BULK-CONTENT')));
+                'Content-Type' => 'application/zip',
+            ], $zipBody)));
 
         $label = $service->labels($orders);
 
         $this->assertSame('binary', $label['type']);
-        $this->assertSame('PDF-BULK-CONTENT', $label['body']);
+        $this->assertSame('application/pdf', $label['content_type']);
         $this->assertSame('resi-shopee-2-pesanan.pdf', $label['filename']);
+        $pdf = new Fpdi;
+        $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
     }
 
     public function test_shopee_bulk_labels_from_multiple_stores_are_merged_into_one_pdf(): void
@@ -551,6 +538,132 @@ class OrderFulfillmentServiceTest extends TestCase
         $this->assertEqualsWithDelta(297, $secondPage['height'], 0.5);
     }
 
+    public function test_tiktok_bulk_labels_are_downloaded_and_merged_into_one_pdf(): void
+    {
+        $tiktok = Mockery::mock(TiktokService::class);
+        $service = new OrderFulfillmentService(Mockery::mock(ShopeeService::class), $tiktok);
+        $store = new Store([
+            'shipping_label_template' => 'platform',
+            'shipping_label_size' => 'a6',
+            'print_shipping_label' => true,
+            'print_packing_list' => false,
+        ]);
+        $store->id = 31;
+
+        $orders = collect([1, 2])->map(function (int $number) use ($store) {
+            $order = new Order([
+                'store_id' => $store->id,
+                'platform' => 'Tiktokshop',
+                'order_status' => 'AWAITING_COLLECTION',
+                'order_sn' => "TIKTOK-BULK-{$number}",
+            ]);
+            $order->setRelation('store', $store);
+            $order->setRelation('packages', collect([
+                new OrderPackage(['package_id' => "TIKTOK-PACKAGE-{$number}"]),
+            ]));
+            $order->setRelation('orderProducts', collect());
+
+            return $order;
+        });
+
+        foreach ([1, 2] as $number) {
+            $url = "https://example.test/tiktok-label-{$number}.pdf";
+            $tiktok->shouldReceive('getPackageShippingDocument')
+                ->once()
+                ->with($store, "TIKTOK-PACKAGE-{$number}", 'A6', 'SHIPPING_LABEL')
+                ->andReturn(['code' => 0, 'data' => ['doc_url' => $url]]);
+            $tiktok->shouldReceive('downloadShippingDocument')
+                ->once()
+                ->with($url)
+                ->andReturn(new Response(new Psr7Response(200, [
+                    'Content-Type' => 'application/octet-stream',
+                ], $this->makeTestPdf("TIKTOK LABEL {$number}", [105, 148]))));
+        }
+
+        $label = $service->labels($orders);
+
+        $this->assertSame('application/pdf', $label['content_type']);
+        $this->assertSame('resi-massal-1-toko-2-pesanan.pdf', $label['filename']);
+        $pdf = new Fpdi;
+        $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
+    }
+
+    public function test_mixed_shopee_and_tiktok_labels_are_merged_into_one_pdf(): void
+    {
+        $shopee = Mockery::mock(ShopeeService::class);
+        $tiktok = Mockery::mock(TiktokService::class);
+        $service = new OrderFulfillmentService($shopee, $tiktok);
+
+        $shopeeStore = new Store(['shipping_label_template' => 'platform']);
+        $shopeeStore->id = 41;
+        $shopeeOrder = new Order([
+            'store_id' => 41,
+            'platform' => 'Shopee',
+            'order_status' => 'PROCESSED',
+            'order_sn' => 'SHOPEE-MIXED-1',
+            'raw_data' => ['split_up' => false],
+        ]);
+        $shopeeOrder->setRelation('store', $shopeeStore);
+        $shopeeOrder->setRelation('packages', collect());
+        $shopeeOrder->setRelation('orderProducts', collect());
+
+        $baseOrder = ['order_sn' => 'SHOPEE-MIXED-1'];
+        $documentOrder = $baseOrder + ['shipping_document_type' => 'NORMAL_AIR_WAYBILL'];
+        $createOrder = $documentOrder + ['tracking_number' => 'TRACK-MIXED-1'];
+        $shopee->shouldReceive('getTrackingNumber')->once()
+            ->with($shopeeStore, 'SHOPEE-MIXED-1', '')
+            ->andReturn(['error' => '', 'response' => ['tracking_number' => 'TRACK-MIXED-1']]);
+        $shopee->shouldReceive('getShippingDocumentParameter')->once()
+            ->with($shopeeStore, [$baseOrder])
+            ->andReturn(['error' => '', 'response' => ['result_list' => [[
+                'order_sn' => 'SHOPEE-MIXED-1',
+                'suggest_shipping_document_type' => 'NORMAL_AIR_WAYBILL',
+            ]]]]);
+        $shopee->shouldReceive('createShippingDocument')->once()
+            ->with($shopeeStore, [$createOrder])->andReturn(['error' => '']);
+        $shopee->shouldReceive('getShippingDocumentResult')->once()
+            ->with($shopeeStore, [$documentOrder])
+            ->andReturn(['error' => '', 'response' => ['result_list' => [['status' => 'READY']]]]);
+        $shopee->shouldReceive('downloadShippingDocument')->once()
+            ->with($shopeeStore, [$documentOrder])
+            ->andReturn(new Response(new Psr7Response(200, [
+                'Content-Type' => 'application/pdf',
+            ], $this->makeTestPdf('SHOPEE MIXED', [105, 148]))));
+
+        $tiktokStore = new Store([
+            'shipping_label_template' => 'platform',
+            'shipping_label_size' => 'a6',
+            'print_shipping_label' => true,
+        ]);
+        $tiktokStore->id = 42;
+        $tiktokOrder = new Order([
+            'store_id' => 42,
+            'platform' => 'Tiktokshop',
+            'order_status' => 'AWAITING_COLLECTION',
+            'order_sn' => 'TIKTOK-MIXED-1',
+        ]);
+        $tiktokOrder->setRelation('store', $tiktokStore);
+        $tiktokOrder->setRelation('packages', collect([
+            new OrderPackage(['package_id' => 'TIKTOK-MIXED-PACKAGE']),
+        ]));
+        $tiktokOrder->setRelation('orderProducts', collect());
+        $tiktok->shouldReceive('getPackageShippingDocument')->once()
+            ->with($tiktokStore, 'TIKTOK-MIXED-PACKAGE', 'A6', 'SHIPPING_LABEL')
+            ->andReturn(['code' => 0, 'data' => ['doc_url' => 'https://example.test/tiktok-mixed.pdf']]);
+        $tiktok->shouldReceive('downloadShippingDocument')->once()
+            ->with('https://example.test/tiktok-mixed.pdf')
+            ->andReturn(new Response(new Psr7Response(200, [
+                'Content-Type' => 'application/octet-stream',
+            ], $this->makeTestPdf('TIKTOK MIXED', [105, 148]))));
+
+        $label = $service->labels([$shopeeOrder, $tiktokOrder]);
+
+        $this->assertSame('application/pdf', $label['content_type']);
+        $this->assertSame('resi-massal-2-toko-2-pesanan.pdf', $label['filename']);
+        $pdf = new Fpdi;
+        $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
+    }
+
     private function makeTestPdf(string $label, array $size): string
     {
         $pdf = new \TCPDF('P', 'mm', $size, true, 'UTF-8', false);
@@ -563,5 +676,20 @@ class OrderFulfillmentServiceTest extends TestCase
         $pdf->Text(10, 15, $label);
 
         return $pdf->Output('test-label.pdf', 'S');
+    }
+
+    private function makeTestZip(array $files): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'finesheet-test-label-');
+        $zip = new \ZipArchive;
+        $this->assertSame(true, $zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        foreach ($files as $name => $contents) {
+            $this->assertTrue($zip->addFromString($name, $contents));
+        }
+        $this->assertTrue($zip->close());
+        $body = file_get_contents($path);
+        @unlink($path);
+
+        return $body;
     }
 }
