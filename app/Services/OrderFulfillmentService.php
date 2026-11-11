@@ -10,6 +10,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use setasign\Fpdi\Tcpdf\Fpdi;
+use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\Process;
 use ZipArchive;
 
 class OrderFulfillmentService
@@ -365,58 +367,124 @@ class OrderFulfillmentService
 
     private function mergeShippingLabelPdfs(int $storeCount, $documents, int $orderCount): array
     {
-        $temporaryFiles = [];
+        $temporaryDirectory = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+            .DIRECTORY_SEPARATOR.'finesheet-labels-'.bin2hex(random_bytes(8));
+        if (! mkdir($temporaryDirectory, 0700, true) && ! is_dir($temporaryDirectory)) {
+            throw new RuntimeException('Direktori sementara untuk dokumen resi tidak dapat dibuat.');
+        }
 
         try {
-            $pdf = new Fpdi('P', 'mm', 'A4', true, 'UTF-8', false);
-            $pdf->setPrintHeader(false);
-            $pdf->setPrintFooter(false);
-            $pdf->SetMargins(0, 0, 0);
-            $pdf->SetAutoPageBreak(false, 0);
-
+            $sourcePaths = [];
             foreach ($documents as $document) {
                 foreach ($this->pdfBodiesFromDocument($document) as $pdfBody) {
-                    $path = tempnam(sys_get_temp_dir(), 'finesheet-pdf-');
-                    if ($path === false || file_put_contents($path, $pdfBody) === false) {
+                    $path = $temporaryDirectory.DIRECTORY_SEPARATOR
+                        .sprintf('label-%04d.pdf', count($sourcePaths) + 1);
+                    if (file_put_contents($path, $pdfBody) === false) {
                         throw new RuntimeException('Dokumen resi sementara tidak dapat dibuat.');
                     }
-                    $temporaryFiles[] = $path;
+                    $sourcePaths[] = $path;
+                }
+            }
 
-                    // A file path works across the FPDI versions used locally and
-                    // in production, unlike the version-specific stream reader.
-                    $pageCount = $pdf->setSourceFile($path);
-                    for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
-                        $template = $pdf->importPage($pageNumber);
-                        $size = $pdf->getTemplateSize($template);
-                        $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+            $pdfUniteError = null;
+            $body = $this->mergePdfFilesWithPdfUnite(
+                $sourcePaths,
+                $temporaryDirectory.DIRECTORY_SEPARATOR.'merged.pdf',
+                $pdfUniteError,
+            );
 
-                        $pdf->AddPage($orientation, [$size['width'], $size['height']]);
-                        $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
-                    }
+            if ($body === null) {
+                try {
+                    $body = $this->mergePdfFilesWithFpdi($sourcePaths);
+                } catch (\Throwable $exception) {
+                    Log::warning('Shipping label PDFs could not be merged', [
+                        'store_count' => $storeCount,
+                        'order_count' => $orderCount,
+                        'pdfunite_error' => $pdfUniteError,
+                        'fpdi_exception' => $exception::class,
+                        'fpdi_error' => $exception->getMessage(),
+                    ]);
+
+                    throw new RuntimeException(
+                        'Dokumen resi gagal digabungkan. Pastikan utilitas PDF server tersedia, lalu coba lagi.',
+                    );
                 }
             }
 
             return [
                 'type' => 'binary',
-                'body' => $pdf->Output('resi-massal.pdf', 'S'),
+                'body' => $body,
                 'content_type' => 'application/pdf',
                 'filename' => 'resi-massal-'.$storeCount.'-toko-'.$orderCount.'-pesanan.pdf',
             ];
-        } catch (RuntimeException $exception) {
-            throw $exception;
-        } catch (\Throwable $exception) {
-            Log::warning('Shipping label PDFs could not be merged', [
-                'store_count' => $storeCount,
-                'order_count' => $orderCount,
-                'message' => $exception->getMessage(),
-            ]);
-
-            throw new RuntimeException('Dokumen resi dari beberapa toko gagal digabungkan menjadi satu PDF.');
         } finally {
-            foreach ($temporaryFiles as $path) {
+            foreach (glob($temporaryDirectory.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
                 @unlink($path);
             }
+            @rmdir($temporaryDirectory);
         }
+    }
+
+    private function mergePdfFilesWithPdfUnite(array $sourcePaths, string $outputPath, ?string &$error): ?string
+    {
+        $configuredBinary = trim((string) config('services.shipping_labels.pdfunite_binary'));
+        $binary = $configuredBinary !== ''
+            ? $configuredBinary
+            : (new ExecutableFinder)->find('pdfunite');
+        if (! $binary) {
+            $error = 'pdfunite tidak ditemukan pada server.';
+
+            return null;
+        }
+
+        try {
+            $process = new Process(array_merge([$binary], $sourcePaths, [$outputPath]));
+            $process->setTimeout(120);
+            $process->run();
+
+            if (! $process->isSuccessful()) {
+                $error = trim($process->getErrorOutput() ?: $process->getOutput())
+                    ?: "pdfunite berhenti dengan exit code {$process->getExitCode()}.";
+
+                return null;
+            }
+
+            $body = is_file($outputPath) ? file_get_contents($outputPath) : false;
+            if (! is_string($body) || ! str_starts_with($body, '%PDF-')) {
+                $error = 'pdfunite tidak menghasilkan dokumen PDF yang valid.';
+
+                return null;
+            }
+
+            return $body;
+        } catch (\Throwable $exception) {
+            $error = $exception::class.': '.$exception->getMessage();
+
+            return null;
+        }
+    }
+
+    private function mergePdfFilesWithFpdi(array $sourcePaths): string
+    {
+        $pdf = new Fpdi('P', 'mm', 'A4', true, 'UTF-8', false);
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetMargins(0, 0, 0);
+        $pdf->SetAutoPageBreak(false, 0);
+
+        foreach ($sourcePaths as $path) {
+            $pageCount = $pdf->setSourceFile($path);
+            for ($pageNumber = 1; $pageNumber <= $pageCount; $pageNumber++) {
+                $template = $pdf->importPage($pageNumber);
+                $size = $pdf->getTemplateSize($template);
+                $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+
+                $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+                $pdf->useTemplate($template, 0, 0, $size['width'], $size['height'], true);
+            }
+        }
+
+        return $pdf->Output('resi-massal.pdf', 'S');
     }
 
     private function tiktokLabelDocument(Order $order): array

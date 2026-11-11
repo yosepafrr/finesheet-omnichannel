@@ -69,4 +69,8 @@ return [
         'api_version' => env('TIKTOK_ADS_API_VERSION', 'v2.0'),
     ],
 
+    'shipping_labels' => [
+        'pdfunite_binary' => env('PDFUNITE_BINARY'),
+    ],
+
 ];
