@@ -106,28 +106,6 @@ function formatDate(value, withTime = false) {
     ).format(date);
 }
 
-function splitDateRange(startDate, endDate, chunkSize = 3) {
-    const chunks = [];
-    let cursor = new Date(`${startDate}T12:00:00`);
-    const rangeEnd = new Date(`${endDate}T12:00:00`);
-
-    while (cursor <= rangeEnd) {
-        const chunkStart = new Date(cursor);
-        const chunkEnd = new Date(cursor);
-        chunkEnd.setDate(chunkEnd.getDate() + chunkSize - 1);
-        if (chunkEnd > rangeEnd) chunkEnd.setTime(rangeEnd.getTime());
-
-        chunks.push({
-            start_date: localDate(chunkStart),
-            end_date: localDate(chunkEnd),
-        });
-        cursor = new Date(chunkEnd);
-        cursor.setDate(cursor.getDate() + 1);
-    }
-
-    return chunks;
-}
-
 function mergeCashflowData(baseData, profitTransactions) {
     if (!baseData) return null;
 
@@ -315,6 +293,7 @@ export default function Cashflow() {
     const [profitTransactions, setProfitTransactions] = useState([]);
     const [profitLoading, setProfitLoading] = useState(false);
     const [profitLoadFailed, setProfitLoadFailed] = useState(false);
+    const [profitProgress, setProfitProgress] = useState({ ready: 0, total: 0 });
     const [profitRefreshKey, setProfitRefreshKey] = useState(0);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -362,29 +341,53 @@ export default function Cashflow() {
 
     useEffect(() => {
         let cancelled = false;
+        let pollTimer = null;
 
-        const loadProfit = async () => {
-            setProfitTransactions([]);
-            setProfitLoading(true);
-            setProfitLoadFailed(false);
-            const loaded = [];
-
+        const loadProfit = async (forceRefresh = false) => {
             try {
-                for (const chunk of splitDateRange(startDate, endDate)) {
-                    const response = await axios.get("/api/cashflow/profit", { params: chunk });
-                    loaded.push(...(response.data.data?.transactions || []));
-                    if (!cancelled) setProfitTransactions([...loaded]);
+                const response = await axios.get("/api/cashflow/profit", {
+                    params: {
+                        start_date: startDate,
+                        end_date: endDate,
+                        ...(forceRefresh ? { refresh: 1 } : {}),
+                    },
+                });
+                if (cancelled) return;
+
+                const payload = response.data.data || {};
+                const pendingDates = payload.pending_dates || [];
+                const failedDates = payload.failed_dates || [];
+                setProfitTransactions(payload.transactions || []);
+                setProfitProgress({
+                    ready: Number(payload.ready_days || 0),
+                    total: Number(payload.total_days || 0),
+                });
+                setProfitLoadFailed(failedDates.length > 0);
+
+                if (pendingDates.length > 0) {
+                    setProfitLoading(true);
+                    pollTimer = window.setTimeout(() => loadProfit(false), 2500);
+                } else {
+                    setProfitLoading(false);
                 }
             } catch (error) {
-                if (!cancelled) setProfitLoadFailed(true);
-            } finally {
-                if (!cancelled) setProfitLoading(false);
+                if (!cancelled) {
+                    setProfitLoadFailed(true);
+                    setProfitLoading(false);
+                }
             }
         };
 
-        loadProfit();
+        setProfitTransactions([]);
+        setProfitProgress({ ready: 0, total: 0 });
+        setProfitLoading(true);
+        setProfitLoadFailed(false);
+        loadProfit(profitRefreshKey > 0);
 
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            if (pollTimer) window.clearTimeout(pollTimer);
+        };
     }, [startDate, endDate, profitRefreshKey]);
 
     const applyPeriod = (value) => {
@@ -692,7 +695,7 @@ export default function Cashflow() {
                                 <h2 className="text-sm font-bold text-slate-900 dark:text-white">Arus Kas</h2>
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
                                     <span>Profit harian ditambahkan otomatis sebagai pemasukan read-only</span>
-                                    {profitLoading && <span className="inline-flex items-center gap-1 font-medium text-[#304674] dark:text-blue-300"><LoaderCircle className="h-3 w-3 animate-spin" /> Memuat profit bertahap</span>}
+                                    {profitLoading && <span className="inline-flex items-center gap-1 font-medium text-[#304674] dark:text-blue-300"><LoaderCircle className="h-3 w-3 animate-spin" /> Menyiapkan profit {profitProgress.ready}/{profitProgress.total || "..."} hari</span>}
                                     {profitLoadFailed && <span className="font-medium text-amber-600 dark:text-amber-400">Sebagian profit belum dapat dimuat. Data utama tetap tersedia.</span>}
                                 </div>
                             </div>

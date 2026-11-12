@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RefreshCashflowDailyProfitJob;
 use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
 use App\Models\FinancialAccount;
 use App\Models\Order;
@@ -12,7 +13,9 @@ use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\MarketplaceEscrowSnapshotService;
+use App\Services\CashflowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -283,8 +286,9 @@ class CashflowTest extends TestCase
         Queue::assertPushed(RefreshMarketplaceEscrowSnapshotJob::class);
     }
 
-    public function test_profit_history_is_loaded_separately_in_small_date_chunks(): void
+    public function test_profit_history_is_prepared_in_daily_background_snapshots(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $store = Store::create([
             'user_id' => $user->id,
@@ -301,17 +305,37 @@ class CashflowTest extends TestCase
 
         $this->actingAs($user)
             ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'processing')
+            ->assertJsonPath('data.ready_days', 0)
+            ->assertJsonPath('data.pending_dates.0', '2026-10-27');
+
+        Queue::assertPushed(RefreshCashflowDailyProfitJob::class, fn ($job) => $job->userId === $user->id
+            && $job->date === '2026-10-27');
+
+        (new RefreshCashflowDailyProfitJob($user->id, '2026-10-27'))
+            ->handle(app(CashflowService::class));
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
             ->assertOk()
+            ->assertJsonPath('status', 'ready')
             ->assertJsonPath('data.transactions.0.source', 'daily_profit')
             ->assertJsonPath('data.transactions.0.amount', 90000);
 
         $this->actingAs($user)
             ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-29')
-            ->assertOk();
+            ->assertStatus(202)
+            ->assertJsonPath('data.total_days', 3);
 
         $this->actingAs($user)
-            ->getJson('/api/cashflow/profit?start_date=2026-10-20&end_date=2026-10-23')
+            ->getJson('/api/cashflow/profit?start_date=2026-07-01&end_date=2026-10-01')
             ->assertUnprocessable();
+
+        foreach (['2026-10-27', '2026-10-28', '2026-10-29'] as $date) {
+            Cache::forget(RefreshCashflowDailyProfitJob::statusKey($user->id, $date));
+            Cache::forget(RefreshCashflowDailyProfitJob::resultKey($user->id, $date));
+        }
     }
 
     private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): Order

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RefreshCashflowDailyProfitJob;
 use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
 use App\Models\CashflowTransaction;
 use App\Models\FinancialAccount;
@@ -12,6 +13,7 @@ use App\Services\MarketplaceEscrowSnapshotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -170,7 +172,7 @@ class CashflowController extends Controller
         ]);
     }
 
-    public function profit(Request $request, CashflowService $cashflowService)
+    public function profit(Request $request)
     {
         $request->validate([
             'start_date' => 'required|date_format:Y-m-d',
@@ -194,19 +196,95 @@ class CashflowController extends Controller
                 'end_date' => 'Tanggal akhir harus sama atau setelah tanggal mulai.',
             ]);
         }
-        $calendarDaySpan = $start->diffInDays($end->copy()->startOfDay());
-        if ($calendarDaySpan > 2) {
+        $calendarDaySpan = (int) $start->diffInDays($end->copy()->startOfDay());
+        if ($calendarDaySpan > 89) {
             throw ValidationException::withMessages([
-                'end_date' => 'Satu permintaan profit Cashflow maksimal 3 hari.',
+                'end_date' => 'Rentang profit Cashflow maksimal 90 hari.',
             ]);
         }
 
-        return response()->json([
-            'status' => 'success',
+        $userId = (int) Auth::id();
+        $forceRefresh = $request->boolean('refresh');
+        $transactions = collect();
+        $pendingDates = [];
+        $failedDates = [];
+        $readyCount = 0;
+        $cursor = $start->copy()->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $date = $cursor->toDateString();
+            $statusKey = RefreshCashflowDailyProfitJob::statusKey($userId, $date);
+            $resultKey = RefreshCashflowDailyProfitJob::resultKey($userId, $date);
+
+            if ($forceRefresh) {
+                Cache::forget($statusKey);
+                Cache::forget($resultKey);
+            }
+
+            $result = Cache::get($resultKey);
+            if (is_array($result) && is_array($result['transactions'] ?? null)) {
+                $transactions = $transactions->concat($result['transactions']);
+                $readyCount++;
+                $cursor->addDay();
+
+                continue;
+            }
+
+            $status = Cache::get($statusKey);
+            if (($status['status'] ?? null) === 'failed') {
+                $failedDates[] = $date;
+                $cursor->addDay();
+
+                continue;
+            }
+
+            if (! in_array($status['status'] ?? null, ['queued', 'running'], true)) {
+                Cache::put($statusKey, [
+                    'status' => 'queued',
+                    'message' => null,
+                    'updated_at' => now()->toIso8601String(),
+                ], now()->addHour());
+
+                try {
+                    RefreshCashflowDailyProfitJob::dispatch($userId, $date);
+                } catch (Throwable $exception) {
+                    Cache::put($statusKey, [
+                        'status' => 'failed',
+                        'message' => 'Perhitungan profit belum dapat dimasukkan ke antrean.',
+                        'updated_at' => now()->toIso8601String(),
+                    ], now()->addMinutes(10));
+                    $failedDates[] = $date;
+                    Log::warning('Cashflow daily profit refresh could not be queued.', [
+                        'user_id' => $userId,
+                        'date' => $date,
+                        'exception' => $exception,
+                    ]);
+                    $cursor->addDay();
+
+                    continue;
+                }
+            }
+
+            $pendingDates[] = $date;
+            $cursor->addDay();
+        }
+
+        $totalDays = $calendarDaySpan + 1;
+        $responseStatus = ! empty($pendingDates)
+            ? 'processing'
+            : (! empty($failedDates) ? 'partial' : 'ready');
+        $payload = [
+            'status' => $responseStatus,
             'data' => [
-                'transactions' => $cashflowService->dailyProfit(Auth::user(), $start, $end),
+                'transactions' => $transactions->values(),
+                'total_days' => $totalDays,
+                'ready_days' => $readyCount,
+                'pending_dates' => $pendingDates,
+                'failed_dates' => $failedDates,
             ],
-        ]);
+        ];
+
+        return response()->json($payload, empty($pendingDates) ? 200 : 202);
     }
 
     public function storeAccount(Request $request)
