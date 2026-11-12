@@ -13,7 +13,22 @@ class OrderProduct extends Model
     {
         static::saved(function ($orderProduct) {
             app(\App\Services\PayableService::class)->recordOrderEvent($orderProduct->order);
+
+            if ($orderProduct->wasRecentlyCreated || $orderProduct->wasChanged([
+                'order_id',
+                'product_id',
+                'platform_variant_id',
+                'sku',
+                'quantity_purchased',
+                'price',
+            ])) {
+                CashflowProfitSnapshot::invalidateForOrder($orderProduct->order);
+            }
         });
+
+        static::deleted(fn (OrderProduct $orderProduct) => (
+            CashflowProfitSnapshot::invalidateForOrder($orderProduct->order)
+        ));
     }
 
     protected $fillable = [

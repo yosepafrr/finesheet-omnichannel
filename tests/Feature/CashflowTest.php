@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\RefreshCashflowDailyProfitJob;
 use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
+use App\Models\CashflowProfitSnapshot;
 use App\Models\FinancialAccount;
 use App\Models\Order;
 use App\Models\PayableEvent;
@@ -296,7 +297,7 @@ class CashflowTest extends TestCase
             'store_name' => 'Shopee Profit',
             'shopee_shop_id' => 'CASHFLOW-PROFIT',
         ]);
-        $this->createEscrowOrder($store, 'CASHFLOW-PROFIT-ORDER', 'COMPLETED', 90000);
+        $order = $this->createEscrowOrder($store, 'CASHFLOW-PROFIT-ORDER', 'COMPLETED', 90000);
 
         $this->actingAs($user)
             ->getJson('/api/cashflow?start_date=2026-10-27&end_date=2026-10-27')
@@ -316,12 +317,39 @@ class CashflowTest extends TestCase
         (new RefreshCashflowDailyProfitJob($user->id, '2026-10-27'))
             ->handle(app(CashflowService::class));
 
+        $this->assertTrue(CashflowProfitSnapshot::query()
+            ->where('user_id', $user->id)
+            ->whereDate('snapshot_date', '2026-10-27')
+            ->exists());
+
         $this->actingAs($user)
             ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
             ->assertOk()
             ->assertJsonPath('status', 'ready')
             ->assertJsonPath('data.transactions.0.source', 'daily_profit')
             ->assertJsonPath('data.transactions.0.amount', 90000);
+
+        Cache::forget(RefreshCashflowDailyProfitJob::statusKey($user->id, '2026-10-27'));
+        Queue::fake();
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('status', 'ready')
+            ->assertJsonPath('data.transactions.0.amount', 90000);
+        Queue::assertNothingPushed();
+
+        $order->update(['escrow_amount' => 95000]);
+        $this->assertFalse(CashflowProfitSnapshot::query()
+            ->where('user_id', $user->id)
+            ->whereDate('snapshot_date', '2026-10-27')
+            ->exists());
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'processing');
+        Queue::assertPushed(RefreshCashflowDailyProfitJob::class);
 
         $this->actingAs($user)
             ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-29')

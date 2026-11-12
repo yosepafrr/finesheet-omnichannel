@@ -1,4 +1,4 @@
-import { Children, useCallback, useEffect, useMemo, useState } from "react";
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import ReactApexChart from "react-apexcharts";
 import toast from "react-hot-toast";
@@ -295,10 +295,11 @@ export default function Cashflow() {
     const [profitLoadFailed, setProfitLoadFailed] = useState(false);
     const [profitProgress, setProfitProgress] = useState({ ready: 0, total: 0 });
     const [profitRefreshKey, setProfitRefreshKey] = useState(0);
+    const forceProfitRefreshRef = useRef(false);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [period, setPeriod] = useState("30_days");
-    const [startDate, setStartDate] = useState(dateDaysAgo(29));
+    const [period, setPeriod] = useState("7_days");
+    const [startDate, setStartDate] = useState(dateDaysAgo(6));
     const [endDate, setEndDate] = useState(localDate());
     const [modal, setModal] = useState(null);
     const [editing, setEditing] = useState(null);
@@ -382,7 +383,9 @@ export default function Cashflow() {
         setProfitProgress({ ready: 0, total: 0 });
         setProfitLoading(true);
         setProfitLoadFailed(false);
-        loadProfit(profitRefreshKey > 0);
+        const forceRefresh = forceProfitRefreshRef.current;
+        forceProfitRefreshRef.current = false;
+        loadProfit(forceRefresh);
 
         return () => {
             cancelled = true;
@@ -579,7 +582,7 @@ export default function Cashflow() {
                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau posisi keuangan dan catat pergerakan dana usaha.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => { loadData(true, true); setProfitRefreshKey((current) => current + 1); }} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            <button type="button" onClick={() => { loadData(true, true); forceProfitRefreshRef.current = true; setProfitRefreshKey((current) => current + 1); }} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Perbarui
                             </button>
                             <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">

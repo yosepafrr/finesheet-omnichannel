@@ -46,6 +46,31 @@ class Order extends Model
                 }
             }
 
+            $profitFields = [
+                'store_id',
+                'platform',
+                'order_status',
+                'order_time',
+                'order_selling_price',
+                'escrow_amount',
+                'escrow_amount_after_adjustment',
+                'sale_escrow_amount',
+                'fee_details',
+                'normalized_cancel_category',
+                'cancelled_at',
+            ];
+            if ($order->wasRecentlyCreated || $order->wasChanged($profitFields)) {
+                CashflowProfitSnapshot::invalidateForOrder($order);
+
+                if ($order->wasChanged('order_time') && $order->getOriginal('order_time')) {
+                    $order->loadMissing('store:id,user_id');
+                    CashflowProfitSnapshot::invalidate(
+                        (int) $order->store?->user_id,
+                        $order->getOriginal('order_time'),
+                    );
+                }
+            }
+
             // Broadcast only meaningful order-list changes. Bulk sync can save many
             // rows and would otherwise flood the browser with refresh events.
             $shouldBroadcastUpdate = !$order->wasRecentlyCreated && $order->wasChanged([
@@ -72,6 +97,8 @@ class Order extends Model
                 }
             }
         });
+
+        static::deleted(fn (Order $order) => CashflowProfitSnapshot::invalidateForOrder($order));
     }
 
     protected $fillable = [

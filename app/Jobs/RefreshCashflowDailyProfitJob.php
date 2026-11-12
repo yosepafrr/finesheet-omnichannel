@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\CashflowProfitSnapshot;
 use App\Models\User;
 use App\Services\CashflowService;
 use Carbon\Carbon;
@@ -59,10 +60,17 @@ class RefreshCashflowDailyProfitJob implements ShouldBeUnique, ShouldQueue
             ->values()
             ->all();
 
-        Cache::put(self::resultKey($this->userId, $this->date), [
-            'transactions' => $transactions,
-            'generated_at' => now()->toIso8601String(),
-        ], now()->addMinutes(30));
+        CashflowProfitSnapshot::query()->updateOrCreate(
+            [
+                'user_id' => $this->userId,
+                'snapshot_date' => $this->date,
+            ],
+            [
+                'transactions' => $transactions,
+                'generated_at' => now(),
+            ],
+        );
+        Cache::forget(self::resultKey($this->userId, $this->date));
         $this->storeStatus('ready');
     }
 

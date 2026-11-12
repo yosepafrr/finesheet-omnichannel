@@ -38,6 +38,7 @@ class OrderReturn extends Model
 
             if ($return->order) {
                 app(PayableService::class)->reconcileOrderLogistics($return->order);
+                CashflowProfitSnapshot::invalidateForOrder($return->order);
             }
             try {
                 if ($return->order) {
@@ -51,6 +52,7 @@ class OrderReturn extends Model
         static::deleted(function ($return) {
             if ($return->order) {
                 app(PayableService::class)->reconcileOrderLogistics($return->order);
+                CashflowProfitSnapshot::invalidateForOrder($return->order);
             }
 
             try {

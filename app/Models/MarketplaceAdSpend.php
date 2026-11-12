@@ -8,6 +8,28 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MarketplaceAdSpend extends Model
 {
+    protected static function booted(): void
+    {
+        static::saved(function (MarketplaceAdSpend $spend) {
+            if (! $spend->wasRecentlyCreated && ! $spend->wasChanged(['user_id', 'spend_date', 'amount'])) {
+                return;
+            }
+
+            CashflowProfitSnapshot::invalidate((int) $spend->user_id, $spend->spend_date);
+
+            if ($spend->wasChanged('spend_date') && $spend->getOriginal('spend_date')) {
+                CashflowProfitSnapshot::invalidate(
+                    (int) $spend->user_id,
+                    $spend->getOriginal('spend_date'),
+                );
+            }
+        });
+
+        static::deleted(fn (MarketplaceAdSpend $spend) => (
+            CashflowProfitSnapshot::invalidate((int) $spend->user_id, $spend->spend_date)
+        ));
+    }
+
     protected $fillable = [
         'user_id',
         'store_id',

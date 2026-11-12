@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\RefreshCashflowDailyProfitJob;
 use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
+use App\Models\CashflowProfitSnapshot;
 use App\Models\CashflowTransaction;
 use App\Models\FinancialAccount;
 use App\Models\FinancialObligation;
@@ -39,7 +40,7 @@ class CashflowController extends Controller
         )->endOfDay();
         $start = Carbon::createFromFormat(
             'Y-m-d',
-            (string) ($request->query('start_date') ?: $end->copy()->subDays(29)->toDateString()),
+            (string) ($request->query('start_date') ?: $end->copy()->subDays(6)->toDateString()),
             $timezone,
         )->startOfDay();
 
@@ -209,21 +210,31 @@ class CashflowController extends Controller
         $pendingDates = [];
         $failedDates = [];
         $readyCount = 0;
+        $snapshots = CashflowProfitSnapshot::query()
+            ->where('user_id', $userId)
+            ->whereDate('snapshot_date', '>=', $start->toDateString())
+            ->whereDate('snapshot_date', '<=', $end->toDateString())
+            ->get()
+            ->keyBy(fn (CashflowProfitSnapshot $snapshot) => $snapshot->snapshot_date->toDateString());
+        $now = now($timezone);
         $cursor = $start->copy()->startOfDay();
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $date = $cursor->toDateString();
             $statusKey = RefreshCashflowDailyProfitJob::statusKey($userId, $date);
-            $resultKey = RefreshCashflowDailyProfitJob::resultKey($userId, $date);
+            /** @var CashflowProfitSnapshot|null $snapshot */
+            $snapshot = $snapshots->get($date);
 
             if ($forceRefresh) {
                 Cache::forget($statusKey);
-                Cache::forget($resultKey);
             }
 
-            $result = Cache::get($resultKey);
-            if (is_array($result) && is_array($result['transactions'] ?? null)) {
-                $transactions = $transactions->concat($result['transactions']);
+            if ($snapshot && is_array($snapshot->transactions)) {
+                $transactions = $transactions->concat($snapshot->transactions);
+            }
+
+            $needsRefresh = $forceRefresh || ! $this->cashflowProfitSnapshotIsFresh($snapshot, $cursor, $now);
+            if (! $needsRefresh) {
                 $readyCount++;
                 $cursor->addDay();
 
@@ -233,6 +244,9 @@ class CashflowController extends Controller
             $status = Cache::get($statusKey);
             if (($status['status'] ?? null) === 'failed') {
                 $failedDates[] = $date;
+                if ($snapshot) {
+                    $readyCount++;
+                }
                 $cursor->addDay();
 
                 continue;
@@ -285,6 +299,26 @@ class CashflowController extends Controller
         ];
 
         return response()->json($payload, empty($pendingDates) ? 200 : 202);
+    }
+
+    private function cashflowProfitSnapshotIsFresh(
+        ?CashflowProfitSnapshot $snapshot,
+        Carbon $date,
+        Carbon $now,
+    ): bool {
+        if (! $snapshot?->generated_at) {
+            return false;
+        }
+
+        if ($date->isSameDay($now)) {
+            return $snapshot->generated_at->greaterThanOrEqualTo($now->copy()->subMinutes(10));
+        }
+
+        if ($date->greaterThanOrEqualTo($now->copy()->subDays(3)->startOfDay())) {
+            return $snapshot->generated_at->greaterThanOrEqualTo($now->copy()->subHours(3));
+        }
+
+        return true;
     }
 
     public function storeAccount(Request $request)

@@ -61,6 +61,7 @@ class OrderPackage extends Model
             if ($shouldReconcilePayable) {
                 try {
                     app(PayableService::class)->reconcileOrderLogistics($order);
+                    CashflowProfitSnapshot::invalidateForOrder($order);
                 } catch (\Throwable $e) {
                     Log::warning('Failed to reconcile payable after logistics status change: '.$e->getMessage());
                 }
@@ -74,6 +75,8 @@ class OrderPackage extends Model
                 }
             }
         });
+
+        static::deleted(fn (OrderPackage $package) => CashflowProfitSnapshot::invalidateForOrder($package->order));
     }
 
     protected $fillable = [
