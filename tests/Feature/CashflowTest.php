@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
 use App\Models\FinancialAccount;
 use App\Models\Order;
 use App\Models\PayableEvent;
@@ -10,8 +11,9 @@ use App\Models\PayablePeriod;
 use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Services\CashflowService;
+use App\Services\MarketplaceEscrowSnapshotService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class CashflowTest extends TestCase
@@ -149,6 +151,7 @@ class CashflowTest extends TestCase
 
     public function test_marketplace_escrow_integration_only_counts_active_order_escrow_and_can_be_removed(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $shopee = Store::create([
             'user_id' => $user->id,
@@ -173,12 +176,21 @@ class CashflowTest extends TestCase
 
         $created = $this->actingAs($user)
             ->postJson('/api/cashflow/integrations/marketplace-escrow')
-            ->assertCreated()
-            ->assertJsonPath('data.source_type', 'marketplace_escrow');
+            ->assertAccepted()
+            ->assertJsonPath('data.source_type', 'marketplace_escrow')
+            ->assertJsonPath('data.balance', '0.00')
+            ->assertJsonPath('data.integration_details.sync_status', 'queued');
+
+        $accountId = $created->json('data.id');
+        Queue::assertPushed(RefreshMarketplaceEscrowSnapshotJob::class, fn ($job) => (
+            $job->userId === $user->id && $job->accountId === $accountId
+        ));
+        (new RefreshMarketplaceEscrowSnapshotJob($user->id, $accountId))
+            ->handle(app(MarketplaceEscrowSnapshotService::class));
 
         $this->actingAs($user)
             ->postJson('/api/cashflow/integrations/marketplace-escrow')
-            ->assertOk();
+            ->assertAccepted();
 
         $this->assertSame(1, FinancialAccount::where('user_id', $user->id)
             ->where('source_type', 'marketplace_escrow')
@@ -192,7 +204,6 @@ class CashflowTest extends TestCase
             ->assertJsonPath('data.accounts.0.integration_details.excludes_seller_balance', true)
             ->assertJsonCount(2, 'data.accounts.0.integration_details.stores');
 
-        $accountId = $created->json('data.id');
         $this->actingAs($user)
             ->deleteJson("/api/cashflow/accounts/{$accountId}")
             ->assertOk();
@@ -202,6 +213,7 @@ class CashflowTest extends TestCase
 
     public function test_marketplace_escrow_uses_its_recent_snapshot_until_a_refresh_is_requested(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $store = Store::create([
             'user_id' => $user->id,
@@ -211,11 +223,13 @@ class CashflowTest extends TestCase
         ]);
         $order = $this->createEscrowOrder($store, 'SNAPSHOT-ORDER', 'READY_TO_SHIP', 125000);
 
-        $this->actingAs($user)
+        $created = $this->actingAs($user)
             ->postJson('/api/cashflow/integrations/marketplace-escrow')
-            ->assertCreated()
-            ->assertJsonPath('data.balance', '125000.00')
-            ->assertJsonPath('data.integration_details.stores.0.amount', 125000);
+            ->assertAccepted()
+            ->assertJsonPath('data.integration_details.sync_status', 'queued');
+        $accountId = $created->json('data.id');
+        (new RefreshMarketplaceEscrowSnapshotJob($user->id, $accountId))
+            ->handle(app(MarketplaceEscrowSnapshotService::class));
 
         $order->update(['escrow_amount' => 175000]);
 
@@ -227,12 +241,22 @@ class CashflowTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27&refresh_integrations=1')
             ->assertOk()
+            ->assertJsonPath('data.accounts.0.balance', '125000.00')
+            ->assertJsonPath('data.accounts.0.integration_details.sync_status', 'queued');
+
+        (new RefreshMarketplaceEscrowSnapshotJob($user->id, $accountId))
+            ->handle(app(MarketplaceEscrowSnapshotService::class));
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
+            ->assertOk()
             ->assertJsonPath('data.accounts.0.balance', '175000.00')
             ->assertJsonPath('data.accounts.0.integration_details.stores.0.amount', 175000);
     }
 
-    public function test_cashflow_keeps_the_last_escrow_snapshot_when_refreshing_it_fails(): void
+    public function test_cashflow_keeps_the_last_escrow_snapshot_while_background_refresh_is_queued(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         FinancialAccount::create([
             'user_id' => $user->id,
@@ -249,20 +273,14 @@ class CashflowTest extends TestCase
             'is_active' => true,
         ]);
 
-        $service = \Mockery::mock(CashflowService::class);
-        $service->shouldReceive('marketplaceEscrow')
-            ->once()
-            ->andThrow(new \RuntimeException('Simulated refresh failure'));
-        $service->shouldReceive('supplierPayables')->once()->andReturn(collect());
-        $service->shouldReceive('dailyProfit')->once()->andReturn(collect());
-        $this->app->instance(CashflowService::class, $service);
-
         $this->actingAs($user)
             ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
             ->assertOk()
             ->assertJsonPath('data.summary.cash_position', 225000)
             ->assertJsonPath('data.accounts.0.balance', '225000.00')
-            ->assertJsonPath('data.accounts.0.integration_refresh_failed', true);
+            ->assertJsonPath('data.accounts.0.integration_details.sync_status', 'queued');
+
+        Queue::assertPushed(RefreshMarketplaceEscrowSnapshotJob::class);
     }
 
     private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): Order

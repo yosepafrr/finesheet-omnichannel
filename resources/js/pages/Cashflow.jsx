@@ -208,6 +208,8 @@ function AccountRow({ account, onEdit, onDelete }) {
     const Icon = icons[account.subtype] || CircleDollarSign;
     const isIntegratedEscrow = account.source_type === "marketplace_escrow";
     const integratedStores = account.integration_details?.stores || [];
+    const syncStatus = account.integration_details?.sync_status;
+    const isSyncing = ["queued", "running"].includes(syncStatus);
 
     return (
         <div className="border-t border-slate-100 first:border-t-0 dark:border-slate-800">
@@ -218,9 +220,14 @@ function AccountRow({ account, onEdit, onDelete }) {
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                         <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{account.name}</p>
-                        {isIntegratedEscrow && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-[#304674] dark:bg-blue-400/10 dark:text-blue-300">TERINTEGRASI</span>}
+                        {isIntegratedEscrow && <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${syncStatus === "failed" ? "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300" : isSyncing ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : "bg-blue-50 text-[#304674] dark:bg-blue-400/10 dark:text-blue-300"}`}>
+                            {isSyncing && <LoaderCircle className="h-2.5 w-2.5 animate-spin" />}
+                            {syncStatus === "failed" ? "SINKRONISASI GAGAL" : isSyncing ? "MENYINKRONKAN" : "TERINTEGRASI"}
+                        </span>}
                     </div>
-                    <p className="text-xs text-slate-400">{isIntegratedEscrow ? `${integratedStores.length} toko | Tidak termasuk saldo penjual` : (subtypeLabels[account.subtype] || account.subtype)}</p>
+                    <p className="text-xs text-slate-400">{isIntegratedEscrow
+                        ? (isSyncing && integratedStores.length === 0 ? "Menyiapkan snapshot escrow pertama..." : `${integratedStores.length} toko | Tidak termasuk saldo penjual`)
+                        : (subtypeLabels[account.subtype] || account.subtype)}</p>
                 </div>
                 <p className="shrink-0 text-sm font-bold text-slate-900 dark:text-white">{formatRp(account.balance)}</p>
                 <div className="flex shrink-0 gap-1">
@@ -259,8 +266,8 @@ export default function Cashflow() {
     const [transactionForm, setTransactionForm] = useState(emptyTransaction);
     const [deleteTarget, setDeleteTarget] = useState(null);
 
-    const loadData = useCallback(async (silent = false, refreshIntegrations = false) => {
-        silent ? setRefreshing(true) : setLoading(true);
+    const loadData = useCallback(async (silent = false, refreshIntegrations = false, background = false) => {
+        if (!background) silent ? setRefreshing(true) : setLoading(true);
         try {
             const response = await axios.get("/api/cashflow", {
                 params: {
@@ -274,10 +281,12 @@ export default function Cashflow() {
                 toast.error("Saldo escrow belum dapat diperbarui. Snapshot terakhir tetap ditampilkan.");
             }
         } catch (error) {
-            toast.error(error.response?.data?.message || "Gagal memuat data keuangan");
+            if (!background) toast.error(error.response?.data?.message || "Gagal memuat data keuangan");
         } finally {
-            setLoading(false);
-            setRefreshing(false);
+            if (!background) {
+                setLoading(false);
+                setRefreshing(false);
+            }
         }
     }, [startDate, endDate]);
 
@@ -296,8 +305,17 @@ export default function Cashflow() {
     const cashAccounts = data?.accounts?.filter((account) => account.category === "cash") || [];
     const assetAccounts = data?.accounts?.filter((account) => account.category === "asset") || [];
     const escrowAccount = cashAccounts.find((account) => account.source_type === "marketplace_escrow");
+    const escrowIsSyncing = ["queued", "running"].includes(escrowAccount?.integration_details?.sync_status);
     const manualDebt = data?.obligations?.filter((item) => item.kind === "debt" && item.status === "open") || [];
     const receivables = data?.obligations?.filter((item) => item.kind === "receivable" && item.status === "open") || [];
+
+    useEffect(() => {
+        if (!escrowIsSyncing) return undefined;
+
+        const timer = window.setInterval(() => loadData(false, false, true), 3000);
+
+        return () => window.clearInterval(timer);
+    }, [escrowIsSyncing, loadData]);
 
     const chartOptions = useMemo(() => ({
         chart: { toolbar: { show: false }, zoom: { enabled: false }, fontFamily: "Geist Variable, sans-serif" },
@@ -434,7 +452,7 @@ export default function Cashflow() {
         setIntegratingEscrow(true);
         try {
             await axios.post("/api/cashflow/integrations/marketplace-escrow");
-            toast.success("Escrow marketplace berhasil diintegrasikan");
+            toast.success("Integrasi dibuat. Sinkronisasi escrow berjalan di latar belakang.");
             await loadData(true);
         } catch (error) {
             toast.error(error.response?.data?.errors?.integration?.[0] || error.response?.data?.message || "Gagal mengintegrasikan escrow marketplace");

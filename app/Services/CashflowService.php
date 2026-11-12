@@ -85,38 +85,51 @@ class CashflowService
         }
 
         $storeIds = $stores->pluck('id');
-        $orders = Order::query()
-            ->with(['returns.items', 'packages', 'orderProducts', 'store'])
-            ->whereIn('store_id', $storeIds)
-            ->whereBetween('order_time', [$start, $end])
-            ->orderBy('order_time')
-            ->get();
-        $financialSummaries = $this->orderProfitService->summaries($orders);
-        $adSpends = MarketplaceAdSpend::query()
-            ->where('user_id', $user->id)
-            ->whereIn('store_id', $storeIds)
-            ->whereDate('spend_date', '>=', $start->toDateString())
-            ->whereDate('spend_date', '<=', $end->toDateString())
-            ->orderBy('spend_date')
-            ->get();
-        $period = [
-            'key' => 'cashflow',
-            'start' => $start,
-            'end' => $end,
-            'granularity' => 'day',
-        ];
         $adStoreCount = $stores
             ->filter(fn ($store) => in_array(strtolower((string) $store->platform), ['shopee', 'tiktokshop'], true))
             ->count();
-        $analytics = $this->profitAnalyticsService->build(
-            $orders,
-            $financialSummaries,
-            $period,
-            $adSpends,
-            $adStoreCount,
-        );
+        $points = collect();
+        $cursor = $start->copy()->startOfDay();
 
-        return collect($analytics['points'])
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $chunkStart = $cursor->copy();
+            $chunkEnd = $cursor->copy()->addDays(6)->endOfDay();
+            if ($chunkEnd->greaterThan($end)) {
+                $chunkEnd = $end->copy();
+            }
+
+            $orders = Order::query()
+                ->with(['returns.items', 'packages', 'orderProducts', 'store'])
+                ->whereIn('store_id', $storeIds)
+                ->whereBetween('order_time', [$chunkStart, $chunkEnd])
+                ->orderBy('order_time')
+                ->get();
+            $financialSummaries = $this->orderProfitService->summaries($orders);
+            $adSpends = MarketplaceAdSpend::query()
+                ->where('user_id', $user->id)
+                ->whereIn('store_id', $storeIds)
+                ->whereDate('spend_date', '>=', $chunkStart->toDateString())
+                ->whereDate('spend_date', '<=', $chunkEnd->toDateString())
+                ->orderBy('spend_date')
+                ->get();
+            $analytics = $this->profitAnalyticsService->build(
+                $orders,
+                $financialSummaries,
+                [
+                    'key' => 'cashflow',
+                    'start' => $chunkStart,
+                    'end' => $chunkEnd,
+                    'granularity' => 'day',
+                ],
+                $adSpends,
+                $adStoreCount,
+            );
+
+            $points = $points->concat($analytics['points']);
+            $cursor = $chunkEnd->copy()->addSecond()->startOfDay();
+        }
+
+        return $points
             ->filter(fn (array $point) => abs((float) $point['profit_amount']) >= 0.01)
             ->map(function (array $point) {
                 $profit = (float) $point['profit_amount'];

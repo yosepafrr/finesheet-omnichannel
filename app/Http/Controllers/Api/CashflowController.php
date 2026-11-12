@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
 use App\Models\CashflowTransaction;
 use App\Models\FinancialAccount;
 use App\Models\FinancialObligation;
@@ -65,19 +66,19 @@ class CashflowController extends Controller
                 || $escrowAccount->synced_at->lt(now()->subMinutes(5));
 
             if ($forceRefresh || $snapshotIsStale) {
-                try {
-                    $escrowSnapshotService->storeAccountSnapshot(
-                        $escrowAccount,
-                        $cashflowService->marketplaceEscrow($user),
-                    );
-                } catch (Throwable $exception) {
-                    Log::warning('Cashflow marketplace escrow refresh failed; using the last snapshot.', [
-                        'user_id' => $user->id,
-                        'financial_account_id' => $escrowAccount->id,
-                        'exception' => $exception,
-                    ]);
+                if (! $escrowSnapshotService->refreshInProgress($escrowAccount)) {
+                    try {
+                        $this->queueEscrowRefresh($escrowAccount, $escrowSnapshotService);
+                    } catch (Throwable $exception) {
+                        Log::warning('Cashflow marketplace escrow refresh could not be queued.', [
+                            'user_id' => $user->id,
+                            'financial_account_id' => $escrowAccount->id,
+                            'exception' => $exception,
+                        ]);
 
-                    $escrowAccount->setAttribute('integration_refresh_failed', true);
+                        $escrowSnapshotService->markFailed($escrowAccount);
+                        $escrowAccount->setAttribute('integration_refresh_failed', true);
+                    }
                 }
             }
         }
@@ -181,10 +182,8 @@ class CashflowController extends Controller
         return response()->json(['status' => 'success', 'data' => $account], 201);
     }
 
-    public function integrateMarketplaceEscrow(
-        CashflowService $cashflowService,
-        MarketplaceEscrowSnapshotService $escrowSnapshotService,
-    ) {
+    public function integrateMarketplaceEscrow(MarketplaceEscrowSnapshotService $escrowSnapshotService)
+    {
         $user = Auth::user();
         if (! $user->stores()->exists()) {
             throw ValidationException::withMessages([
@@ -192,7 +191,6 @@ class CashflowController extends Controller
             ]);
         }
 
-        $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
         $account = FinancialAccount::firstOrNew(
             [
                 'user_id' => $user->id,
@@ -208,13 +206,13 @@ class CashflowController extends Controller
             ],
         );
         $wasRecentlyCreated = ! $account->exists;
-        $escrowSnapshotService->storeAccountSnapshot($account, $marketplaceEscrow);
+        $this->queueEscrowRefresh($account, $escrowSnapshotService);
 
         return response()->json([
             'status' => 'success',
             'data' => $account->fresh(),
             'created' => $wasRecentlyCreated,
-        ], $wasRecentlyCreated ? 201 : 200);
+        ], 202);
     }
 
     public function updateAccount(Request $request, int $id)
@@ -392,5 +390,15 @@ class CashflowController extends Controller
         $delta = $direction === 'income' ? $amount : -$amount;
         $account->balance = (float) $account->balance + $delta;
         $account->save();
+    }
+
+    private function queueEscrowRefresh(
+        FinancialAccount $account,
+        MarketplaceEscrowSnapshotService $snapshotService,
+    ): void {
+        $snapshotService->markQueued($account);
+
+        RefreshMarketplaceEscrowSnapshotJob::dispatch($account->user_id, $account->id)
+            ->onQueue('default');
     }
 }
