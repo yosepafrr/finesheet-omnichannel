@@ -194,7 +194,8 @@ class CashflowController extends Controller
                 'end_date' => 'Tanggal akhir harus sama atau setelah tanggal mulai.',
             ]);
         }
-        if ($start->diffInDays($end) > 2) {
+        $calendarDaySpan = $start->diffInDays($end->copy()->startOfDay());
+        if ($calendarDaySpan > 2) {
             throw ValidationException::withMessages([
                 'end_date' => 'Satu permintaan profit Cashflow maksimal 3 hari.',
             ]);

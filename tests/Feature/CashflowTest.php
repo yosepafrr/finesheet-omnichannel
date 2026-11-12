@@ -306,6 +306,10 @@ class CashflowTest extends TestCase
             ->assertJsonPath('data.transactions.0.amount', 90000);
 
         $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-29')
+            ->assertOk();
+
+        $this->actingAs($user)
             ->getJson('/api/cashflow/profit?start_date=2026-10-20&end_date=2026-10-23')
             ->assertUnprocessable();
     }
