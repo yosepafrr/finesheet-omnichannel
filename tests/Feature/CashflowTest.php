@@ -10,6 +10,7 @@ use App\Models\PayablePeriod;
 use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\CashflowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -165,6 +166,8 @@ class CashflowTest extends TestCase
 
         $this->createEscrowOrder($shopee, 'ACTIVE-SHOPEE', 'READY_TO_SHIP', 100000);
         $this->createEscrowOrder($tiktok, 'ACTIVE-TIKTOK', 'IN_TRANSIT', 200000);
+        $snapshotOrder = $this->createEscrowOrder($shopee, 'ACTIVE-SNAPSHOT', 'SHIPPED', 0);
+        $snapshotOrder->update(['sale_escrow_amount' => 50000]);
         $this->createEscrowOrder($shopee, 'SELLER-BALANCE', 'COMPLETED', 500000);
         $this->createEscrowOrder($tiktok, 'CANCELLED', 'CANCELLED', 700000);
 
@@ -184,8 +187,8 @@ class CashflowTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
             ->assertOk()
-            ->assertJsonPath('data.summary.cash_position', 300000)
-            ->assertJsonPath('data.accounts.0.balance', '300000.00')
+            ->assertJsonPath('data.summary.cash_position', 350000)
+            ->assertJsonPath('data.accounts.0.balance', '350000.00')
             ->assertJsonPath('data.accounts.0.integration_details.excludes_seller_balance', true)
             ->assertJsonCount(2, 'data.accounts.0.integration_details.stores');
 
@@ -197,9 +200,74 @@ class CashflowTest extends TestCase
         $this->assertDatabaseMissing('financial_accounts', ['id' => $accountId]);
     }
 
-    private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): void
+    public function test_marketplace_escrow_uses_its_recent_snapshot_until_a_refresh_is_requested(): void
     {
-        Order::withoutEvents(fn () => Order::create([
+        $user = User::factory()->create();
+        $store = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Shopee',
+            'store_name' => 'Shopee Snapshot',
+            'shopee_shop_id' => 'ESCROW-SNAPSHOT',
+        ]);
+        $order = $this->createEscrowOrder($store, 'SNAPSHOT-ORDER', 'READY_TO_SHIP', 125000);
+
+        $this->actingAs($user)
+            ->postJson('/api/cashflow/integrations/marketplace-escrow')
+            ->assertCreated()
+            ->assertJsonPath('data.balance', '125000.00')
+            ->assertJsonPath('data.integration_details.stores.0.amount', 125000);
+
+        $order->update(['escrow_amount' => 175000]);
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('data.accounts.0.balance', '125000.00');
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27&refresh_integrations=1')
+            ->assertOk()
+            ->assertJsonPath('data.accounts.0.balance', '175000.00')
+            ->assertJsonPath('data.accounts.0.integration_details.stores.0.amount', 175000);
+    }
+
+    public function test_cashflow_keeps_the_last_escrow_snapshot_when_refreshing_it_fails(): void
+    {
+        $user = User::factory()->create();
+        FinancialAccount::create([
+            'user_id' => $user->id,
+            'name' => 'Escrow Marketplace',
+            'category' => 'cash',
+            'subtype' => 'marketplace',
+            'source_type' => 'marketplace_escrow',
+            'balance' => 225000,
+            'synced_at' => now()->subMinutes(10),
+            'integration_details' => [
+                'excludes_seller_balance' => true,
+                'stores' => [],
+            ],
+            'is_active' => true,
+        ]);
+
+        $service = \Mockery::mock(CashflowService::class);
+        $service->shouldReceive('marketplaceEscrow')
+            ->once()
+            ->andThrow(new \RuntimeException('Simulated refresh failure'));
+        $service->shouldReceive('supplierPayables')->once()->andReturn(collect());
+        $service->shouldReceive('dailyProfit')->once()->andReturn(collect());
+        $this->app->instance(CashflowService::class, $service);
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-20&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('data.summary.cash_position', 225000)
+            ->assertJsonPath('data.accounts.0.balance', '225000.00')
+            ->assertJsonPath('data.accounts.0.integration_refresh_failed', true);
+    }
+
+    private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): Order
+    {
+        return Order::withoutEvents(fn () => Order::create([
             'store_id' => $store->id,
             'platform' => $store->platform,
             'order_sn' => $orderSn,

@@ -108,6 +108,12 @@ class FulfillmentSettingController extends Controller
             ]);
         }
 
+        if ($validated['shipping_label_template'] === 'finesheet') {
+            throw ValidationException::withMessages([
+                'shipping_label_template' => 'Template Finesheet belum tersedia.',
+            ]);
+        }
+
         return collect($validated)->only(self::SETTING_FIELDS)->all();
     }
 

@@ -28,19 +28,29 @@ const HANDOVER_OPTIONS = [
 
 const LABEL_OPTIONS = [
     { value: "platform", label: "Template platform", description: "Gunakan label resmi Shopee atau TikTok Shop.", icon: "receipt_long" },
-    { value: "finesheet", label: "Template Finesheet", description: "Label internal dengan rincian pengemasan.", icon: "description" },
+    { value: "finesheet", label: "Template Finesheet", description: "Label internal dengan rincian pengemasan.", icon: "description", disabled: true, tooltip: "Template belum tersedia" },
 ];
 
-const normalizeStore = (store) => ({
-    ...store,
-    ...DEFAULTS,
-    ...Object.fromEntries(Object.entries(store).filter(([, value]) => value !== null && value !== undefined)),
-    print_shipping_label: store.print_shipping_label ?? true,
-    print_packing_list: store.print_packing_list ?? false,
-    shopee_thermal_printing: store.shopee_thermal_printing ?? false,
-    shipping_label_size: ["a5", "a6"].includes(store.shipping_label_size) ? store.shipping_label_size : "a6",
-    packing_list_size: ["a5", "a6"].includes(store.packing_list_size) ? store.packing_list_size : "a6",
-});
+const isTiktokStore = (platform) => String(platform || "").toLowerCase().replace(/[\s_-]/g, "") === "tiktokshop";
+
+const normalizeStore = (store) => {
+    const platformDefaults = {
+        ...DEFAULTS,
+        print_packing_list: isTiktokStore(store.platform),
+    };
+
+    return {
+        ...store,
+        ...platformDefaults,
+        ...Object.fromEntries(Object.entries(store).filter(([, value]) => value !== null && value !== undefined)),
+        shipping_label_template: store.shipping_label_template === "finesheet" ? "platform" : (store.shipping_label_template ?? "platform"),
+        print_shipping_label: store.print_shipping_label ?? true,
+        print_packing_list: store.print_packing_list ?? platformDefaults.print_packing_list,
+        shopee_thermal_printing: store.shopee_thermal_printing ?? false,
+        shipping_label_size: ["a5", "a6"].includes(store.shipping_label_size) ? store.shipping_label_size : "a6",
+        packing_list_size: ["a5", "a6"].includes(store.packing_list_size) ? store.packing_list_size : "a6",
+    };
+};
 
 const settingsOf = (store) => Object.fromEntries(SETTING_FIELDS.map((key) => [key, store[key]]));
 const errorMessage = (error, fallback) => error.response?.data?.message
@@ -54,25 +64,44 @@ function ChoiceGroup({ label, value, options, onChange, disabled }) {
             <div className="grid gap-2 sm:grid-cols-2">
                 {options.map((option) => {
                     const selected = value === option.value;
+                    const optionDisabled = disabled || option.disabled;
                     return (
-                        <button
+                        <div
                             key={option.value}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => onChange(option.value)}
-                            className={`flex min-h-[76px] items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-[#304674]/20 disabled:cursor-not-allowed disabled:opacity-60 ${selected
-                                ? "border-[#304674] bg-[#304674]/5 dark:border-blue-400 dark:bg-blue-400/10"
-                                : "border-slate-200 bg-white hover:border-[#304674]/40 dark:border-slate-700 dark:bg-slate-800"}`}
-                            aria-pressed={selected}
+                            className="group/choice relative min-w-0"
+                            tabIndex={option.disabled ? 0 : undefined}
+                            aria-label={option.disabled ? `${option.label}. ${option.tooltip}` : undefined}
+                            title={option.disabled ? option.tooltip : undefined}
                         >
-                            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-[#304674] text-white dark:bg-blue-500" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
-                                <span className="material-symbols-rounded text-[20px]">{option.icon}</span>
+                            <button
+                                type="button"
+                                disabled={optionDisabled}
+                                onClick={() => !optionDisabled && onChange(option.value)}
+                                className={`flex min-h-[76px] w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-[#304674]/20 ${option.disabled
+                                    ? "cursor-not-allowed border-dashed border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-900/30"
+                                    : selected
+                                        ? "border-[#304674] bg-[#304674]/5 dark:border-blue-400 dark:bg-blue-400/10"
+                                        : "border-slate-200 bg-white hover:border-[#304674]/40 dark:border-slate-700 dark:bg-slate-800"} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+                                aria-pressed={selected}
+                                aria-disabled={optionDisabled}
+                            >
+                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${option.disabled ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500" : selected ? "bg-[#304674] text-white dark:bg-blue-500" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
+                                    <span className="material-symbols-rounded text-[20px]">{option.icon}</span>
+                                </span>
+                                <span className="min-w-0">
+                                    <span className={`flex flex-wrap items-center gap-1.5 text-sm font-bold ${option.disabled ? "text-slate-500 dark:text-slate-400" : "text-slate-800 dark:text-white"}`}>
+                                        {option.label}
+                                        {selected && !option.disabled && <span className="material-symbols-rounded text-[17px] text-[#304674] dark:text-blue-300">check_circle</span>}
+                                        {option.disabled && <span className="rounded bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-700 dark:text-slate-300">Segera hadir</span>}
+                                    </span>
+                                    <span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{option.description}</span>
+                                </span>
+                            </button>
+                            {option.disabled && <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/choice:opacity-100 group-focus/choice:opacity-100 dark:bg-slate-100 dark:text-slate-900">
+                                {option.tooltip}
                             </span>
-                            <span className="min-w-0">
-                                <span className="flex items-center gap-1.5 text-sm font-bold text-slate-800 dark:text-white">{option.label}{selected && <span className="material-symbols-rounded text-[17px] text-[#304674] dark:text-blue-300">check_circle</span>}</span>
-                                <span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{option.description}</span>
-                            </span>
-                        </button>
+                            }
+                        </div>
                     );
                 })}
             </div>

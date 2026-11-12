@@ -259,11 +259,20 @@ export default function Cashflow() {
     const [transactionForm, setTransactionForm] = useState(emptyTransaction);
     const [deleteTarget, setDeleteTarget] = useState(null);
 
-    const loadData = useCallback(async (silent = false) => {
+    const loadData = useCallback(async (silent = false, refreshIntegrations = false) => {
         silent ? setRefreshing(true) : setLoading(true);
         try {
-            const response = await axios.get("/api/cashflow", { params: { start_date: startDate, end_date: endDate } });
+            const response = await axios.get("/api/cashflow", {
+                params: {
+                    start_date: startDate,
+                    end_date: endDate,
+                    ...(refreshIntegrations ? { refresh_integrations: 1 } : {}),
+                },
+            });
             setData(response.data.data);
+            if (refreshIntegrations && response.data.data?.accounts?.some((account) => account.integration_refresh_failed)) {
+                toast.error("Saldo escrow belum dapat diperbarui. Snapshot terakhir tetap ditampilkan.");
+            }
         } catch (error) {
             toast.error(error.response?.data?.message || "Gagal memuat data keuangan");
         } finally {
@@ -454,7 +463,7 @@ export default function Cashflow() {
                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau posisi keuangan dan catat pergerakan dana usaha.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => loadData(true)} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            <button type="button" onClick={() => loadData(true, true)} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Perbarui
                             </button>
                             <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">

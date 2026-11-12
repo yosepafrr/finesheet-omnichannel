@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\FinancialAccount;
 use App\Models\MarketplaceAdSpend;
 use App\Models\Order;
 use App\Models\OrderPackage;
@@ -19,6 +20,49 @@ use Tests\TestCase;
 class ProfitTrackerTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_default_realtime_escrow_updates_the_cashflow_snapshot_without_filters_overwriting_it(): void
+    {
+        $user = User::factory()->create();
+        $shopee = $this->createStore($user, 'Shopee', 'Shopee Snapshot', 'shop-snapshot');
+        $tiktok = $this->createStore($user, 'Tiktokshop', 'TikTok Snapshot', 'tiktok-snapshot');
+
+        $this->createOrder($shopee, 'SNAPSHOT-READY', 'READY_TO_SHIP', 100_000);
+        $this->createOrder($tiktok, 'SNAPSHOT-SHIPPED', 'SHIPPED', 200_000);
+
+        $account = FinancialAccount::create([
+            'user_id' => $user->id,
+            'name' => 'Escrow Marketplace',
+            'category' => 'cash',
+            'subtype' => 'marketplace',
+            'source_type' => 'marketplace_escrow',
+            'balance' => 1,
+            'synced_at' => now()->subDay(),
+            'integration_details' => [],
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?include_analytics=0')
+            ->assertOk()
+            ->assertJsonPath('total_escrow_amount', 300_000)
+            ->assertJsonPath('total_order_count', 2);
+
+        $account->refresh();
+        $this->assertSame(300_000.0, (float) $account->balance);
+        $this->assertSame(2, collect($account->integration_details['stores'])->sum('order_count'));
+        $this->assertSame(300_000.0, (float) collect($account->integration_details['stores'])->sum('amount'));
+
+        $account->forceFill(['balance' => 999_999])->save();
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?include_analytics=0&include_perlu_dikirim=0&include_dikirim=1')
+            ->assertOk()
+            ->assertJsonPath('total_escrow_amount', 200_000)
+            ->assertJsonPath('total_order_count', 1);
+
+        $this->assertSame(999_999.0, (float) $account->fresh()->balance);
+    }
 
     public function test_store_breakdown_and_total_use_the_same_escrow_values(): void
     {

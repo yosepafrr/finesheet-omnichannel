@@ -14,6 +14,7 @@ class FinancialAccount extends Model
         'source_type',
         'balance',
         'synced_at',
+        'integration_details',
         'notes',
         'is_active',
     ];
@@ -21,6 +22,7 @@ class FinancialAccount extends Model
     protected $casts = [
         'balance' => 'decimal:2',
         'synced_at' => 'datetime',
+        'integration_details' => 'array',
         'is_active' => 'boolean',
     ];
 

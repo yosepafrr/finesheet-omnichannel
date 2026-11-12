@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\MarketplaceAdSpend;
 use App\Models\Order;
+use App\Services\MarketplaceEscrowSnapshotService;
 use App\Services\OrderEscrowService;
 use App\Services\OrderProfitService;
 use App\Services\ProfitAnalyticsService;
@@ -19,6 +20,7 @@ class ProfitController extends Controller
         Request $request,
         OrderEscrowService $escrowService,
         OrderProfitService $profitService,
+        MarketplaceEscrowSnapshotService $escrowSnapshotService,
         ProfitAnalyticsService $profitAnalyticsService,
     ) {
         $request->validate([
@@ -84,7 +86,6 @@ class ProfitController extends Controller
             ->unique('id')
             ->values();
         $financialSummaries = $profitService->summaries($allOrders);
-        $ordersByStore = $realtimeOrders->groupBy('store_id');
 
         $includePerluDikirim = filter_var($request->query('include_perlu_dikirim', true), FILTER_VALIDATE_BOOLEAN);
         $includeDikirim = filter_var($request->query('include_dikirim', true), FILTER_VALIDATE_BOOLEAN);
@@ -95,15 +96,22 @@ class ProfitController extends Controller
             OrderEscrowService::CATEGORY_SHIPPED => $includeDikirim,
             OrderEscrowService::CATEGORY_RETURN_CANCEL => $includeReturn,
         ]));
+        $realtimeSnapshot = $escrowSnapshotService->summarize(
+            $allStores,
+            $realtimeOrders,
+            $includedCategories,
+            $financialSummaries,
+        );
+        $escrowStores = $realtimeSnapshot['stores']->keyBy('store_id');
 
         $storeSummaries = $allStores->map(function ($store) use (
-            $ordersByStore,
+            $realtimeOrders,
             $escrowService,
             $financialSummaries,
             $includedCategories,
+            $escrowStores,
         ) {
-            $storeOrders = $ordersByStore->get($store->id, collect());
-            $escrowSummary = $escrowService->summarize($storeOrders, $includedCategories);
+            $storeOrders = $realtimeOrders->where('store_id', $store->id);
             $includedOrders = $storeOrders->filter(function (Order $order) use ($escrowService, $includedCategories) {
                 $category = $escrowService->category($order);
 
@@ -112,25 +120,32 @@ class ProfitController extends Controller
             $includedFinance = $includedOrders->map(
                 fn (Order $order) => $financialSummaries->get($order->id),
             )->filter();
+            $escrowStore = $escrowStores->get($store->id);
+            $escrowAmount = (float) ($escrowStore['amount'] ?? 0);
+            $hppAmount = (float) $includedFinance->sum('hpp_amount');
 
             return [
                 'id' => $store->id,
                 'store_name' => $store->store_name,
                 'platform' => $store->platform,
-                'escrow' => (float) $includedFinance->sum('escrow_amount'),
-                'hpp' => (float) $includedFinance->sum('hpp_amount'),
-                'profit' => (float) $includedFinance->sum('profit_amount'),
-                'included_order_count' => $includedOrders->count(),
+                'escrow' => $escrowAmount,
+                'hpp' => $hppAmount,
+                'profit' => $escrowAmount - $hppAmount,
+                'included_order_count' => (int) ($escrowStore['order_count'] ?? 0),
                 'missing_hpp_order_count' => $includedFinance->where('has_missing_hpp', true)->count(),
-                'status_counts' => $escrowSummary['status_counts'],
-                'status_escrow' => $escrowSummary['status_escrow'],
+                'status_counts' => $escrowStore['status_counts'] ?? [],
+                'status_escrow' => $escrowStore['status_escrow'] ?? [],
             ];
         });
 
-        $totalEscrowAmount = (float) $storeSummaries->sum('escrow');
+        $totalEscrowAmount = $realtimeSnapshot['total'];
         $totalHppAmount = (float) $storeSummaries->sum('hpp');
         $totalProfitAmount = (float) $storeSummaries->sum('profit');
-        $totalOrderCount = (int) $storeSummaries->sum('included_order_count');
+        $totalOrderCount = $realtimeSnapshot['order_count'];
+
+        if ($includePerluDikirim && $includeDikirim && ! $includeReturn) {
+            $escrowSnapshotService->storeExistingAccountSnapshot($user, $realtimeSnapshot);
+        }
 
         $storeSummaries = $storeSummaries
             ->map(function (array $store) use ($totalEscrowAmount) {

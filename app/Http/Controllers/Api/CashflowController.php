@@ -7,16 +7,22 @@ use App\Models\CashflowTransaction;
 use App\Models\FinancialAccount;
 use App\Models\FinancialObligation;
 use App\Services\CashflowService;
+use App\Services\MarketplaceEscrowSnapshotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class CashflowController extends Controller
 {
-    public function index(Request $request, CashflowService $cashflowService)
-    {
+    public function index(
+        Request $request,
+        CashflowService $cashflowService,
+        MarketplaceEscrowSnapshotService $escrowSnapshotService,
+    ) {
         $request->validate([
             'start_date' => 'nullable|date_format:Y-m-d',
             'end_date' => 'nullable|date_format:Y-m-d',
@@ -54,13 +60,26 @@ class CashflowController extends Controller
             ->get();
         $escrowAccount = $accounts->firstWhere('source_type', 'marketplace_escrow');
         if ($escrowAccount) {
-            $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
-            $escrowAccount->setAttribute('balance', $marketplaceEscrow['total']);
-            $escrowAccount->setAttribute('synced_at', now());
-            $escrowAccount->setAttribute('integration_details', [
-                'excludes_seller_balance' => true,
-                'stores' => $marketplaceEscrow['stores']->values(),
-            ]);
+            $forceRefresh = $request->boolean('refresh_integrations');
+            $snapshotIsStale = ! $escrowAccount->synced_at
+                || $escrowAccount->synced_at->lt(now()->subMinutes(5));
+
+            if ($forceRefresh || $snapshotIsStale) {
+                try {
+                    $escrowSnapshotService->storeAccountSnapshot(
+                        $escrowAccount,
+                        $cashflowService->marketplaceEscrow($user),
+                    );
+                } catch (Throwable $exception) {
+                    Log::warning('Cashflow marketplace escrow refresh failed; using the last snapshot.', [
+                        'user_id' => $user->id,
+                        'financial_account_id' => $escrowAccount->id,
+                        'exception' => $exception,
+                    ]);
+
+                    $escrowAccount->setAttribute('integration_refresh_failed', true);
+                }
+            }
         }
         $obligations = FinancialObligation::query()
             ->where('user_id', $user->id)
@@ -162,8 +181,10 @@ class CashflowController extends Controller
         return response()->json(['status' => 'success', 'data' => $account], 201);
     }
 
-    public function integrateMarketplaceEscrow(CashflowService $cashflowService)
-    {
+    public function integrateMarketplaceEscrow(
+        CashflowService $cashflowService,
+        MarketplaceEscrowSnapshotService $escrowSnapshotService,
+    ) {
         $user = Auth::user();
         if (! $user->stores()->exists()) {
             throw ValidationException::withMessages([
@@ -171,7 +192,8 @@ class CashflowController extends Controller
             ]);
         }
 
-        $account = FinancialAccount::firstOrCreate(
+        $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
+        $account = FinancialAccount::firstOrNew(
             [
                 'user_id' => $user->id,
                 'source_type' => 'marketplace_escrow',
@@ -185,18 +207,14 @@ class CashflowController extends Controller
                 'is_active' => true,
             ],
         );
-        $marketplaceEscrow = $cashflowService->marketplaceEscrow($user);
-        $account->update([
-            'balance' => $marketplaceEscrow['total'],
-            'synced_at' => now(),
-            'is_active' => true,
-        ]);
+        $wasRecentlyCreated = ! $account->exists;
+        $escrowSnapshotService->storeAccountSnapshot($account, $marketplaceEscrow);
 
         return response()->json([
             'status' => 'success',
             'data' => $account->fresh(),
-            'created' => $account->wasRecentlyCreated,
-        ], $account->wasRecentlyCreated ? 201 : 200);
+            'created' => $wasRecentlyCreated,
+        ], $wasRecentlyCreated ? 201 : 200);
     }
 
     public function updateAccount(Request $request, int $id)

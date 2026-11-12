@@ -6,6 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class Store extends Model
 {
+    protected static function booted(): void
+    {
+        static::creating(function (Store $store) {
+            $normalizedPlatform = strtolower(preg_replace('/[\s_-]+/', '', (string) $store->platform));
+
+            if ($normalizedPlatform === 'tiktokshop'
+                && ! array_key_exists('print_packing_list', $store->getAttributes())) {
+                $store->print_packing_list = true;
+            }
+        });
+    }
+
     protected $fillable = [
         'platform',
         'store_name',
