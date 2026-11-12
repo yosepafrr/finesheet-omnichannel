@@ -93,7 +93,7 @@ class CashflowService
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $chunkStart = $cursor->copy();
-            $chunkEnd = $cursor->copy()->addDays(6)->endOfDay();
+            $chunkEnd = $cursor->copy()->endOfDay();
             if ($chunkEnd->greaterThan($end)) {
                 $chunkEnd = $end->copy();
             }

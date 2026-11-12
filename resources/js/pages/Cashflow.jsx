@@ -106,6 +106,66 @@ function formatDate(value, withTime = false) {
     ).format(date);
 }
 
+function splitDateRange(startDate, endDate, chunkSize = 3) {
+    const chunks = [];
+    let cursor = new Date(`${startDate}T12:00:00`);
+    const rangeEnd = new Date(`${endDate}T12:00:00`);
+
+    while (cursor <= rangeEnd) {
+        const chunkStart = new Date(cursor);
+        const chunkEnd = new Date(cursor);
+        chunkEnd.setDate(chunkEnd.getDate() + chunkSize - 1);
+        if (chunkEnd > rangeEnd) chunkEnd.setTime(rangeEnd.getTime());
+
+        chunks.push({
+            start_date: localDate(chunkStart),
+            end_date: localDate(chunkEnd),
+        });
+        cursor = new Date(chunkEnd);
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return chunks;
+}
+
+function mergeCashflowData(baseData, profitTransactions) {
+    if (!baseData) return null;
+
+    const transactionMap = new Map();
+    [...(baseData.transactions || []), ...profitTransactions].forEach((transaction) => {
+        transactionMap.set(`${transaction.source}:${transaction.id}`, transaction);
+    });
+    const transactions = [...transactionMap.values()].sort(
+        (left, right) => new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime(),
+    );
+    const chartByDate = new Map();
+
+    transactions.forEach((transaction) => {
+        const date = localDate(new Date(transaction.occurred_at));
+        const point = chartByDate.get(date) || { date, income: 0, expense: 0, net: 0 };
+        const amount = Number(transaction.amount || 0);
+
+        if (transaction.direction === "income") point.income += amount;
+        else point.expense += amount;
+        point.net = point.income - point.expense;
+        chartByDate.set(date, point);
+    });
+
+    const income = transactions
+        .filter((transaction) => transaction.direction === "income")
+        .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+    const expense = transactions
+        .filter((transaction) => transaction.direction === "expense")
+        .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+
+    return {
+        ...baseData,
+        transactions,
+        chart: [...chartByDate.values()].sort((left, right) => left.date.localeCompare(right.date)),
+        cashflow_totals: { income, expense, net: income - expense },
+    };
+}
+
 function SelectField({ className = "", children, value, onChange, disabled, ...props }) {
     const options = Children.toArray(children).map((child) => ({
         value: child.props.value,
@@ -251,7 +311,11 @@ function EmptyRows({ label }) {
 }
 
 export default function Cashflow() {
-    const [data, setData] = useState(null);
+    const [baseData, setData] = useState(null);
+    const [profitTransactions, setProfitTransactions] = useState([]);
+    const [profitLoading, setProfitLoading] = useState(false);
+    const [profitLoadFailed, setProfitLoadFailed] = useState(false);
+    const [profitRefreshKey, setProfitRefreshKey] = useState(0);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [period, setPeriod] = useState("30_days");
@@ -265,6 +329,10 @@ export default function Cashflow() {
     const [obligationForm, setObligationForm] = useState(emptyObligation);
     const [transactionForm, setTransactionForm] = useState(emptyTransaction);
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const data = useMemo(
+        () => mergeCashflowData(baseData, profitTransactions),
+        [baseData, profitTransactions],
+    );
 
     const loadData = useCallback(async (silent = false, refreshIntegrations = false, background = false) => {
         if (!background) silent ? setRefreshing(true) : setLoading(true);
@@ -291,6 +359,33 @@ export default function Cashflow() {
     }, [startDate, endDate]);
 
     useEffect(() => { loadData(); }, [loadData]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadProfit = async () => {
+            setProfitTransactions([]);
+            setProfitLoading(true);
+            setProfitLoadFailed(false);
+            const loaded = [];
+
+            try {
+                for (const chunk of splitDateRange(startDate, endDate)) {
+                    const response = await axios.get("/api/cashflow/profit", { params: chunk });
+                    loaded.push(...(response.data.data?.transactions || []));
+                    if (!cancelled) setProfitTransactions([...loaded]);
+                }
+            } catch (error) {
+                if (!cancelled) setProfitLoadFailed(true);
+            } finally {
+                if (!cancelled) setProfitLoading(false);
+            }
+        };
+
+        loadProfit();
+
+        return () => { cancelled = true; };
+    }, [startDate, endDate, profitRefreshKey]);
 
     const applyPeriod = (value) => {
         setPeriod(value);
@@ -481,7 +576,7 @@ export default function Cashflow() {
                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau posisi keuangan dan catat pergerakan dana usaha.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => loadData(true, true)} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            <button type="button" onClick={() => { loadData(true, true); setProfitRefreshKey((current) => current + 1); }} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Perbarui
                             </button>
                             <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">
@@ -595,7 +690,11 @@ export default function Cashflow() {
                         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                                 <h2 className="text-sm font-bold text-slate-900 dark:text-white">Arus Kas</h2>
-                                <p className="text-xs text-slate-400">Profit harian ditambahkan otomatis sebagai pemasukan read-only</p>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                                    <span>Profit harian ditambahkan otomatis sebagai pemasukan read-only</span>
+                                    {profitLoading && <span className="inline-flex items-center gap-1 font-medium text-[#304674] dark:text-blue-300"><LoaderCircle className="h-3 w-3 animate-spin" /> Memuat profit bertahap</span>}
+                                    {profitLoadFailed && <span className="font-medium text-amber-600 dark:text-amber-400">Sebagian profit belum dapat dimuat. Data utama tetap tersedia.</span>}
+                                </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <SelectField className="w-36" value={period} onChange={(event) => applyPeriod(event.target.value)}>

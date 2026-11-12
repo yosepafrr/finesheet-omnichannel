@@ -107,9 +107,9 @@ class CashflowController extends Controller
                 'account' => $transaction->account,
                 'is_read_only' => false,
             ]);
-        $profitTransactions = $cashflowService->dailyProfit($user, $start, $end);
+        // Profit history can be expensive for users with many orders. It is loaded
+        // incrementally through profit() so the main Cashflow payload stays fast.
         $transactions = $manualTransactions
-            ->concat($profitTransactions)
             ->sortByDesc('occurred_at')
             ->values();
 
@@ -166,6 +166,44 @@ class CashflowController extends Controller
                     'expense' => (float) $transactions->where('direction', 'expense')->sum('amount'),
                     'net' => (float) $transactions->sum(fn (array $item) => $item['direction'] === 'income' ? $item['amount'] : -$item['amount']),
                 ],
+            ],
+        ]);
+    }
+
+    public function profit(Request $request, CashflowService $cashflowService)
+    {
+        $request->validate([
+            'start_date' => 'required|date_format:Y-m-d',
+            'end_date' => 'required|date_format:Y-m-d',
+        ]);
+
+        $timezone = config('app.timezone', 'Asia/Jakarta');
+        $start = Carbon::createFromFormat(
+            'Y-m-d',
+            (string) $request->query('start_date'),
+            $timezone,
+        )->startOfDay();
+        $end = Carbon::createFromFormat(
+            'Y-m-d',
+            (string) $request->query('end_date'),
+            $timezone,
+        )->endOfDay();
+
+        if ($start->greaterThan($end)) {
+            throw ValidationException::withMessages([
+                'end_date' => 'Tanggal akhir harus sama atau setelah tanggal mulai.',
+            ]);
+        }
+        if ($start->diffInDays($end) > 2) {
+            throw ValidationException::withMessages([
+                'end_date' => 'Satu permintaan profit Cashflow maksimal 3 hari.',
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'transactions' => $cashflowService->dailyProfit(Auth::user(), $start, $end),
             ],
         ]);
     }

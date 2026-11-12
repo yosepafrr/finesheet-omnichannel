@@ -120,6 +120,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::get('/profit-tracker', [ProfitController::class, 'index']);
         Route::get('/profit-tracker/breakdown', [ProfitController::class, 'breakdown']);
         Route::get('/cashflow', [CashflowController::class, 'index']);
+        Route::get('/cashflow/profit', [CashflowController::class, 'profit']);
         Route::post('/cashflow/integrations/marketplace-escrow', [CashflowController::class, 'integrateMarketplaceEscrow']);
         Route::post('/cashflow/accounts', [CashflowController::class, 'storeAccount']);
         Route::put('/cashflow/accounts/{id}', [CashflowController::class, 'updateAccount']);

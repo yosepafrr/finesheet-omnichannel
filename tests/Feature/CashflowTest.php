@@ -283,6 +283,33 @@ class CashflowTest extends TestCase
         Queue::assertPushed(RefreshMarketplaceEscrowSnapshotJob::class);
     }
 
+    public function test_profit_history_is_loaded_separately_in_small_date_chunks(): void
+    {
+        $user = User::factory()->create();
+        $store = Store::create([
+            'user_id' => $user->id,
+            'platform' => 'Shopee',
+            'store_name' => 'Shopee Profit',
+            'shopee_shop_id' => 'CASHFLOW-PROFIT',
+        ]);
+        $this->createEscrowOrder($store, 'CASHFLOW-PROFIT-ORDER', 'COMPLETED', 90000);
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-27&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.transactions');
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-27&end_date=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('data.transactions.0.source', 'daily_profit')
+            ->assertJsonPath('data.transactions.0.amount', 90000);
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow/profit?start_date=2026-10-20&end_date=2026-10-23')
+            ->assertUnprocessable();
+    }
+
     private function createEscrowOrder(Store $store, string $orderSn, string $status, int $escrow): Order
     {
         return Order::withoutEvents(fn () => Order::create([
