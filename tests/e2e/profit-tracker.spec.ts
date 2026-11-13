@@ -50,6 +50,32 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(page.locator('#analytics-date').locator('..').locator('..')).toHaveClass(/focus-within:ring/);
   });
 
+  test('Keeps previous analytics visible while a new period is loading', async ({ page }) => {
+    await page.route('**/api/profit-tracker**', async (route) => {
+      const url = new URL(route.request().url());
+
+      if (url.searchParams.get('analytics_period') === 'last_30_days') {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+
+      await route.continue();
+    });
+
+    const analyticsSection = page.locator('#tour-profit-analytics');
+    const previousTable = analyticsSection.locator('table');
+    const periodFilter = analyticsSection.getByRole('button', { name: 'Rentang: 3 Hari' });
+
+    await expect(previousTable).toBeVisible();
+    await periodFilter.click();
+    await page.getByRole('option', { name: '30 Hari' }).click();
+
+    const loadingNotice = page.getByTestId('profit-analytics-loading');
+    await expect(loadingNotice).toBeVisible();
+    await expect(loadingNotice).toContainText('Data sebelumnya tetap ditampilkan');
+    await expect(previousTable).toBeVisible();
+    await expect(loadingNotice).toBeHidden({ timeout: 15000 });
+  });
+
   test('Analytics period row opens its profit breakdown', async ({ page }) => {
     const periodRow = page.locator('[data-testid^="profit-period-"]:not([data-testid^="profit-period-mobile-"])').first();
 

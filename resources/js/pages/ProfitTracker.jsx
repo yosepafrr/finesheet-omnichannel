@@ -231,6 +231,34 @@ function SkeletonCards() {
     );
 }
 
+function AnalyticsLoadingNotice({ hasPreviousData = false }) {
+    return (
+        <div
+            data-testid="profit-analytics-loading"
+            role="status"
+            aria-live="polite"
+            className="relative overflow-hidden rounded-lg border border-blue-200 bg-blue-50/80 px-4 py-3 dark:border-blue-500/30 dark:bg-blue-500/10"
+        >
+            <div className="flex items-center gap-3 pr-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-[#304674] shadow-sm dark:bg-slate-800 dark:text-blue-300">
+                    <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#304674] dark:text-blue-200">Memuat analisis profit terbaru...</p>
+                    <p className="mt-0.5 text-[11px] leading-5 text-slate-600 dark:text-slate-300">
+                        {hasPreviousData
+                            ? "Data sebelumnya tetap ditampilkan sampai hasil terbaru selesai dimuat."
+                            : "Rentang data yang besar dapat membutuhkan waktu lebih lama."}
+                    </p>
+                </div>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-blue-100 dark:bg-blue-950/50" aria-hidden="true">
+                <span className="profit-loading-progress block h-full w-1/3 bg-[#304674] dark:bg-blue-400" />
+            </div>
+        </div>
+    );
+}
+
 function MetricCard({ label, value, orders, icon, tone }) {
     const tones = {
         escrow: {
@@ -594,6 +622,9 @@ export default function ProfitTracker() {
 
         if (silent) {
             setRefreshing(true);
+        } else {
+            setLoading(true);
+            setError("");
         }
 
         try {
@@ -728,12 +759,16 @@ export default function ProfitTracker() {
 
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                             <div className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                                <span className="relative flex h-2.5 w-2.5">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                                </span>
+                                {loading || refreshing ? (
+                                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#304674] motion-reduce:animate-none dark:text-blue-300" aria-hidden="true" />
+                                ) : (
+                                    <span className="relative flex h-2.5 w-2.5">
+                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                                    </span>
+                                )}
                                 <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
-                                    {refreshing ? "Memperbarui data..." : "Real-time aktif"}
+                                    {loading ? "Memuat data terbaru..." : refreshing ? "Memperbarui data..." : "Real-time aktif"}
                                 </span>
                             </div>
                         </div>
@@ -769,7 +804,7 @@ export default function ProfitTracker() {
                             <span className="ml-auto text-[10px] italic text-slate-400 dark:text-slate-500">Pesanan selesai tidak masuk saldo real-time.</span>
                         </div>
 
-                        {loading ? (
+                        {loading && !data ? (
                             <SkeletonCards />
                         ) : data && (
                             <div id="tour-profit-summary" className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -797,7 +832,7 @@ export default function ProfitTracker() {
                         </div>
                     )}
 
-                    {!loading && data && (
+                    {data && (
                         <>
                             <section id="tour-store-profit" className="space-y-4" aria-labelledby="store-breakdown-title">
                                 <div className="flex items-center justify-between gap-4">
@@ -882,7 +917,7 @@ export default function ProfitTracker() {
                                 }}
                             />
 
-                            <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title">
+                            <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title" aria-busy={loading}>
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                                     <div>
                                         <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
@@ -959,6 +994,8 @@ export default function ProfitTracker() {
                                         <input id="analytics-year" type="number" min="2000" max="2100" step="1" value={analyticsFilter.year} onChange={(event) => updateAnalyticsFilter("year", event.target.value)} className="w-full rounded-lg border-slate-300 bg-white text-sm text-slate-700 focus:border-[#304674] focus:ring-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200" />
                                     </div>
                                 )}
+
+                                {loading && <AnalyticsLoadingNotice hasPreviousData={Boolean(analytics)} />}
 
                                 {analytics && (
                                     <>
@@ -1112,6 +1149,14 @@ export default function ProfitTracker() {
                     to { opacity: 1; transform: translateY(0); }
                 }
                 .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
+                @keyframes profitLoadingProgress {
+                    from { transform: translateX(-110%); }
+                    to { transform: translateX(310%); }
+                }
+                .profit-loading-progress { animation: profitLoadingProgress 1.35s ease-in-out infinite; }
+                @media (prefers-reduced-motion: reduce) {
+                    .profit-loading-progress { animation: none; transform: translateX(100%); }
+                }
             `}</style>
             <OnboardingTour
                 steps={PROFIT_TOUR_STEPS}

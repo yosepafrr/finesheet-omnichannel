@@ -57,8 +57,14 @@ class ProfitController extends Controller
             ->whereIn('order_status', $escrowService->realtimeStatuses())
             ->orderByDesc('order_time')
             ->get();
-        $chunkAnnualAnalytics = $includeAnalytics && $analyticsPeriod['key'] === 'year';
-        $analyticsOrders = $includeAnalytics && ! $chunkAnnualAnalytics
+        $analyticsDayCount = (int) floor(
+            $analyticsPeriod['start']->copy()->startOfDay()->diffInDays(
+                $analyticsPeriod['end']->copy()->startOfDay(),
+            ),
+        ) + 1;
+        $chunkAnalytics = $includeAnalytics
+            && ($analyticsPeriod['key'] === 'year' || $analyticsDayCount >= 14);
+        $analyticsOrders = $includeAnalytics && ! $chunkAnalytics
             ? $this->analyticsOrders(
                 $analyticsStoreIds,
                 $analyticsPeriod['start'],
@@ -66,7 +72,7 @@ class ProfitController extends Controller
                 $escrowService->profitAnalyticsStatuses(),
             )
             : collect();
-        $analyticsAdSpends = $includeAnalytics && ! $chunkAnnualAnalytics
+        $analyticsAdSpends = $includeAnalytics && ! $chunkAnalytics
             ? $this->analyticsAdSpends(
                 $user->id,
                 $analyticsStoreIds,
@@ -75,17 +81,16 @@ class ProfitController extends Controller
             )
             : collect();
 
+        // Realtime cards and historical analytics have different workloads. Keep
+        // their HPP hydration separate so a long analytics range cannot multiply
+        // the memory required to render the realtime summary.
+        $realtimeFinancialSummaries = $profitService->summaries($realtimeOrders);
+
         // Return and failed-delivery orders are informational in profit analytics.
-        // Avoid the expensive historical escrow reconstruction for old corrections,
-        // while retaining realtime orders needed by the escrow cards.
         $analyticsFinancialOrders = $analyticsOrders->reject(
             fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order),
         );
-        $allOrders = $realtimeOrders
-            ->concat($analyticsFinancialOrders)
-            ->unique('id')
-            ->values();
-        $financialSummaries = $profitService->summaries($allOrders);
+        $analyticsFinancialSummaries = $profitService->summaries($analyticsFinancialOrders);
 
         $includePerluDikirim = filter_var($request->query('include_perlu_dikirim', true), FILTER_VALIDATE_BOOLEAN);
         $includeDikirim = filter_var($request->query('include_dikirim', true), FILTER_VALIDATE_BOOLEAN);
@@ -100,14 +105,14 @@ class ProfitController extends Controller
             $allStores,
             $realtimeOrders,
             $includedCategories,
-            $financialSummaries,
+            $realtimeFinancialSummaries,
         );
         $escrowStores = $realtimeSnapshot['stores']->keyBy('store_id');
 
         $storeSummaries = $allStores->map(function ($store) use (
             $realtimeOrders,
             $escrowService,
-            $financialSummaries,
+            $realtimeFinancialSummaries,
             $includedCategories,
             $escrowStores,
         ) {
@@ -118,7 +123,7 @@ class ProfitController extends Controller
                 return $category !== null && in_array($category, $includedCategories, true);
             });
             $includedFinance = $includedOrders->map(
-                fn (Order $order) => $financialSummaries->get($order->id),
+                fn (Order $order) => $realtimeFinancialSummaries->get($order->id),
             )->filter();
             $escrowStore = $escrowStores->get($store->id);
             $escrowAmount = (float) ($escrowStore['amount'] ?? 0);
@@ -173,6 +178,11 @@ class ProfitController extends Controller
             'selected_store_id' => $selectedStoreId,
         ];
 
+        // The response only needs the calculated aggregates from this point.
+        // Release hydrated realtime relations before loading analytics chunks.
+        unset($realtimeOrders, $realtimeFinancialSummaries, $analyticsFinancialOrders);
+        gc_collect_cycles();
+
         if ($includeAnalytics) {
             $adStoreCount = $analyticsStores->filter(fn ($store) => in_array(
                 strtolower((string) $store->platform),
@@ -180,8 +190,8 @@ class ProfitController extends Controller
                 true,
             ))->count();
 
-            $response['analytics'] = $chunkAnnualAnalytics
-                ? $this->yearlyAnalytics(
+            $response['analytics'] = $chunkAnalytics
+                ? $this->chunkedAnalytics(
                     $user->id,
                     $analyticsStoreIds,
                     $analyticsPeriod,
@@ -192,7 +202,7 @@ class ProfitController extends Controller
                 )
                 : $profitAnalyticsService->build(
                     $analyticsOrders,
-                    $financialSummaries,
+                    $analyticsFinancialSummaries,
                     $analyticsPeriod,
                     $analyticsAdSpends,
                     $adStoreCount,
@@ -429,12 +439,12 @@ class ProfitController extends Controller
     }
 
     /**
-     * Build annual analytics one month at a time so PHP-FPM never needs to
-     * hydrate a full year of orders and ad campaign relations in one request.
+     * Build longer analytics ranges in bounded chunks so PHP-FPM never needs
+     * to hydrate all orders, products, returns, and packages at once.
      *
      * @param  array{key: string, start: Carbon, end: Carbon, granularity: string}  $period
      */
-    private function yearlyAnalytics(
+    private function chunkedAnalytics(
         int $userId,
         $storeIds,
         array $period,
@@ -448,16 +458,23 @@ class ProfitController extends Controller
         $syncedRecords = 0;
         $lastSyncedAt = null;
         $coverageComplete = $adStoreCount > 0;
-        $cursor = $period['start']->copy()->startOfMonth();
+        $monthly = $period['granularity'] === 'month';
+        $cursor = $monthly
+            ? $period['start']->copy()->startOfMonth()
+            : $period['start']->copy()->startOfDay();
 
         while ($cursor->lessThanOrEqualTo($period['end'])) {
-            $chunkStart = $cursor->copy()->startOfMonth()->max($period['start']);
-            $chunkEnd = $cursor->copy()->endOfMonth()->min($period['end']);
+            $chunkStart = $monthly
+                ? $cursor->copy()->startOfMonth()->max($period['start'])
+                : $cursor->copy()->startOfDay()->max($period['start']);
+            $chunkEnd = $monthly
+                ? $cursor->copy()->endOfMonth()->min($period['end'])
+                : $cursor->copy()->addDays(6)->endOfDay()->min($period['end']);
             $chunkPeriod = [
                 'key' => $period['key'],
                 'start' => $chunkStart,
                 'end' => $chunkEnd,
-                'granularity' => 'month',
+                'granularity' => $period['granularity'],
             ];
             $orders = $this->analyticsOrders(
                 $storeIds,
@@ -491,14 +508,18 @@ class ProfitController extends Controller
             }
 
             unset($orders, $financialOrders, $financialSummaries, $adSpends, $chunk);
-            $cursor->addMonthNoOverflow()->startOfMonth();
+            gc_collect_cycles();
+
+            $monthly
+                ? $cursor->addMonthNoOverflow()->startOfMonth()
+                : $cursor->addDays(7)->startOfDay();
         }
 
         return [
             'period' => $period['key'],
             'start_date' => $period['start']->toDateString(),
             'end_date' => $period['end']->toDateString(),
-            'granularity' => 'month',
+            'granularity' => $period['granularity'],
             'totals' => [
                 'order_count' => (int) $points->sum('order_count'),
                 'correction_count' => 0,
