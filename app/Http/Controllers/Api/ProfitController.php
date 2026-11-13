@@ -31,6 +31,7 @@ class ProfitController extends Controller
             'analytics_month' => 'nullable|date_format:Y-m',
             'analytics_year' => 'nullable|integer|min:2000|max:2100',
             'include_analytics' => 'nullable|boolean',
+            'include_realtime' => 'nullable|boolean',
             'store_id' => 'nullable|integer',
         ]);
 
@@ -49,127 +50,10 @@ class ProfitController extends Controller
             : $allStores->where('id', $selectedStoreId)->values();
         $allStoreIds = $allStores->pluck('id');
         $analyticsStoreIds = $analyticsStores->pluck('id');
-        $analyticsPeriod = $this->resolveAnalyticsPeriod($request);
         $includeAnalytics = filter_var($request->query('include_analytics', true), FILTER_VALIDATE_BOOLEAN);
-
-        $realtimeOrders = Order::with(['returns', 'packages', 'orderProducts', 'store'])
-            ->whereIn('store_id', $allStoreIds)
-            ->whereIn('order_status', $escrowService->realtimeStatuses())
-            ->orderByDesc('order_time')
-            ->get();
-        $analyticsDayCount = (int) floor(
-            $analyticsPeriod['start']->copy()->startOfDay()->diffInDays(
-                $analyticsPeriod['end']->copy()->startOfDay(),
-            ),
-        ) + 1;
-        $chunkAnalytics = $includeAnalytics
-            && ($analyticsPeriod['key'] === 'year' || $analyticsDayCount >= 14);
-        $analyticsOrders = $includeAnalytics && ! $chunkAnalytics
-            ? $this->analyticsOrders(
-                $analyticsStoreIds,
-                $analyticsPeriod['start'],
-                $analyticsPeriod['end'],
-                $escrowService->profitAnalyticsStatuses(),
-            )
-            : collect();
-        $analyticsAdSpends = $includeAnalytics && ! $chunkAnalytics
-            ? $this->analyticsAdSpends(
-                $user->id,
-                $analyticsStoreIds,
-                $analyticsPeriod['start'],
-                $analyticsPeriod['end'],
-            )
-            : collect();
-
-        // Realtime cards and historical analytics have different workloads. Keep
-        // their HPP hydration separate so a long analytics range cannot multiply
-        // the memory required to render the realtime summary.
-        $realtimeFinancialSummaries = $profitService->summaries($realtimeOrders);
-
-        // Return and failed-delivery orders are informational in profit analytics.
-        $analyticsFinancialOrders = $analyticsOrders->reject(
-            fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order),
-        );
-        $analyticsFinancialSummaries = $profitService->summaries($analyticsFinancialOrders);
-
-        $includePerluDikirim = filter_var($request->query('include_perlu_dikirim', true), FILTER_VALIDATE_BOOLEAN);
-        $includeDikirim = filter_var($request->query('include_dikirim', true), FILTER_VALIDATE_BOOLEAN);
-        $includeReturn = filter_var($request->query('include_return', false), FILTER_VALIDATE_BOOLEAN);
-
-        $includedCategories = array_keys(array_filter([
-            OrderEscrowService::CATEGORY_NEEDS_SHIPPING => $includePerluDikirim,
-            OrderEscrowService::CATEGORY_SHIPPED => $includeDikirim,
-            OrderEscrowService::CATEGORY_RETURN_CANCEL => $includeReturn,
-        ]));
-        $realtimeSnapshot = $escrowSnapshotService->summarize(
-            $allStores,
-            $realtimeOrders,
-            $includedCategories,
-            $realtimeFinancialSummaries,
-        );
-        $escrowStores = $realtimeSnapshot['stores']->keyBy('store_id');
-
-        $storeSummaries = $allStores->map(function ($store) use (
-            $realtimeOrders,
-            $escrowService,
-            $realtimeFinancialSummaries,
-            $includedCategories,
-            $escrowStores,
-        ) {
-            $storeOrders = $realtimeOrders->where('store_id', $store->id);
-            $includedOrders = $storeOrders->filter(function (Order $order) use ($escrowService, $includedCategories) {
-                $category = $escrowService->category($order);
-
-                return $category !== null && in_array($category, $includedCategories, true);
-            });
-            $includedFinance = $includedOrders->map(
-                fn (Order $order) => $realtimeFinancialSummaries->get($order->id),
-            )->filter();
-            $escrowStore = $escrowStores->get($store->id);
-            $escrowAmount = (float) ($escrowStore['amount'] ?? 0);
-            $hppAmount = (float) $includedFinance->sum('hpp_amount');
-
-            return [
-                'id' => $store->id,
-                'store_name' => $store->store_name,
-                'platform' => $store->platform,
-                'escrow' => $escrowAmount,
-                'hpp' => $hppAmount,
-                'profit' => $escrowAmount - $hppAmount,
-                'included_order_count' => (int) ($escrowStore['order_count'] ?? 0),
-                'missing_hpp_order_count' => $includedFinance->where('has_missing_hpp', true)->count(),
-                'status_counts' => $escrowStore['status_counts'] ?? [],
-                'status_escrow' => $escrowStore['status_escrow'] ?? [],
-            ];
-        });
-
-        $totalEscrowAmount = $realtimeSnapshot['total'];
-        $totalHppAmount = (float) $storeSummaries->sum('hpp');
-        $totalProfitAmount = (float) $storeSummaries->sum('profit');
-        $totalOrderCount = $realtimeSnapshot['order_count'];
-
-        if ($includePerluDikirim && $includeDikirim && ! $includeReturn) {
-            $escrowSnapshotService->storeExistingAccountSnapshot($user, $realtimeSnapshot);
-        }
-
-        $storeSummaries = $storeSummaries
-            ->map(function (array $store) use ($totalEscrowAmount) {
-                $store['percent'] = $totalEscrowAmount > 0
-                    ? round(($store['escrow'] / $totalEscrowAmount) * 100, 1)
-                    : 0;
-
-                return $store;
-            })
-            ->sortByDesc('escrow')
-            ->values();
+        $includeRealtime = filter_var($request->query('include_realtime', true), FILTER_VALIDATE_BOOLEAN);
 
         $response = [
-            'total_escrow_amount' => $totalEscrowAmount,
-            'total_hpp_amount' => $totalHppAmount,
-            'total_profit_amount' => $totalProfitAmount,
-            'total_order_count' => $totalOrderCount,
-            'missing_hpp_order_count' => (int) $storeSummaries->sum('missing_hpp_order_count'),
-            'stores' => $storeSummaries,
             'store_options' => $allStores->map(fn ($store) => [
                 'id' => $store->id,
                 'store_name' => $store->store_name,
@@ -178,20 +62,113 @@ class ProfitController extends Controller
             'selected_store_id' => $selectedStoreId,
         ];
 
-        // The response only needs the calculated aggregates from this point.
-        // Release hydrated realtime relations before loading analytics chunks.
-        unset($realtimeOrders, $realtimeFinancialSummaries, $analyticsFinancialOrders);
-        gc_collect_cycles();
+        $includePerluDikirim = filter_var($request->query('include_perlu_dikirim', true), FILTER_VALIDATE_BOOLEAN);
+        $includeDikirim = filter_var($request->query('include_dikirim', true), FILTER_VALIDATE_BOOLEAN);
+        $includeReturn = filter_var($request->query('include_return', false), FILTER_VALIDATE_BOOLEAN);
+
+        if ($includeRealtime) {
+            $realtimeOrders = Order::with(['returns', 'packages', 'orderProducts', 'store'])
+                ->whereIn('store_id', $allStoreIds)
+                ->whereIn('order_status', $escrowService->realtimeStatuses())
+                ->orderByDesc('order_time')
+                ->get();
+            $realtimeFinancialSummaries = $profitService->summaries($realtimeOrders);
+            $includedCategories = array_keys(array_filter([
+                OrderEscrowService::CATEGORY_NEEDS_SHIPPING => $includePerluDikirim,
+                OrderEscrowService::CATEGORY_SHIPPED => $includeDikirim,
+                OrderEscrowService::CATEGORY_RETURN_CANCEL => $includeReturn,
+            ]));
+            $realtimeSnapshot = $escrowSnapshotService->summarize(
+                $allStores,
+                $realtimeOrders,
+                $includedCategories,
+                $realtimeFinancialSummaries,
+            );
+            $escrowStores = $realtimeSnapshot['stores']->keyBy('store_id');
+
+            $storeSummaries = $allStores->map(function ($store) use (
+                $realtimeOrders,
+                $escrowService,
+                $realtimeFinancialSummaries,
+                $includedCategories,
+                $escrowStores,
+            ) {
+                $storeOrders = $realtimeOrders->where('store_id', $store->id);
+                $includedOrders = $storeOrders->filter(function (Order $order) use ($escrowService, $includedCategories) {
+                    $category = $escrowService->category($order);
+
+                    return $category !== null && in_array($category, $includedCategories, true);
+                });
+                $includedFinance = $includedOrders->map(
+                    fn (Order $order) => $realtimeFinancialSummaries->get($order->id),
+                )->filter();
+                $escrowStore = $escrowStores->get($store->id);
+                $escrowAmount = (float) ($escrowStore['amount'] ?? 0);
+                $hppAmount = (float) $includedFinance->sum('hpp_amount');
+
+                return [
+                    'id' => $store->id,
+                    'store_name' => $store->store_name,
+                    'platform' => $store->platform,
+                    'escrow' => $escrowAmount,
+                    'hpp' => $hppAmount,
+                    'profit' => $escrowAmount - $hppAmount,
+                    'included_order_count' => (int) ($escrowStore['order_count'] ?? 0),
+                    'missing_hpp_order_count' => $includedFinance->where('has_missing_hpp', true)->count(),
+                    'status_counts' => $escrowStore['status_counts'] ?? [],
+                    'status_escrow' => $escrowStore['status_escrow'] ?? [],
+                ];
+            });
+
+            $totalEscrowAmount = $realtimeSnapshot['total'];
+            $totalHppAmount = (float) $storeSummaries->sum('hpp');
+            $totalProfitAmount = (float) $storeSummaries->sum('profit');
+            $totalOrderCount = $realtimeSnapshot['order_count'];
+
+            if ($includePerluDikirim && $includeDikirim && ! $includeReturn) {
+                $escrowSnapshotService->storeExistingAccountSnapshot($user, $realtimeSnapshot);
+            }
+
+            $storeSummaries = $storeSummaries
+                ->map(function (array $store) use ($totalEscrowAmount) {
+                    $store['percent'] = $totalEscrowAmount > 0
+                        ? round(($store['escrow'] / $totalEscrowAmount) * 100, 1)
+                        : 0;
+
+                    return $store;
+                })
+                ->sortByDesc('escrow')
+                ->values();
+
+            $response = array_merge($response, [
+                'total_escrow_amount' => $totalEscrowAmount,
+                'total_hpp_amount' => $totalHppAmount,
+                'total_profit_amount' => $totalProfitAmount,
+                'total_order_count' => $totalOrderCount,
+                'missing_hpp_order_count' => (int) $storeSummaries->sum('missing_hpp_order_count'),
+                'stores' => $storeSummaries,
+            ]);
+
+            unset($realtimeOrders, $realtimeFinancialSummaries);
+            gc_collect_cycles();
+        }
 
         if ($includeAnalytics) {
+            $analyticsPeriod = $this->resolveAnalyticsPeriod($request);
+            $analyticsDayCount = (int) floor(
+                $analyticsPeriod['start']->copy()->startOfDay()->diffInDays(
+                    $analyticsPeriod['end']->copy()->startOfDay(),
+                ),
+            ) + 1;
+            $chunkAnalytics = $analyticsPeriod['key'] === 'year' || $analyticsDayCount >= 14;
             $adStoreCount = $analyticsStores->filter(fn ($store) => in_array(
                 strtolower((string) $store->platform),
                 ['shopee', 'tiktokshop'],
                 true,
             ))->count();
 
-            $response['analytics'] = $chunkAnalytics
-                ? $this->chunkedAnalytics(
+            if ($chunkAnalytics) {
+                $response['analytics'] = $this->chunkedAnalytics(
                     $user->id,
                     $analyticsStoreIds,
                     $analyticsPeriod,
@@ -199,14 +176,32 @@ class ProfitController extends Controller
                     $profitService,
                     $profitAnalyticsService,
                     $adStoreCount,
-                )
-                : $profitAnalyticsService->build(
+                );
+            } else {
+                $analyticsOrders = $this->analyticsOrders(
+                    $analyticsStoreIds,
+                    $analyticsPeriod['start'],
+                    $analyticsPeriod['end'],
+                    $escrowService->profitAnalyticsStatuses(),
+                );
+                $analyticsFinancialOrders = $analyticsOrders->reject(
+                    fn (Order $order) => $escrowService->hasReturnOrFailedDelivery($order),
+                );
+                $analyticsFinancialSummaries = $profitService->summaries($analyticsFinancialOrders);
+                $analyticsAdSpends = $this->analyticsAdSpends(
+                    $user->id,
+                    $analyticsStoreIds,
+                    $analyticsPeriod['start'],
+                    $analyticsPeriod['end'],
+                );
+                $response['analytics'] = $profitAnalyticsService->build(
                     $analyticsOrders,
                     $analyticsFinancialSummaries,
                     $analyticsPeriod,
                     $analyticsAdSpends,
                     $adStoreCount,
                 );
+            }
         }
 
         return response()->json($response);

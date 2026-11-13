@@ -180,14 +180,32 @@ class OrderProfitService
             ->get()
             ->keyBy(fn (Product $product) => $product->store_id.':'.$product->product_id);
 
+        $skusByUser = [];
+
         foreach ($orders as $order) {
+            $userId = (int) ($order->store?->user_id ?? 0);
+
             foreach ($order->orderProducts as $item) {
                 $item->setRelation('order', $order);
-                $item->setRelation(
-                    'product',
-                    $marketplaceProducts->get($order->store_id.':'.$item->product_id),
-                );
+                $product = $marketplaceProducts->get($order->store_id.':'.$item->product_id);
+                $item->setRelation('product', $product);
+
+                if ($userId <= 0) {
+                    continue;
+                }
+
+                $skusByUser[$userId][] = $item->sku;
+                if ($product) {
+                    $skusByUser[$userId][] = $product->product_sku;
+                    foreach ($product->variantProducts as $variant) {
+                        $skusByUser[$userId][] = $variant->model_sku;
+                    }
+                }
             }
+        }
+
+        foreach ($skusByUser as $userId => $skus) {
+            $this->hppService->primeMasterVariants((int) $userId, $skus);
         }
     }
 }

@@ -18,8 +18,7 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await expect(filterPerluDikirim).toBeVisible();
     await expect(filterDikirim).toBeVisible();
     await expect(filterReturn).toBeVisible();
-    await expect(page.getByText('Iklan Shopee', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('Pengeluaran iklan TikTok Shop belum termasuk dalam perhitungan profit.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Analisis Profit & Pengeluaran Iklan' })).toBeVisible();
 
     // Verify initial states (assuming default is Perlu Dikirim = ON, Dikirim = ON, Return = OFF)
     await expect(filterPerluDikirim).toHaveClass(/text-white/);
@@ -54,8 +53,11 @@ test.describe('Profit Tracker & Escrow Filters', () => {
     await page.route('**/api/profit-tracker**', async (route) => {
       const url = new URL(route.request().url());
 
-      if (url.searchParams.get('analytics_period') === 'last_30_days') {
-        await new Promise((resolve) => setTimeout(resolve, 750));
+      if (
+        url.searchParams.get('include_analytics') === '1'
+        && url.searchParams.get('analytics_period') === 'range'
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
 
       await route.continue();
@@ -102,11 +104,12 @@ test.describe('Profit Tracker & Escrow Filters', () => {
   });
 
   test('Analytics refreshes after a real-time order event', async ({ page }) => {
+    test.setTimeout(45000);
     const refreshRequest = page.waitForRequest((request) => (
       request.method() === 'GET'
       && request.url().includes('/api/profit-tracker')
       && request.url().includes('include_analytics=1')
-    ));
+    ), { timeout: 35000 });
 
     await page.evaluate(() => {
       window.dispatchEvent(new CustomEvent('order-updated', {

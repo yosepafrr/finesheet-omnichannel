@@ -64,6 +64,35 @@ class ProfitTrackerTest extends TestCase
         $this->assertSame(999_999.0, (float) $account->fresh()->balance);
     }
 
+    public function test_realtime_and_analytics_payloads_can_be_loaded_independently(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Shopee Split', 'shop-split');
+
+        $this->createOrder($store, 'SPLIT-READY', 'READY_TO_SHIP', 100_000);
+        $this->createOrder($store, 'SPLIT-COMPLETED', 'COMPLETED', 200_000);
+
+        $analyticsResponse = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?include_realtime=0&include_analytics=1&analytics_period=today',
+        );
+
+        $analyticsResponse
+            ->assertOk()
+            ->assertJsonPath('analytics.period', 'today');
+        $this->assertArrayNotHasKey('total_escrow_amount', $analyticsResponse->json());
+        $this->assertArrayNotHasKey('stores', $analyticsResponse->json());
+
+        $realtimeResponse = $this->actingAs($user)->getJson(
+            '/api/profit-tracker?include_realtime=1&include_analytics=0',
+        );
+
+        $realtimeResponse
+            ->assertOk()
+            ->assertJsonPath('total_escrow_amount', 100_000)
+            ->assertJsonPath('total_order_count', 1);
+        $this->assertArrayNotHasKey('analytics', $realtimeResponse->json());
+    }
+
     public function test_store_breakdown_and_total_use_the_same_escrow_values(): void
     {
         $user = User::factory()->create();

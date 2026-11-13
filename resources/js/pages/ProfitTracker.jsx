@@ -35,6 +35,9 @@ const PROFIT_TOUR_STEPS = [
 
 const FALLBACK_POLLING_INTERVAL = 60000;
 const REALTIME_REFRESH_DELAY = 1200;
+const ANALYTICS_REFRESH_DELAY = 5000;
+const BACKGROUND_ANALYTICS_REFRESH_DELAY = 30000;
+const ANALYTICS_SEGMENT_DAYS = 7;
 const ANALYTICS_PERIODS = [
     { id: "today", label: "Hari Ini" },
     { id: "date", label: "Pilih Hari" },
@@ -52,6 +55,161 @@ const ANALYTICS_PERIODS = [
 function localDateString(date = new Date()) {
     const offset = date.getTimezoneOffset() * 60000;
     return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function parseDateValue(value) {
+    const [year, month, day] = String(value || "").split("-").map(Number);
+
+    return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatDateValue(date) {
+    return date.toISOString().slice(0, 10);
+}
+
+function shiftDateValue(value, days) {
+    const date = parseDateValue(value);
+    date.setUTCDate(date.getUTCDate() + days);
+
+    return formatDateValue(date);
+}
+
+function splitDateRange(start, end, segmentDays = ANALYTICS_SEGMENT_DAYS) {
+    const segments = [];
+    let cursor = start;
+
+    while (cursor <= end) {
+        const candidateEnd = shiftDateValue(cursor, segmentDays - 1);
+        const segmentEnd = candidateEnd < end ? candidateEnd : end;
+        segments.push({ start: cursor, end: segmentEnd });
+        cursor = shiftDateValue(segmentEnd, 1);
+    }
+
+    return segments;
+}
+
+function analyticsRequestPlan(filter, today) {
+    let start = today;
+    let end = today;
+    let granularity = "day";
+
+    if (filter.period === "date") {
+        start = filter.date;
+        end = filter.date;
+    } else if (filter.period === "range") {
+        start = filter.start;
+        end = filter.end;
+    } else if (/^last_\d+_days$/.test(filter.period)) {
+        const dayCount = Number(filter.period.match(/\d+/)?.[0] || 1);
+        start = shiftDateValue(today, -(dayCount - 1));
+    } else if (filter.period === "month") {
+        start = `${filter.month}-01`;
+        const monthStart = parseDateValue(start);
+        const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0));
+        end = formatDateValue(monthEnd);
+    } else if (filter.period === "year") {
+        start = `${filter.year}-01-01`;
+        end = String(filter.year) === today.slice(0, 4) ? today : `${filter.year}-12-31`;
+        granularity = "month";
+    }
+
+    return {
+        start,
+        end,
+        granularity,
+        segments: splitDateRange(start, end),
+    };
+}
+
+function mergeAnalyticsSegments(responses, filter, plan) {
+    const segmentAnalytics = responses.map((response) => response.data.analytics).filter(Boolean);
+    const dailyPoints = segmentAnalytics.flatMap((analytics) => analytics.points || []);
+    const pointsByKey = new Map();
+
+    dailyPoints.forEach((point) => {
+        const key = plan.granularity === "month" ? String(point.key).slice(0, 7) : point.key;
+        const existing = pointsByKey.get(key) || {
+            key,
+            order_count: 0,
+            correction_count: 0,
+            potential_adjustment_count: 0,
+            estimated_escrow_count: 0,
+            hpp_amount: 0,
+            escrow_amount: 0,
+            gross_profit_amount: 0,
+            correction_profit_amount: 0,
+            ad_spend_amount: 0,
+            profit_amount: 0,
+            ad_spend_synced: false,
+            ad_spend_complete: true,
+        };
+
+        [
+            "order_count",
+            "correction_count",
+            "potential_adjustment_count",
+            "estimated_escrow_count",
+            "hpp_amount",
+            "escrow_amount",
+            "gross_profit_amount",
+            "correction_profit_amount",
+            "ad_spend_amount",
+            "profit_amount",
+        ].forEach((field) => {
+            existing[field] += Number(point[field] || 0);
+        });
+        existing.ad_spend_synced = existing.ad_spend_synced || Boolean(point.ad_spend_synced);
+        existing.ad_spend_complete = existing.ad_spend_complete && Boolean(point.ad_spend_complete);
+        pointsByKey.set(key, existing);
+    });
+
+    const points = Array.from(pointsByKey.values()).sort((left, right) => left.key.localeCompare(right.key));
+    const sum = (field) => points.reduce((total, point) => total + Number(point[field] || 0), 0);
+    const platformsIncluded = Array.from(new Set(segmentAnalytics.flatMap(
+        (analytics) => analytics.ad_spend?.platforms_included || [],
+    )));
+    const syncedRecords = segmentAnalytics.reduce(
+        (total, analytics) => total + Number(analytics.ad_spend?.synced_records || 0),
+        0,
+    );
+    const lastSyncedAt = segmentAnalytics
+        .map((analytics) => analytics.ad_spend?.last_synced_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+
+    return {
+        period: filter.period,
+        start_date: plan.start,
+        end_date: plan.end,
+        granularity: plan.granularity,
+        totals: {
+            order_count: sum("order_count"),
+            correction_count: sum("correction_count"),
+            potential_adjustment_count: sum("potential_adjustment_count"),
+            estimated_escrow_count: sum("estimated_escrow_count"),
+            hpp_amount: sum("hpp_amount"),
+            escrow_amount: sum("escrow_amount"),
+            gross_profit_amount: sum("gross_profit_amount"),
+            correction_profit_amount: sum("correction_profit_amount"),
+            ad_spend_amount: sum("ad_spend_amount"),
+            profit_amount: sum("profit_amount"),
+        },
+        points,
+        ad_spend: {
+            available: syncedRecords > 0,
+            amount: sum("ad_spend_amount"),
+            platforms_included: platformsIncluded,
+            platforms_pending: ["Shopee", "Tiktokshop"].filter(
+                (platform) => !platformsIncluded.includes(platform),
+            ),
+            is_partial: platformsIncluded.length < 2,
+            coverage_complete: segmentAnalytics.length > 0
+                && segmentAnalytics.every((analytics) => Boolean(analytics.ad_spend?.coverage_complete)),
+            synced_records: syncedRecords,
+            last_synced_at: lastSyncedAt,
+        },
+    };
 }
 
 function formatRp(value) {
@@ -231,7 +389,7 @@ function SkeletonCards() {
     );
 }
 
-function AnalyticsLoadingNotice({ hasPreviousData = false }) {
+function AnalyticsLoadingNotice({ hasPreviousData = false, progress = 0 }) {
     return (
         <div
             data-testid="profit-analytics-loading"
@@ -244,7 +402,9 @@ function AnalyticsLoadingNotice({ hasPreviousData = false }) {
                     <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
-                    <p className="text-xs font-bold text-[#304674] dark:text-blue-200">Memuat analisis profit terbaru...</p>
+                    <p className="text-xs font-bold text-[#304674] dark:text-blue-200">
+                        Memuat analisis profit terbaru... {progress > 0 ? `${progress}%` : ""}
+                    </p>
                     <p className="mt-0.5 text-[11px] leading-5 text-slate-600 dark:text-slate-300">
                         {hasPreviousData
                             ? "Data sebelumnya tetap ditampilkan sampai hasil terbaru selesai dimuat."
@@ -253,7 +413,10 @@ function AnalyticsLoadingNotice({ hasPreviousData = false }) {
                 </div>
             </div>
             <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-blue-100 dark:bg-blue-950/50" aria-hidden="true">
-                <span className="profit-loading-progress block h-full w-1/3 bg-[#304674] dark:bg-blue-400" />
+                <span
+                    className="block h-full bg-[#304674] transition-[width] duration-300 dark:bg-blue-400"
+                    style={{ width: `${Math.max(progress, 4)}%` }}
+                />
             </div>
         </div>
     );
@@ -594,12 +757,22 @@ export default function ProfitTracker() {
     const today = localDateString();
     const threeDaysAgo = localDateString(new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)));
     const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [error, setError] = useState("");
-    const fetchDataRef = useRef(null);
+    const [realtimeLoading, setRealtimeLoading] = useState(true);
+    const [analyticsLoading, setAnalyticsLoading] = useState(true);
+    const [realtimeRefreshing, setRealtimeRefreshing] = useState(false);
+    const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
+    const [realtimeError, setRealtimeError] = useState("");
+    const [analyticsError, setAnalyticsError] = useState("");
+    const [analyticsProgress, setAnalyticsProgress] = useState(0);
+    const [realtimeReady, setRealtimeReady] = useState(false);
+    const fetchRealtimeRef = useRef(null);
+    const fetchAnalyticsRef = useRef(null);
+    const realtimeAbortControllerRef = useRef(null);
+    const analyticsAbortControllerRef = useRef(null);
     const realtimeRefreshTimeoutRef = useRef(null);
-    const requestSequenceRef = useRef(0);
+    const analyticsRefreshTimeoutRef = useRef(null);
+    const realtimeRequestSequenceRef = useRef(0);
+    const analyticsRequestSequenceRef = useRef(0);
     const [selectedStore, setSelectedStore] = useState("");
     const [escrowFilters, setEscrowFilters] = useState({
         include_perlu_dikirim: 1,
@@ -617,58 +790,130 @@ export default function ProfitTracker() {
     const [selectedBreakdownPoint, setSelectedBreakdownPoint] = useState(null);
     const [tiktokAdsRefreshKey, setTiktokAdsRefreshKey] = useState(0);
 
-    const fetchData = useCallback(async ({ silent = false } = {}) => {
-        const requestSequence = ++requestSequenceRef.current;
+    const fetchRealtime = useCallback(async ({ silent = false } = {}) => {
+        const requestSequence = ++realtimeRequestSequenceRef.current;
+        realtimeAbortControllerRef.current?.abort();
+        const abortController = new AbortController();
+        realtimeAbortControllerRef.current = abortController;
 
         if (silent) {
-            setRefreshing(true);
+            setRealtimeRefreshing(true);
         } else {
-            setLoading(true);
-            setError("");
+            setRealtimeLoading(true);
+            setRealtimeError("");
         }
 
         try {
             const params = {
                 ...escrowFilters,
-                analytics_period: analyticsFilter.period,
-                include_analytics: 1,
+                include_analytics: 0,
+                include_realtime: 1,
             };
 
-            if (analyticsFilter.period === "date") params.analytics_date = analyticsFilter.date;
-            if (analyticsFilter.period === "range") {
-                params.analytics_start = analyticsFilter.start;
-                params.analytics_end = analyticsFilter.end;
-            }
-            if (analyticsFilter.period === "month") params.analytics_month = analyticsFilter.month;
-            if (analyticsFilter.period === "year") params.analytics_year = analyticsFilter.year;
-            if (selectedStore) params.store_id = selectedStore;
+            const response = await axios.get("/api/profit-tracker", {
+                params,
+                signal: abortController.signal,
+            });
 
-            const response = await axios.get("/api/profit-tracker", { params });
+            if (requestSequence !== realtimeRequestSequenceRef.current) return;
 
-            if (requestSequence !== requestSequenceRef.current) return;
-
-            setData(response.data);
-            setError("");
+            setData((previous) => ({ ...(previous || {}), ...response.data }));
+            setRealtimeError("");
         } catch (requestError) {
-            if (requestSequence !== requestSequenceRef.current) return;
+            if (requestSequence !== realtimeRequestSequenceRef.current) return;
+            if (requestError.code === "ERR_CANCELED") return;
 
             console.error(requestError);
-            setError(requestError.response?.data?.message || "Data profit belum dapat dimuat.");
+            setRealtimeError(requestError.response?.data?.message || "Ringkasan real-time belum dapat dimuat.");
         } finally {
-            if (requestSequence === requestSequenceRef.current) {
-                setLoading(false);
-                setRefreshing(false);
+            if (requestSequence === realtimeRequestSequenceRef.current) {
+                setRealtimeLoading(false);
+                setRealtimeRefreshing(false);
+                setRealtimeReady(true);
             }
         }
-    }, [analyticsFilter, escrowFilters, selectedStore]);
+    }, [escrowFilters]);
+
+    const fetchAnalytics = useCallback(async ({ silent = false } = {}) => {
+        const requestSequence = ++analyticsRequestSequenceRef.current;
+        analyticsAbortControllerRef.current?.abort();
+        const abortController = new AbortController();
+        analyticsAbortControllerRef.current = abortController;
+        const plan = analyticsRequestPlan(analyticsFilter, today);
+
+        if (silent) {
+            setAnalyticsRefreshing(true);
+        } else {
+            setAnalyticsLoading(true);
+            setAnalyticsError("");
+        }
+        setAnalyticsProgress(0);
+
+        try {
+            const responses = [];
+
+            for (let index = 0; index < plan.segments.length; index += 1) {
+                const segment = plan.segments[index];
+                const params = {
+                    analytics_period: "range",
+                    analytics_start: segment.start,
+                    analytics_end: segment.end,
+                    include_analytics: 1,
+                    include_realtime: 0,
+                };
+                if (selectedStore) params.store_id = selectedStore;
+
+                const response = await axios.get("/api/profit-tracker", {
+                    params,
+                    signal: abortController.signal,
+                });
+                responses.push(response);
+
+                if (requestSequence === analyticsRequestSequenceRef.current) {
+                    setAnalyticsProgress(Math.round(((index + 1) / plan.segments.length) * 100));
+                }
+            }
+
+            if (requestSequence !== analyticsRequestSequenceRef.current) return;
+
+            const responseData = responses.at(-1)?.data || {};
+            const analytics = mergeAnalyticsSegments(responses, analyticsFilter, plan);
+            setData((previous) => ({
+                ...(previous || {}),
+                store_options: responseData.store_options || previous?.store_options || [],
+                selected_store_id: responseData.selected_store_id ?? previous?.selected_store_id ?? null,
+                analytics,
+            }));
+            setAnalyticsError("");
+        } catch (requestError) {
+            if (requestSequence !== analyticsRequestSequenceRef.current) return;
+            if (requestError.code === "ERR_CANCELED") return;
+
+            console.error(requestError);
+            setAnalyticsError(requestError.response?.data?.message || "Analisis profit belum dapat dimuat.");
+        } finally {
+            if (requestSequence === analyticsRequestSequenceRef.current) {
+                setAnalyticsLoading(false);
+                setAnalyticsRefreshing(false);
+            }
+        }
+    }, [analyticsFilter, selectedStore, today]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        fetchRealtime();
+    }, [fetchRealtime]);
 
     useEffect(() => {
-        fetchDataRef.current = fetchData;
-    }, [fetchData]);
+        if (realtimeReady) fetchAnalytics();
+    }, [fetchAnalytics, realtimeReady]);
+
+    useEffect(() => {
+        fetchRealtimeRef.current = fetchRealtime;
+    }, [fetchRealtime]);
+
+    useEffect(() => {
+        fetchAnalyticsRef.current = fetchAnalytics;
+    }, [fetchAnalytics]);
 
     useEffect(() => {
         const handleOrderEvent = () => {
@@ -678,21 +923,46 @@ export default function ProfitTracker() {
 
             realtimeRefreshTimeoutRef.current = setTimeout(() => {
                 realtimeRefreshTimeoutRef.current = null;
-                fetchDataRef.current?.({ silent: true });
+                fetchRealtimeRef.current?.({ silent: true });
             }, REALTIME_REFRESH_DELAY);
+
+            if (analyticsRefreshTimeoutRef.current) {
+                clearTimeout(analyticsRefreshTimeoutRef.current);
+            }
+
+            analyticsRefreshTimeoutRef.current = setTimeout(() => {
+                analyticsRefreshTimeoutRef.current = null;
+                fetchAnalyticsRef.current?.({ silent: true });
+            }, BACKGROUND_ANALYTICS_REFRESH_DELAY);
+        };
+
+        const handleAnalyticsEvent = () => {
+            if (analyticsRefreshTimeoutRef.current) {
+                clearTimeout(analyticsRefreshTimeoutRef.current);
+            }
+
+            analyticsRefreshTimeoutRef.current = setTimeout(() => {
+                analyticsRefreshTimeoutRef.current = null;
+                fetchAnalyticsRef.current?.({ silent: true });
+            }, ANALYTICS_REFRESH_DELAY);
         };
 
         window.addEventListener("order-created", handleOrderEvent);
         window.addEventListener("order-updated", handleOrderEvent);
-        window.addEventListener("profit-analytics-updated", handleOrderEvent);
+        window.addEventListener("profit-analytics-updated", handleAnalyticsEvent);
 
         return () => {
             if (realtimeRefreshTimeoutRef.current) {
                 clearTimeout(realtimeRefreshTimeoutRef.current);
             }
+            if (analyticsRefreshTimeoutRef.current) {
+                clearTimeout(analyticsRefreshTimeoutRef.current);
+            }
             window.removeEventListener("order-created", handleOrderEvent);
             window.removeEventListener("order-updated", handleOrderEvent);
-            window.removeEventListener("profit-analytics-updated", handleOrderEvent);
+            window.removeEventListener("profit-analytics-updated", handleAnalyticsEvent);
+            realtimeAbortControllerRef.current?.abort();
+            analyticsAbortControllerRef.current?.abort();
         };
     }, []);
 
@@ -702,7 +972,7 @@ export default function ProfitTracker() {
             const realtimeConnected = connectionState === "connected";
 
             if (document.visibilityState === "visible" && !realtimeConnected) {
-                fetchDataRef.current?.({ silent: true });
+                fetchRealtimeRef.current?.({ silent: true });
             }
         };
 
@@ -759,7 +1029,7 @@ export default function ProfitTracker() {
 
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                             <div className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                                {loading || refreshing ? (
+                                {realtimeLoading || analyticsLoading || realtimeRefreshing || analyticsRefreshing ? (
                                     <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#304674] motion-reduce:animate-none dark:text-blue-300" aria-hidden="true" />
                                 ) : (
                                     <span className="relative flex h-2.5 w-2.5">
@@ -768,7 +1038,11 @@ export default function ProfitTracker() {
                                     </span>
                                 )}
                                 <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
-                                    {loading ? "Memuat data terbaru..." : refreshing ? "Memperbarui data..." : "Real-time aktif"}
+                                    {realtimeLoading || analyticsLoading
+                                        ? "Memuat data terbaru..."
+                                        : realtimeRefreshing || analyticsRefreshing
+                                            ? "Memperbarui data..."
+                                            : "Real-time aktif"}
                                 </span>
                             </div>
                         </div>
@@ -804,9 +1078,9 @@ export default function ProfitTracker() {
                             <span className="ml-auto text-[10px] italic text-slate-400 dark:text-slate-500">Pesanan selesai tidak masuk saldo real-time.</span>
                         </div>
 
-                        {loading && !data ? (
+                        {realtimeLoading && !data?.stores ? (
                             <SkeletonCards />
-                        ) : data && (
+                        ) : data?.stores && (
                             <div id="tour-profit-summary" className="grid grid-cols-1 gap-5 md:grid-cols-2">
                                 <MetricCard
                                     label="Total Dana Escrow"
@@ -826,9 +1100,9 @@ export default function ProfitTracker() {
                         )}
                     </section>
 
-                    {!loading && error && (
+                    {!realtimeLoading && realtimeError && (
                         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
-                            {error}
+                            {realtimeError}
                         </div>
                     )}
 
@@ -913,11 +1187,11 @@ export default function ProfitTracker() {
                                 stores={data.store_options || []}
                                 onSynced={() => {
                                     setTiktokAdsRefreshKey((value) => value + 1);
-                                    fetchData({ silent: true });
+                                    fetchAnalytics({ silent: true });
                                 }}
                             />
 
-                            <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title" aria-busy={loading}>
+                            <section id="tour-profit-analytics" className="space-y-5 border-t border-slate-200 pt-7 dark:border-slate-700" aria-labelledby="profit-analytics-title" aria-busy={analyticsLoading}>
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                                     <div>
                                         <h2 id="profit-analytics-title" className="font-bold text-gray-800 dark:text-white">Analisis Profit & Pengeluaran Iklan</h2>
@@ -995,7 +1269,18 @@ export default function ProfitTracker() {
                                     </div>
                                 )}
 
-                                {loading && <AnalyticsLoadingNotice hasPreviousData={Boolean(analytics)} />}
+                                {(analyticsLoading || analyticsRefreshing) && (
+                                    <AnalyticsLoadingNotice
+                                        hasPreviousData={Boolean(analytics)}
+                                        progress={analyticsProgress}
+                                    />
+                                )}
+
+                                {!analyticsLoading && analyticsError && (
+                                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+                                        {analyticsError}
+                                    </div>
+                                )}
 
                                 {analytics && (
                                     <>
