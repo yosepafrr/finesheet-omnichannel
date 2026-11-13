@@ -31,9 +31,15 @@ class OrderProfitService
     public function summaries(Collection $orders): Collection
     {
         $this->hydrateMarketplaceProducts($orders);
-        $historicalEstimates = $this->historicalSaleEscrowEstimator->estimates($orders);
+        // Live reads may recover an exact amount already present in the platform
+        // payload, but statistical reconstruction belongs to the backfill command.
+        // This keeps page requests from scanning thousands of comparison orders.
+        $platformHistory = $this->historicalSaleEscrowEstimator->estimates(
+            $orders,
+            useComparableOrders: false,
+        );
 
-        return $orders->mapWithKeys(function (Order $order) use ($historicalEstimates) {
+        return $orders->mapWithKeys(function (Order $order) use ($platformHistory) {
             $hppAmount = 0.0;
             $hasMissingHpp = $order->orderProducts->isEmpty();
 
@@ -47,7 +53,7 @@ class OrderProfitService
             $saleEscrow = $this->saleEscrow(
                 $order,
                 $escrowAmount,
-                $historicalEstimates->get($order->id),
+                $platformHistory->get($order->id),
             );
             $displayEscrowAmount = ! $this->escrowService->hasReturnOrFailedDelivery($order)
                 && abs($escrowAmount) < 0.0001
@@ -108,7 +114,7 @@ class OrderProfitService
         }
 
         if (! $hasCorrection) {
-            return $this->saleEscrowResult(0, 'unavailable', true);
+            return $this->saleEscrowResult(0, 'unavailable', false);
         }
 
         // Some marketplaces keep the positive sale settlement on the order
@@ -140,7 +146,7 @@ class OrderProfitService
             );
         }
 
-        return $this->saleEscrowResult(0, 'unavailable', true);
+        return $this->saleEscrowResult(0, 'unavailable', false);
     }
 
     /** @return array{amount: float, source: string, is_estimated: bool, sample_size: int} */

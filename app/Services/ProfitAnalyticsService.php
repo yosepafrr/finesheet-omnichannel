@@ -256,6 +256,12 @@ class ProfitAnalyticsService
                 continue;
             }
 
+            // Missing escrow is not zero revenue. Leave the order out until a
+            // platform sync or the offline backfill stores a usable snapshot.
+            if (($summary['sale_escrow_source'] ?? null) === 'unavailable') {
+                continue;
+            }
+
             if ($saleDate
                 && $this->within($saleDate, $period)
                 && $this->escrowService->isProfitAnalyticsSaleEligible($order)) {

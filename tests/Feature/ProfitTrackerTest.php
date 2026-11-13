@@ -937,10 +937,10 @@ class ProfitTrackerTest extends TestCase
             ->getJson("/api/orders/{$order->id}")
             ->assertOk()
             ->assertJsonPath('order.financial_breakdown.escrow_amount', 0)
-            ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 164_000)
-            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'estimated_sku_ratio')
-            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', true)
-            ->assertJsonPath('order.financial_breakdown.sale_escrow_sample_size', 3);
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 0)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'unavailable')
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', false)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_sample_size', 0);
 
         $this->artisan('profit:backfill-sale-escrow', [
             '--order_sn' => $order->order_sn,
@@ -952,6 +952,14 @@ class ProfitTrackerTest extends TestCase
         $this->assertTrue($order->sale_escrow_is_estimated);
         $this->assertSame(3, $order->sale_escrow_sample_size);
         $this->assertSame(0.82, $order->sale_escrow_ratio);
+
+        $this->actingAs($user)
+            ->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_amount', 164_000)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'estimated_sku_ratio')
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', true)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_sample_size', 3);
     }
 
     public function test_terminal_tiktok_payload_recovers_the_positive_sale_transaction(): void
@@ -1017,7 +1025,7 @@ class ProfitTrackerTest extends TestCase
             ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', false);
     }
 
-    public function test_completed_order_with_missing_escrow_is_reconstructed_for_profit_history(): void
+    public function test_completed_order_with_missing_escrow_requires_backfill_before_profit_history_uses_it(): void
     {
         $user = User::factory()->create();
         $store = $this->createStore($user, 'Shopee', 'Shopee Missing Escrow', 'shop-missing-escrow');
@@ -1056,9 +1064,10 @@ class ProfitTrackerTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/profit-tracker?analytics_period=last_3_days')
             ->assertOk()
-            ->assertJsonPath('analytics.points.2.escrow_amount', 164_000)
-            ->assertJsonPath('analytics.points.2.profit_amount', 44_000)
-            ->assertJsonPath('analytics.totals.estimated_escrow_count', 1);
+            ->assertJsonPath('analytics.points.2.escrow_amount', 0)
+            ->assertJsonPath('analytics.points.2.profit_amount', 0)
+            ->assertJsonPath('analytics.points.2.order_count', 0)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 0);
 
         Queue::fake();
 
@@ -1066,14 +1075,15 @@ class ProfitTrackerTest extends TestCase
             ->getJson("/api/orders/{$order->id}")
             ->assertOk()
             ->assertJsonPath('order.financial_breakdown.escrow_amount', 0)
-            ->assertJsonPath('order.financial_breakdown.display_escrow_amount', 164_000)
-            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', true);
+            ->assertJsonPath('order.financial_breakdown.display_escrow_amount', 0)
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_source', 'unavailable')
+            ->assertJsonPath('order.financial_breakdown.sale_escrow_is_estimated', false);
 
         $this->actingAs($user)
             ->getJson('/api/orders?statuses=COMPLETED')
             ->assertOk()
-            ->assertJsonPath('orders.0.escrow_amount', 164_000)
-            ->assertJsonPath('orders.0.profit_amount', 44_000);
+            ->assertJsonPath('orders.0.escrow_amount', 0)
+            ->assertJsonPath('orders.0.profit_amount', -120_000);
 
         $this->artisan('profit:backfill-sale-escrow', [
             '--order_sn' => $order->order_sn,
@@ -1082,6 +1092,13 @@ class ProfitTrackerTest extends TestCase
         $order->refresh();
         $this->assertSame(164_000.0, $order->sale_escrow_amount);
         $this->assertSame('estimated_sku_ratio', $order->sale_escrow_source);
+
+        $this->actingAs($user)
+            ->getJson('/api/profit-tracker?analytics_period=last_3_days')
+            ->assertOk()
+            ->assertJsonPath('analytics.points.2.escrow_amount', 164_000)
+            ->assertJsonPath('analytics.points.2.profit_amount', 44_000)
+            ->assertJsonPath('analytics.totals.estimated_escrow_count', 1);
     }
 
     public function test_old_order_return_is_loaded_into_the_current_information_period(): void

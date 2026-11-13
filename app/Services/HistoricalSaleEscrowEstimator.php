@@ -35,9 +35,16 @@ class HistoricalSaleEscrowEstimator
      *     sample_size: int,
      *     ratio: float|null
      * }>
+     *
+     * Set $useComparableOrders to false for request-time reads. Exact values
+     * embedded in platform history are still recovered without querying the
+     * wider order history used by the offline backfill.
      */
-    public function estimates(Collection $orders, bool $recalculateEstimated = false): Collection
-    {
+    public function estimates(
+        Collection $orders,
+        bool $recalculateEstimated = false,
+        bool $useComparableOrders = true,
+    ): Collection {
         (new EloquentCollection($orders->all()))->loadMissing([
             'store',
             'orderProducts',
@@ -71,7 +78,7 @@ class HistoricalSaleEscrowEstimator
             $ratioTargets->push($order);
         }
 
-        if ($ratioTargets->isEmpty()) {
+        if ($ratioTargets->isEmpty() || ! $useComparableOrders) {
             return $resolved;
         }
 
