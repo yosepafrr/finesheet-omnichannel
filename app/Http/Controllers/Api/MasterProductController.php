@@ -540,10 +540,13 @@ class MasterProductController extends Controller
             $data['variants'],
             $product->variants()->get()->keyBy('id')
         );
-        $originalStocks = $product->variants()->pluck('stock', 'id');
+        $originalStocks = $product->variants()->pluck('on_hand', 'id');
         $originalHpps = $product->variants()->pluck('hpp', 'id');
         $originalSuppliers = $product->variants()->pluck('supplier_id', 'id');
         $originalActive = $product->variants()->pluck('is_active', 'id');
+        $requestedStocks = collect($data['variants'])
+            ->filter(fn (array $variant) => ! empty($variant['id']) && empty($variant['is_bundle']))
+            ->mapWithKeys(fn (array $variant) => [(int) $variant['id'] => (int) $variant['stock']]);
 
         DB::transaction(function () use ($data, $product) {
             $product->update($this->productAttributes($data));
@@ -553,7 +556,11 @@ class MasterProductController extends Controller
                 $variant = ! empty($variantData['id'])
                     ? $product->variants()->findOrFail($variantData['id'])
                     : new MasterProductVariant(['master_product_id' => $product->id]);
-                $variant->fill($this->variantAttributes($variantData, $product->user_id));
+                $attributes = $this->variantAttributes($variantData, $product->user_id);
+                if ($variant->exists && empty($variantData['is_bundle'])) {
+                    unset($attributes['stock'], $attributes['on_hand']);
+                }
+                $variant->fill($attributes);
                 $variant->save();
                 $this->syncBundleComponents($variant, $variantData);
                 $keptIds[] = $variant->id;
@@ -575,13 +582,14 @@ class MasterProductController extends Controller
             }
 
             $group = $skuSync->syncVariant($variant);
-            if ($group && $originalStocks->has($variant->id) && (int) $originalStocks[$variant->id] !== (int) $variant->stock) {
-                $stockSync->setMasterStock($group, (int) $variant->stock);
+            $requestedStock = $requestedStocks->get($variant->id, (int) $variant->on_hand);
+            if ($group && $originalStocks->has($variant->id) && (int) $originalStocks[$variant->id] !== $requestedStock) {
+                $stockSync->stockOpname($group, $requestedStock, null, 'Perubahan dari formulir produk master');
             }
         }
         $changedComponentIds = $product->fresh()->variants
             ->filter(fn (MasterProductVariant $variant) => ! $variant->is_bundle && (
-                (int) ($originalStocks->get($variant->id) ?? $variant->stock) !== (int) $variant->stock
+                (int) ($originalStocks->get($variant->id) ?? $variant->on_hand) !== (int) $variant->on_hand
                 || (float) ($originalHpps->get($variant->id) ?? $variant->hpp) !== (float) $variant->hpp
                 || (bool) ($originalActive->get($variant->id) ?? $variant->is_active) !== (bool) $variant->is_active
             ))
@@ -621,14 +629,18 @@ class MasterProductController extends Controller
             [$data],
             collect([$variant->id => $variant])
         )[0];
-        $stockChanged = (int) $variant->stock !== (int) $data['stock'];
+        $stockChanged = (int) $variant->on_hand !== (int) $data['stock'];
         $activeChanged = (bool) $variant->is_active !== (bool) ($data['is_active'] ?? true);
         $payableSourceChanged = (int) ($variant->supplier_id ?? 0) !== (int) ($data['supplier_id'] ?? 0)
             || (float) $variant->hpp !== (float) $data['hpp'];
 
         DB::transaction(function () use ($product, $variant, $data) {
             $product->update($this->productAttributes($data));
-            $variant->update($this->variantAttributes($data, $product->user_id));
+            $attributes = $this->variantAttributes($data, $product->user_id);
+            if (! $variant->is_bundle) {
+                unset($attributes['stock'], $attributes['on_hand']);
+            }
+            $variant->update($attributes);
             $this->syncBundleComponents($variant, $data);
         });
 
@@ -638,7 +650,7 @@ class MasterProductController extends Controller
         } else {
             $group = $skuSync->syncVariant($freshVariant);
             if ($group && $stockChanged) {
-                $stockSync->setMasterStock($group, (int) $data['stock']);
+                $stockSync->stockOpname($group, (int) $data['stock'], null, 'Perubahan dari formulir SKU master');
             }
             if ($stockChanged || $activeChanged) {
                 $bundleInventory->refreshAffectedByVariantIds([$variant->id]);
@@ -679,6 +691,48 @@ class MasterProductController extends Controller
         return response()->json(['message' => 'SKU master berhasil dihapus.']);
     }
 
+    public function updateInventory(
+        Request $request,
+        int $productId,
+        int $variantId,
+        MasterSkuSyncService $skuSync,
+        StockSyncService $stockSync,
+        BundleInventoryService $bundleInventory,
+        AccessControlService $access
+    ) {
+        abort_unless($access->allows($request, 'products.stock.manage'), 403);
+        $product = $this->ownedProduct($request, $productId);
+        $variant = $product->variants()->findOrFail($variantId);
+        if ($variant->is_bundle) {
+            throw ValidationException::withMessages([
+                'on_hand' => 'Persediaan bundle dihitung otomatis dari komponen.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'on_hand' => ['required', 'integer', 'min:0'],
+            'reserved_stock' => ['required', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+        $group = $skuSync->syncVariant($variant);
+        if (! $group) {
+            throw ValidationException::withMessages(['on_hand' => 'Grup sinkronisasi SKU belum tersedia.']);
+        }
+
+        $stockSync->updateInventoryPosition(
+            $group,
+            $data['on_hand'],
+            $data['reserved_stock'],
+            null,
+            $data['notes'] ?? 'Penyesuaian persediaan'
+        );
+        $bundleInventory->refreshAffectedByVariantIds([$variant->id]);
+
+        return response()->json($this->formatVariant(
+            $variant->fresh($this->variantRelations())
+        ));
+    }
+
     public function pushVariant(
         Request $request,
         int $productId,
@@ -693,7 +747,7 @@ class MasterProductController extends Controller
             $queued = $bundleInventory->refreshBundle($variant)['queued_updates'];
         } else {
             $group = $skuSync->syncVariant($variant);
-            $queued = $group ? $stockSync->setMasterStock($group, (int) $variant->stock) : 0;
+            $queued = $group ? $stockSync->pushAvailableStock($group) : 0;
         }
 
         return response()->json([
@@ -743,11 +797,8 @@ class MasterProductController extends Controller
             $this->queuePayableSync($request->user()->id);
         } else {
             if ($variants->count() > 100) {
-                MasterProductVariant::query()
-                    ->whereIn('id', $variants->pluck('id'))
-                    ->update(['stock' => $value]);
                 $variants->pluck('id')->chunk(100)->each(
-                    fn (Collection $ids) => SyncMasterProductStocksJob::dispatch($ids->all())->onQueue('products')
+                    fn (Collection $ids) => SyncMasterProductStocksJob::dispatch($ids->all(), $value)->onQueue('products')
                 );
 
                 return response()->json([
@@ -758,10 +809,9 @@ class MasterProductController extends Controller
             }
 
             foreach ($variants as $variant) {
-                $variant->update(['stock' => $value]);
                 $group = $skuSync->syncVariant($variant->fresh());
                 if ($group) {
-                    $queued += $stockSync->setMasterStock($group, $value);
+                    $queued += $stockSync->stockOpname($group, $value, null, 'Opname stok massal');
                 }
             }
             $bundleInventory->refreshAffectedByVariantIds($variants->pluck('id'));
@@ -927,7 +977,7 @@ class MasterProductController extends Controller
 
             $group = $skuSync->syncVariant($variant);
             if ($group) {
-                $queued += $stockSync->setMasterStock($group, (int) $variant->stock);
+                $queued += $stockSync->pushAvailableStock($group);
             }
         }
 
@@ -1147,6 +1197,7 @@ class MasterProductController extends Controller
             'barcode' => $data['barcode'] ?? null,
             'hpp' => ! empty($data['is_bundle']) ? 0 : $data['hpp'],
             'stock' => ! empty($data['is_bundle']) ? 0 : $data['stock'],
+            'on_hand' => ! empty($data['is_bundle']) ? 0 : $data['stock'],
             'is_active' => $data['is_active'] ?? true,
             'is_bundle' => (bool) ($data['is_bundle'] ?? false),
         ];
@@ -1177,7 +1228,7 @@ class MasterProductController extends Controller
                 $definition['hpp'] = (float) ($existing?->hpp ?? 0);
             }
             if (! $canManageStock) {
-                $definition['stock'] = (int) ($existing?->stock ?? 0);
+                $definition['stock'] = (int) ($existing?->on_hand ?? 0);
             }
             if (! $canManageSupplier) {
                 $definition['supplier_id'] = $existing?->supplier_id;
@@ -1450,6 +1501,10 @@ class MasterProductController extends Controller
             'supplier_name' => $variant->supplier?->name,
             'hpp' => $this->canViewHpp ? (float) $variant->hpp : null,
             'stock' => (int) ($group?->master_stock ?? $variant->stock),
+            'available_stock' => (int) ($group?->master_stock ?? $variant->availableStock()),
+            'on_hand' => (int) $variant->on_hand,
+            'on_order' => (int) $variant->on_order,
+            'reserved_stock' => (int) $variant->reserved_stock,
             'is_active' => $variant->is_active,
             'is_bundle' => $variant->is_bundle,
             'components' => $variant->bundleComponents->map(function ($component) {

@@ -21,6 +21,9 @@ class MasterProductVariant extends Model
         'barcode',
         'hpp',
         'stock',
+        'on_hand',
+        'on_order',
+        'reserved_stock',
         'attributes',
         'is_active',
         'is_bundle',
@@ -32,6 +35,9 @@ class MasterProductVariant extends Model
         'variant_cluster_keys' => 'array',
         'hpp' => 'decimal:2',
         'stock' => 'integer',
+        'on_hand' => 'integer',
+        'on_order' => 'integer',
+        'reserved_stock' => 'integer',
         'is_active' => 'boolean',
         'is_bundle' => 'boolean',
     ];
@@ -61,8 +67,24 @@ class MasterProductVariant extends Model
         return $this->hasMany(MasterProductBundleComponent::class, 'component_variant_id');
     }
 
+    public function inventoryMovements()
+    {
+        return $this->hasMany(InventoryMovement::class);
+    }
+
+    public function availableStock(): int
+    {
+        return max(0, (int) $this->on_hand - (int) $this->on_order - (int) $this->reserved_stock);
+    }
+
     protected static function booted(): void
     {
+        static::creating(function (MasterProductVariant $variant) {
+            if (! array_key_exists('on_hand', $variant->getAttributes())) {
+                $variant->on_hand = max(0, (int) $variant->stock);
+            }
+        });
+
         static::saving(function (MasterProductVariant $variant) {
             if (! $variant->isDirty('sku') && $variant->product_cluster_key !== null) {
                 return;

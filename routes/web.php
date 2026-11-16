@@ -63,6 +63,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::get('/master-products/{id}', [MasterProductController::class, 'show']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
         Route::put('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'updateVariant']);
+        Route::put('/master-products/{productId}/variants/{variantId}/inventory', [MasterProductController::class, 'updateInventory']);
         Route::delete('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'destroyVariant']);
         Route::post('/master-products/{productId}/variants/{variantId}/push', [MasterProductController::class, 'pushVariant']);
         Route::delete('/master-products/{id}', [MasterProductController::class, 'destroy']);

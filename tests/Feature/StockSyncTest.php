@@ -126,6 +126,92 @@ class StockSyncTest extends TestCase
         Queue::assertPushed(SyncStockToMarketplaceJob::class, 1);
     }
 
+    public function test_linked_master_inventory_moves_from_available_to_order_then_on_hand_when_shipped(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $master = MasterProduct::create([
+            'user_id' => $product->store->user_id,
+            'name' => 'Master Inventory',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $masterVariant = MasterProductVariant::create([
+            'master_product_id' => $master->id,
+            'user_id' => $master->user_id,
+            'sku' => 'SKU-TEST',
+            'stock' => 7,
+            'hpp' => 10000,
+        ]);
+        $group->update(['master_product_variant_id' => $masterVariant->id]);
+        $order = $this->createReadyOrder($product, 'MASTER-INVENTORY-SHIPPED');
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+
+        $allocated = $masterVariant->fresh();
+        $this->assertSame(7, $allocated->on_hand);
+        $this->assertSame(2, $allocated->on_order);
+        $this->assertSame(5, $allocated->stock);
+        $this->assertSame(5, $group->fresh()->master_stock);
+
+        $order->updateQuietly(['order_status' => 'SHIPPED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $shipped = $masterVariant->fresh();
+        $this->assertSame(5, $shipped->on_hand);
+        $this->assertSame(0, $shipped->on_order);
+        $this->assertSame(5, $shipped->stock);
+        $this->assertSame(2, $shipped->inventoryMovements()->count());
+    }
+
+    public function test_linked_master_inventory_releases_allocation_when_order_is_cancelled(): void
+    {
+        Queue::fake();
+        [$product, , $group] = $this->createShopeeSyncMember();
+        $master = MasterProduct::create([
+            'user_id' => $product->store->user_id,
+            'name' => 'Master Cancellation',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $masterVariant = MasterProductVariant::create([
+            'master_product_id' => $master->id,
+            'user_id' => $master->user_id,
+            'sku' => 'SKU-TEST',
+            'stock' => 7,
+            'hpp' => 10000,
+        ]);
+        $group->update(['master_product_variant_id' => $masterVariant->id]);
+        $order = $this->createReadyOrder($product, 'MASTER-INVENTORY-CANCELLED');
+        OrderProduct::withoutEvents(fn () => OrderProduct::create([
+            'order_id' => $order->id,
+            'product_id' => $product->product_id,
+            'product_name' => $product->product_name,
+            'model_name' => 'Black',
+            'sku' => 'SKU-TEST',
+            'quantity_purchased' => 2,
+        ]));
+
+        event(new OrderStockSyncRequested($order));
+        $order->updateQuietly(['order_status' => 'CANCELLED']);
+        event(new OrderStockSyncRequested($order->fresh()));
+
+        $released = $masterVariant->fresh();
+        $this->assertSame(7, $released->on_hand);
+        $this->assertSame(0, $released->on_order);
+        $this->assertSame(7, $released->stock);
+        $this->assertSame(7, $group->fresh()->master_stock);
+        $this->assertSame(2, $released->inventoryMovements()->count());
+    }
+
     public function test_bundle_order_deducts_components_and_cancellation_restores_them(): void
     {
         Queue::fake();
@@ -454,7 +540,7 @@ class StockSyncTest extends TestCase
             'user_id' => $user->id,
             'platform' => $platform,
             'store_name' => 'Test Store',
-            'shopee_shop_id' => $platform === 'Shopee' ? '123456' : null,
+            'shopee_shop_id' => $platform === 'Shopee' ? '123456' : '0',
         ]);
         $product = Product::create([
             'store_id' => $store->id,

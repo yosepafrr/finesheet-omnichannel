@@ -109,9 +109,10 @@ class StockSyncListener
                     'quantity' => $change['quantity'],
                 ]);
 
-                $result = $stockSyncService->deductStockWithResult(
+                $result = $stockSyncService->allocateOrderStock(
                     $change['group'],
                     $change['quantity'],
+                    $order,
                 );
 
                 if ($result['deducted_quantity'] > 0) {
@@ -209,9 +210,10 @@ class StockSyncListener
 
             $stockSyncService = app(StockSyncService::class);
             foreach ($restorations as $restoration) {
-                $stockSyncService->restoreStock(
+                $stockSyncService->releaseOrderStock(
                     $restoration['group'],
                     $restoration['quantity'],
+                    $order,
                 );
             }
 
@@ -235,8 +237,9 @@ class StockSyncListener
 
     private function markOrderAsShipped(OrderStockSyncRequested $event): void
     {
-        DB::transaction(function () use ($event) {
+        $changedGroupIds = DB::transaction(function () use ($event) {
             $order = $event->order->newQuery()
+                ->with('store')
                 ->lockForUpdate()
                 ->find($event->order->id);
 
@@ -249,8 +252,33 @@ class StockSyncListener
                 return;
             }
 
+            $userId = $order->store?->user_id;
+            $deductions = $order->stock_sync_deductions ?? [];
+            $changedGroupIds = [];
+            $stockSyncService = app(StockSyncService::class);
+
+            foreach ($deductions as $deduction) {
+                $quantity = max(0, (int) ($deduction['quantity'] ?? 0));
+                $group = SkuSyncGroup::query()
+                    ->where('user_id', $userId)
+                    ->find((int) ($deduction['group_id'] ?? 0));
+
+                if (! $group || $quantity === 0) {
+                    continue;
+                }
+
+                $stockSyncService->shipOrderStock($group, $quantity, $order);
+                $changedGroupIds[] = $group->id;
+            }
+
             $order->updateQuietly(['stock_sync_shipped_at' => now()]);
+
+            return $changedGroupIds;
         });
+
+        if ($changedGroupIds) {
+            app(BundleInventoryService::class)->refreshAffectedByGroupIds($changedGroupIds);
+        }
     }
 
     private function reconstructLegacyDeductions(Order $order, int $userId): ?array

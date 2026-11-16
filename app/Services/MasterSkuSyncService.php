@@ -42,17 +42,18 @@ class MasterSkuSyncService
                 $currentGroup = null;
             }
 
+            $availableStock = $variant->availableStock();
             $group = $matchingGroup ?? $currentGroup ?? SkuSyncGroup::create([
                 'user_id' => $userId,
                 'sku' => $sku,
-                'master_stock' => $variant->stock,
+                'master_stock' => $availableStock,
                 'is_active' => true,
             ]);
 
             $group->update([
                 'master_product_variant_id' => $variant->id,
                 'sku' => $sku,
-                'master_stock' => $variant->stock,
+                'master_stock' => $availableStock,
             ]);
 
             $this->syncMembers($group, $this->matchingListings($userId, $sku));

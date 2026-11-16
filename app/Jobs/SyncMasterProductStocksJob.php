@@ -23,14 +23,14 @@ class SyncMasterProductStocksJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 600;
 
-    public function __construct(public array $variantIds) {}
+    public function __construct(public array $variantIds, public ?int $onHand = null) {}
 
     public function uniqueId(): string
     {
         $ids = $this->variantIds;
         sort($ids);
 
-        return hash('sha256', implode(',', $ids));
+        return hash('sha256', implode(',', $ids).':'.($this->onHand ?? 'current'));
     }
 
     public function handle(
@@ -53,7 +53,12 @@ class SyncMasterProductStocksJob implements ShouldBeUnique, ShouldQueue
 
             $group = $skuSync->syncVariant($variant);
             if ($group) {
-                $stockSync->setMasterStock($group, (int) $variant->stock);
+                $stockSync->stockOpname(
+                    $group,
+                    $this->onHand ?? (int) $variant->on_hand,
+                    null,
+                    'Opname stok massal'
+                );
             }
         });
 

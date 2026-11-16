@@ -156,6 +156,41 @@ class MasterProductTest extends TestCase
         Bus::assertDispatchedTimes(SyncStockToMarketplaceJob::class, 1);
     }
 
+    public function test_inventory_position_updates_physical_reserved_and_available_stock(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $created = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
+        $productId = $created->json('id');
+        $variantId = $created->json('variants.0.id');
+
+        $this->actingAs($user)
+            ->putJson("/api/master-products/{$productId}/variants/{$variantId}/inventory", [
+                'on_hand' => 20,
+                'reserved_stock' => 3,
+                'notes' => 'Hasil stok opname gudang',
+            ])
+            ->assertOk()
+            ->assertJsonPath('on_hand', 20)
+            ->assertJsonPath('on_order', 0)
+            ->assertJsonPath('reserved_stock', 3)
+            ->assertJsonPath('available_stock', 17)
+            ->assertJsonPath('stock', 17);
+
+        $this->assertDatabaseHas('inventory_movements', [
+            'master_product_variant_id' => $variantId,
+            'type' => 'inventory_adjusted',
+            'on_hand_delta' => 8,
+            'reserved_delta' => 3,
+            'available_after' => 17,
+            'notes' => 'Hasil stok opname gudang',
+        ]);
+        $this->assertDatabaseHas('sku_sync_groups', [
+            'master_product_variant_id' => $variantId,
+            'master_stock' => 17,
+        ]);
+    }
+
     public function test_deleting_master_sku_does_not_delete_marketplace_product(): void
     {
         $user = User::factory()->create();
@@ -224,8 +259,8 @@ class MasterProductTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('variants.0.is_bundle', true)
             ->assertJsonPath('variants.0.stock', 5)
-            ->assertJsonPath('variants.0.hpp', 62000.0)
             ->assertJsonCount(2, 'variants.0.components');
+        $this->assertEquals(62000.0, $response->json('variants.0.hpp'));
         $this->assertDatabaseHas('master_product_bundle_components', [
             'component_variant_id' => $black->id,
             'quantity' => 2,
