@@ -10,9 +10,13 @@ export default function FinesheetSelect({
     disabled = false,
     icon = "tune",
     className = "",
+    triggerClassName = "",
     menuClassName = "",
     ariaLabel,
     compact = false,
+    showIcon = true,
+    showOptionIcons = true,
+    menuMinWidth = 220,
 }) {
     const [open, setOpen] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -25,7 +29,7 @@ export default function FinesheetSelect({
         const rect = buttonRef.current?.getBoundingClientRect();
         if (!rect) return;
 
-        const width = Math.max(rect.width, 220);
+        const width = Math.max(rect.width, menuMinWidth);
         const estimatedHeight = Math.min(240, Math.max(52, options.length * 48 + 12));
         const roomBelow = window.innerHeight - rect.bottom;
         const openAbove = roomBelow < estimatedHeight + 16 && rect.top > roomBelow;
@@ -53,18 +57,22 @@ export default function FinesheetSelect({
                 buttonRef.current?.focus();
             }
         };
-        const closeOnViewportChange = () => setOpen(false);
+        const closeOnResize = () => setOpen(false);
+        const closeOnOutsideScroll = (event) => {
+            if (menuRef.current?.contains(event.target)) return;
+            setOpen(false);
+        };
 
         document.addEventListener("mousedown", closeOnOutside);
         document.addEventListener("keydown", closeOnEscape);
-        window.addEventListener("resize", closeOnViewportChange);
-        window.addEventListener("scroll", closeOnViewportChange, true);
+        window.addEventListener("resize", closeOnResize);
+        window.addEventListener("scroll", closeOnOutsideScroll, true);
 
         return () => {
             document.removeEventListener("mousedown", closeOnOutside);
             document.removeEventListener("keydown", closeOnEscape);
-            window.removeEventListener("resize", closeOnViewportChange);
-            window.removeEventListener("scroll", closeOnViewportChange, true);
+            window.removeEventListener("resize", closeOnResize);
+            window.removeEventListener("scroll", closeOnOutsideScroll, true);
         };
     }, [open]);
 
@@ -93,11 +101,13 @@ export default function FinesheetSelect({
                         setOpen(true);
                     }
                 }}
-                className={`fs-select-trigger ${compact ? "fs-select-trigger-compact" : ""} ${open ? "fs-select-trigger-open" : ""}`}
+                className={`fs-select-trigger ${compact ? "fs-select-trigger-compact" : ""} ${open ? "fs-select-trigger-open" : ""} ${triggerClassName}`}
             >
-                <span className="fs-select-icon" aria-hidden="true">
-                    <span className="material-symbols-rounded text-[17px]">{icon}</span>
-                </span>
+                {showIcon && (
+                    <span className="fs-select-icon" aria-hidden="true">
+                        <span className="material-symbols-rounded text-[17px]">{icon}</span>
+                    </span>
+                )}
                 <span className={`min-w-0 flex-1 truncate text-left ${selected ? "text-slate-800 dark:text-slate-100" : "text-slate-400"}`}>
                     {selected?.label || placeholder}
                 </span>
@@ -135,9 +145,11 @@ export default function FinesheetSelect({
                                         onClick={() => selectOption(option)}
                                         className={`group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition ${isSelected ? "bg-[#304674]/8 font-semibold text-[#304674] dark:bg-blue-400/15 dark:text-blue-200" : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/70"}`}
                                     >
-                                        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${isSelected ? "bg-[#304674] text-white" : "bg-slate-100 text-slate-400 group-hover:bg-[#304674]/10 group-hover:text-[#304674] dark:bg-slate-700 dark:text-slate-300"}`}>
-                                            <span className="material-symbols-rounded text-[16px]">{isSelected ? "check" : (option.icon || icon)}</span>
-                                        </span>
+                                        {showOptionIcons && (
+                                            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${isSelected ? "bg-[#304674] text-white" : "bg-slate-100 text-slate-400 group-hover:bg-[#304674]/10 group-hover:text-[#304674] dark:bg-slate-700 dark:text-slate-300"}`}>
+                                                <span className="material-symbols-rounded text-[16px]">{isSelected ? "check" : (option.icon || icon)}</span>
+                                            </span>
+                                        )}
                                         <span className="min-w-0 flex-1 truncate">{option.label}</span>
                                     </button>
                                 );

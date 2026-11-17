@@ -17,6 +17,7 @@ function useCurrentRoute() {
 
 export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loading..." }, access }) {
     const currentRoute = useCurrentRoute();
+    const normalizedRoute = currentRoute.split("?")[0];
     const can = (permission) => access?.can?.(permission) ?? true;
 
     const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -70,8 +71,9 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
         }
     };
 
-    const isActive = (path) => currentRoute === path;
-    const isSubmenuActive = (paths) => paths.some(p => currentRoute === p);
+    const isActive = (path) => normalizedRoute === path
+        || (path === "/stock-management" && /^\/products\/master\/\d+\/stock\/\d+$/.test(normalizedRoute));
+    const isSubmenuActive = (paths) => paths.some(p => normalizedRoute === p);
 
     const navItemClass = (path) =>
         `group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 relative ${
@@ -186,6 +188,18 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                             </span>
                         )}
                         {renderTooltip("Your Products")}
+                    </a>}
+
+                    {can('products.view') && <a href="#/stock-management" onClick={(e) => handleNav(e, '/stock-management')} className={navItemClass('/stock-management')}>
+                        <span className="material-symbols-rounded text-xl shrink-0">
+                            inventory_2
+                        </span>
+                        {!sidebarCollapsed && (
+                            <span className="font-medium whitespace-nowrap text-sm">
+                                Stock Management
+                            </span>
+                        )}
+                        {renderTooltip("Stock Management")}
                     </a>}
 
                     {can('orders.view') && <a href="#/orders" onClick={(e) => handleNav(e, '/orders')} className={navItemClass('/orders')}>

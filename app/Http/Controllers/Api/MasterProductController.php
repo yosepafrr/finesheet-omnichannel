@@ -7,6 +7,7 @@ use App\Jobs\SyncMasterProductStocksJob;
 use App\Jobs\SyncMasterProductVariantsJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
+use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierProductMapping;
@@ -56,7 +57,7 @@ class MasterProductController extends Controller
                 'sku' => $variant->sku,
                 'name' => $variant->masterProduct?->name,
                 'variant_name' => $variant->variant_name,
-                'stock' => (int) ($variant->syncGroup?->master_stock ?? $variant->stock),
+                'stock' => $variant->availableStock(),
                 'hpp' => $this->canViewHpp ? (float) $variant->hpp : null,
             ]);
 
@@ -90,6 +91,65 @@ class MasterProductController extends Controller
             ->paginate($perPage);
 
         return response()->json([
+            'data' => collect($variants->items())
+                ->map(fn (MasterProductVariant $variant) => $this->formatVariant($variant))
+                ->values(),
+            'meta' => [
+                'current_page' => $variants->currentPage(),
+                'last_page' => $variants->lastPage(),
+                'per_page' => $variants->perPage(),
+                'total' => $variants->total(),
+                'from' => $variants->firstItem(),
+                'to' => $variants->lastItem(),
+            ],
+        ]);
+    }
+
+    public function inventoryIndex(Request $request, AccessControlService $access)
+    {
+        $this->canViewHpp = $access->allows($request, 'products.hpp.view');
+        $data = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'status' => ['nullable', Rule::in(['all', 'available', 'low', 'out'])],
+            'per_page' => ['nullable', 'integer', Rule::in([20, 30, 50, 100])],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $userId = $request->user()->id;
+        $search = trim((string) ($data['search'] ?? ''));
+        $status = $data['status'] ?? 'all';
+        $perPage = (int) ($data['per_page'] ?? 30);
+
+        $baseQuery = MasterProductVariant::query()
+            ->where('user_id', $userId)
+            ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'));
+
+        $availableStockSql = $this->availableStockSql();
+
+        $summary = [
+            'total_skus' => (clone $baseQuery)->count(),
+            'total_available' => (int) (clone $baseQuery)->selectRaw("COALESCE(SUM({$availableStockSql}), 0) AS aggregate")->value('aggregate'),
+            'low_stock' => (clone $baseQuery)->whereRaw("{$availableStockSql} BETWEEN 1 AND 10")->count(),
+            'out_of_stock' => (clone $baseQuery)->whereRaw("{$availableStockSql} <= 0")->count(),
+        ];
+
+        $variants = (clone $baseQuery)
+            ->when($search !== '', function (Builder $query) use ($search) {
+                $query->where(function (Builder $nested) use ($search) {
+                    $nested->where('sku', 'ilike', "%{$search}%")
+                        ->orWhere('variant_name', 'ilike', "%{$search}%")
+                        ->orWhereHas('masterProduct', fn (Builder $product) => $product
+                            ->where('name', 'ilike', "%{$search}%"));
+                });
+            })
+            ->when($status === 'available', fn (Builder $query) => $query->whereRaw("{$availableStockSql} > 10"))
+            ->when($status === 'low', fn (Builder $query) => $query->whereRaw("{$availableStockSql} BETWEEN 1 AND 10"))
+            ->when($status === 'out', fn (Builder $query) => $query->whereRaw("{$availableStockSql} <= 0"))
+            ->with($this->variantRelations())
+            ->orderBy('sku')
+            ->paginate($perPage);
+
+        return response()->json([
+            'summary' => $summary,
             'data' => collect($variants->items())
                 ->map(fn (MasterProductVariant $variant) => $this->formatVariant($variant))
                 ->values(),
@@ -731,6 +791,76 @@ class MasterProductController extends Controller
         return response()->json($this->formatVariant(
             $variant->fresh($this->variantRelations())
         ));
+    }
+
+    public function inventory(Request $request, int $productId, int $variantId, AccessControlService $access)
+    {
+        $this->canViewHpp = $access->allows($request, 'products.hpp.view');
+        $product = $this->ownedProduct($request, $productId);
+        $variant = $product->variants()
+            ->with($this->variantRelations(false))
+            ->findOrFail($variantId);
+
+        return response()->json($this->formatInventory($variant, $product));
+    }
+
+    public function adjustInventory(
+        Request $request,
+        int $productId,
+        int $variantId,
+        MasterSkuSyncService $skuSync,
+        StockSyncService $stockSync,
+        BundleInventoryService $bundleInventory,
+        AccessControlService $access
+    ) {
+        abort_unless($access->allows($request, 'products.stock.manage'), 403);
+        $product = $this->ownedProduct($request, $productId);
+        $variant = $product->variants()->findOrFail($variantId);
+        if ($variant->is_bundle) {
+            throw ValidationException::withMessages([
+                'action' => 'Persediaan bundle dihitung otomatis dari komponen.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'action' => ['required', Rule::in(['stock_opname', 'stock_in', 'stock_out'])],
+            'quantity' => ['required', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+        if ($data['action'] !== 'stock_opname' && (int) $data['quantity'] < 1) {
+            throw ValidationException::withMessages([
+                'quantity' => 'Jumlah stok minimal 1.',
+            ]);
+        }
+
+        $group = $skuSync->syncVariant($variant);
+        if (! $group) {
+            throw ValidationException::withMessages(['quantity' => 'Grup sinkronisasi SKU belum tersedia.']);
+        }
+
+        if ($data['action'] === 'stock_opname') {
+            $stockSync->stockOpname($group, (int) $data['quantity'], null, $data['notes'] ?? 'Stock opname');
+        } else {
+            $stockSync->adjustOnHand(
+                $group,
+                (int) $data['quantity'],
+                $data['action'] === 'stock_out' ? 'out' : 'in',
+                null,
+                $data['notes'] ?? ($data['action'] === 'stock_out' ? 'Pengurangan stok manual' : 'Penambahan stok manual')
+            );
+        }
+
+        $bundleInventory->refreshAffectedByVariantIds([$variant->id]);
+        $variant = $variant->fresh($this->variantRelations());
+
+        return response()->json([
+            'message' => match ($data['action']) {
+                'stock_opname' => 'Stock opname berhasil disimpan.',
+                'stock_out' => 'Stok berhasil dikurangi.',
+                default => 'Stok berhasil ditambahkan.',
+            },
+            ...$this->formatInventory($variant, $product),
+        ]);
     }
 
     public function pushVariant(
@@ -1500,8 +1630,8 @@ class MasterProductController extends Controller
             'supplier_id' => $variant->supplier_id,
             'supplier_name' => $variant->supplier?->name,
             'hpp' => $this->canViewHpp ? (float) $variant->hpp : null,
-            'stock' => (int) ($group?->master_stock ?? $variant->stock),
-            'available_stock' => (int) ($group?->master_stock ?? $variant->availableStock()),
+            'stock' => $variant->availableStock(),
+            'available_stock' => $variant->availableStock(),
             'on_hand' => (int) $variant->on_hand,
             'on_order' => (int) $variant->on_order,
             'reserved_stock' => (int) $variant->reserved_stock,
@@ -1516,7 +1646,7 @@ class MasterProductController extends Controller
                     'sku' => $componentVariant?->sku,
                     'name' => $componentVariant?->masterProduct?->name,
                     'variant_name' => $componentVariant?->variant_name,
-                    'stock' => (int) ($componentVariant?->syncGroup?->master_stock ?? $componentVariant?->stock ?? 0),
+                    'stock' => $componentVariant?->availableStock() ?? 0,
                     'hpp' => $this->canViewHpp ? (float) ($componentVariant?->hpp ?? 0) : null,
                 ];
             })->values(),
@@ -1528,6 +1658,43 @@ class MasterProductController extends Controller
             'stores' => $stores,
             'last_synced_at' => $group?->last_synced_at?->toIso8601String(),
             'updated_at' => $variant->updated_at?->toIso8601String(),
+        ];
+    }
+
+    private function availableStockSql(): string
+    {
+        $position = '(master_product_variants.on_hand - master_product_variants.on_order - master_product_variants.reserved_stock)';
+
+        return "CASE WHEN {$position} > 0 THEN {$position} ELSE 0 END";
+    }
+
+    private function formatInventory(MasterProductVariant $variant, MasterProduct $product): array
+    {
+        $movements = InventoryMovement::query()
+            ->where('user_id', $product->user_id)
+            ->where('master_product_variant_id', $variant->id)
+            ->latest('occurred_at')
+            ->latest('id')
+            ->limit(100)
+            ->get()
+            ->map(fn (InventoryMovement $movement) => [
+                'id' => $movement->id,
+                'type' => $movement->type,
+                'on_hand_delta' => (int) $movement->on_hand_delta,
+                'on_order_delta' => (int) $movement->on_order_delta,
+                'reserved_delta' => (int) $movement->reserved_delta,
+                'on_hand_after' => (int) $movement->on_hand_after,
+                'on_order_after' => (int) $movement->on_order_after,
+                'reserved_after' => (int) $movement->reserved_after,
+                'available_after' => (int) $movement->available_after,
+                'notes' => $movement->notes,
+                'occurred_at' => $movement->occurred_at?->toIso8601String(),
+            ])
+            ->values();
+
+        return [
+            'variant' => $this->formatVariant($variant, $product),
+            'movements' => $movements,
         ];
     }
 

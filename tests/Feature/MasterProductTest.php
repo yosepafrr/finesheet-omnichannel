@@ -8,6 +8,7 @@ use App\Jobs\SyncStockToMarketplaceJob;
 use App\Models\MasterProduct;
 use App\Models\MasterProductVariant;
 use App\Models\Product;
+use App\Models\SkuSyncGroup;
 use App\Models\Store;
 use App\Models\Supplier;
 use App\Models\User;
@@ -114,6 +115,97 @@ class MasterProductTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_stock_management_dashboard_is_paginated_filtered_and_scoped_to_the_user(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Katalog Persediaan',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+
+        foreach ([
+            ['sku' => 'STOCK-AVAILABLE', 'stock' => 20, 'on_hand' => 22, 'on_order' => 2],
+            ['sku' => 'STOCK-LOW', 'stock' => 5, 'on_hand' => 5, 'on_order' => 0],
+            ['sku' => 'STOCK-OUT', 'stock' => 0, 'on_hand' => 0, 'on_order' => 0],
+        ] as $variant) {
+            MasterProductVariant::create([
+                'master_product_id' => $product->id,
+                'user_id' => $user->id,
+                'reserved_stock' => 0,
+                'hpp' => 10000,
+                ...$variant,
+            ]);
+        }
+
+        $otherProduct = MasterProduct::create([
+            'user_id' => $otherUser->id,
+            'name' => 'Produk User Lain',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        MasterProductVariant::create([
+            'master_product_id' => $otherProduct->id,
+            'user_id' => $otherUser->id,
+            'sku' => 'FOREIGN-STOCK',
+            'stock' => 999,
+            'on_hand' => 999,
+            'hpp' => 10000,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products/inventory?status=low&per_page=20')
+            ->assertOk()
+            ->assertJsonPath('summary.total_skus', 3)
+            ->assertJsonPath('summary.total_available', 25)
+            ->assertJsonPath('summary.low_stock', 1)
+            ->assertJsonPath('summary.out_of_stock', 1)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sku', 'STOCK-LOW')
+            ->assertJsonMissing(['sku' => 'FOREIGN-STOCK']);
+    }
+
+    public function test_inventory_dashboard_uses_inventory_position_when_sync_group_stock_is_stale(): void
+    {
+        $user = User::factory()->create();
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Kemeja Formal',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+        $variant = MasterProductVariant::create([
+            'master_product_id' => $product->id,
+            'user_id' => $user->id,
+            'sku' => 'KMJ-PTH-XS',
+            'stock' => 81,
+            'on_hand' => 81,
+            'on_order' => 0,
+            'reserved_stock' => 0,
+            'hpp' => 10000,
+        ]);
+        SkuSyncGroup::create([
+            'user_id' => $user->id,
+            'master_product_variant_id' => $variant->id,
+            'sku' => $variant->sku,
+            'master_stock' => 0,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products/inventory?status=available&per_page=20')
+            ->assertOk()
+            ->assertJsonPath('summary.total_available', 81)
+            ->assertJsonPath('summary.low_stock', 0)
+            ->assertJsonPath('summary.out_of_stock', 0)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.stock', 81)
+            ->assertJsonPath('data.0.available_stock', 81)
+            ->assertJsonPath('data.0.on_hand', 81);
+    }
+
     public function test_updating_master_stock_pushes_to_every_matching_listing(): void
     {
         Bus::fake();
@@ -189,6 +281,101 @@ class MasterProductTest extends TestCase
             'master_product_variant_id' => $variantId,
             'master_stock' => 17,
         ]);
+    }
+
+    public function test_stock_management_can_add_reduce_and_opname_stock(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $created = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
+        $productId = $created->json('id');
+        $variantId = $created->json('variants.0.id');
+
+        $this->actingAs($user)
+            ->getJson("/api/master-products/{$productId}/variants/{$variantId}/inventory")
+            ->assertOk()
+            ->assertJsonPath('variant.on_hand', 12)
+            ->assertJsonPath('variant.available_stock', 12);
+
+        $this->actingAs($user)
+            ->postJson("/api/master-products/{$productId}/variants/{$variantId}/inventory/adjustments", [
+                'action' => 'stock_in',
+                'quantity' => 5,
+                'notes' => 'Barang masuk gudang',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variant.on_hand', 17)
+            ->assertJsonPath('variant.available_stock', 17);
+
+        $this->actingAs($user)
+            ->postJson("/api/master-products/{$productId}/variants/{$variantId}/inventory/adjustments", [
+                'action' => 'stock_out',
+                'quantity' => 3,
+                'notes' => 'Barang rusak',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variant.on_hand', 14)
+            ->assertJsonPath('variant.available_stock', 14);
+
+        $this->actingAs($user)
+            ->postJson("/api/master-products/{$productId}/variants/{$variantId}/inventory/adjustments", [
+                'action' => 'stock_opname',
+                'quantity' => 10,
+                'notes' => 'Hasil hitung fisik',
+            ])
+            ->assertOk()
+            ->assertJsonPath('variant.on_hand', 10)
+            ->assertJsonPath('variant.available_stock', 10);
+
+        $this->assertDatabaseHas('inventory_movements', [
+            'master_product_variant_id' => $variantId,
+            'type' => 'manual_stock_in',
+            'on_hand_delta' => 5,
+            'notes' => 'Barang masuk gudang',
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'master_product_variant_id' => $variantId,
+            'type' => 'manual_stock_out',
+            'on_hand_delta' => -3,
+            'notes' => 'Barang rusak',
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'master_product_variant_id' => $variantId,
+            'type' => 'stock_opname',
+            'on_hand_delta' => -4,
+            'notes' => 'Hasil hitung fisik',
+        ]);
+    }
+
+    public function test_stock_management_rejects_reduction_above_on_hand(): void
+    {
+        Bus::fake();
+        $user = User::factory()->create();
+        $created = $this->actingAs($user)->postJson('/api/master-products', $this->payload());
+        $productId = $created->json('id');
+        $variantId = $created->json('variants.0.id');
+
+        $this->actingAs($user)
+            ->postJson("/api/master-products/{$productId}/variants/{$variantId}/inventory/adjustments", [
+                'action' => 'stock_out',
+                'quantity' => 13,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantity');
+
+        $this->assertDatabaseHas('master_product_variants', [
+            'id' => $variantId,
+            'on_hand' => 12,
+        ]);
+        $this->assertDatabaseHas('sku_sync_groups', [
+            'master_product_variant_id' => $variantId,
+            'master_stock' => 12,
+        ]);
+        $this->actingAs($user)
+            ->getJson("/api/master-products/{$productId}/variants/{$variantId}/inventory")
+            ->assertOk()
+            ->assertJsonPath('variant.on_hand', 12)
+            ->assertJsonPath('variant.available_stock', 12);
     }
 
     public function test_deleting_master_sku_does_not_delete_marketplace_product(): void

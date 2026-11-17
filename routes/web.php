@@ -55,6 +55,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::post('/master-products/bulk', [MasterProductController::class, 'bulkStore']);
         Route::post('/master-products/convert-marketplace', [MasterProductController::class, 'convertMarketplace']);
         Route::get('/master-products/variants/selection', [MasterProductController::class, 'selection']);
+        Route::get('/master-products/inventory', [MasterProductController::class, 'inventoryIndex']);
         Route::put('/master-products/variants/bulk', [MasterProductController::class, 'bulkUpdateVariants']);
         Route::put('/master-products/variants/bulk/data', [MasterProductController::class, 'bulkUpdateData']);
         Route::delete('/master-products/variants/bulk', [MasterProductController::class, 'bulkDestroyVariants']);
@@ -63,6 +64,8 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::get('/master-products/{id}', [MasterProductController::class, 'show']);
         Route::put('/master-products/{id}', [MasterProductController::class, 'update']);
         Route::put('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'updateVariant']);
+        Route::get('/master-products/{productId}/variants/{variantId}/inventory', [MasterProductController::class, 'inventory']);
+        Route::post('/master-products/{productId}/variants/{variantId}/inventory/adjustments', [MasterProductController::class, 'adjustInventory']);
         Route::put('/master-products/{productId}/variants/{variantId}/inventory', [MasterProductController::class, 'updateInventory']);
         Route::delete('/master-products/{productId}/variants/{variantId}', [MasterProductController::class, 'destroyVariant']);
         Route::post('/master-products/{productId}/variants/{variantId}/push', [MasterProductController::class, 'pushVariant']);

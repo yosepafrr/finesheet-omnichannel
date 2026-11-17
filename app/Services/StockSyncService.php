@@ -8,6 +8,7 @@ use App\Models\MasterProductVariant;
 use App\Models\SkuSyncGroup;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StockSyncService
 {
@@ -124,6 +125,52 @@ class StockSyncService
             $variant->on_hand = max(0, $onHand);
 
             return $this->persistPosition($group, $variant, $reference, 'stock_opname', $before, $notes);
+        });
+    }
+
+    public function adjustOnHand(
+        SkuSyncGroup $group,
+        int $quantity,
+        string $direction,
+        ?Model $reference = null,
+        ?string $notes = null
+    ): int {
+        return DB::transaction(function () use ($group, $quantity, $direction, $reference, $notes) {
+            [$group, $variant] = $this->lockInventory($group);
+            $quantity = max(0, $quantity);
+            $delta = $direction === 'out' ? -$quantity : $quantity;
+
+            if (! $variant) {
+                $nextStock = (int) $group->master_stock + $delta;
+                if ($nextStock < 0) {
+                    throw ValidationException::withMessages([
+                        'quantity' => 'Jumlah pengurangan melebihi stok fisik yang tersedia.',
+                    ]);
+                }
+
+                $group->update(['master_stock' => $nextStock]);
+
+                return $group->is_active ? $this->dispatchMemberUpdates($group, $nextStock) : 0;
+            }
+
+            $before = $this->position($variant);
+            $nextOnHand = (int) $variant->on_hand + $delta;
+            if ($nextOnHand < 0) {
+                throw ValidationException::withMessages([
+                    'quantity' => 'Jumlah pengurangan melebihi stok fisik yang tersedia.',
+                ]);
+            }
+
+            $variant->on_hand = $nextOnHand;
+
+            return $this->persistPosition(
+                $group,
+                $variant,
+                $reference,
+                $direction === 'out' ? 'manual_stock_out' : 'manual_stock_in',
+                $before,
+                $notes
+            );
         });
     }
 

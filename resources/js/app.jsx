@@ -36,6 +36,7 @@ const MeetCreators = lazy(() => import('./pages/MeetCreators'));
 const Profile = lazy(() => import('./pages/Profile'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const MasterProductDetail = lazy(() => import('./pages/MasterProductDetail'));
+const StockManagement = lazy(() => import('./pages/StockManagement'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -50,6 +51,7 @@ const routes = {
     '/dashboard': Dashboard,
     '/stores': StoreList,
     '/products': ProductList,
+    '/stock-management': StockManagement,
     '/orders': OrderList,
     '/profit-tracker': ProfitTracker,
     '/payable': PayableRekap,
@@ -508,6 +510,15 @@ function App() {
         if (orderMatch) {
             PageComponent = OrderDetail;
             routeParams = { id: orderMatch[1] };
+        }
+
+        const stockManagementMatch = currentRoute.match(/^\/products\/master\/(\d+)\/stock\/(\d+)$/);
+        if (stockManagementMatch) {
+            PageComponent = StockManagement;
+            routeParams = {
+                productId: stockManagementMatch[1],
+                focusVariantId: stockManagementMatch[2],
+            };
         }
 
         const masterProductMatch = currentRoute.match(/^\/products\/master\/(\d+)$/);

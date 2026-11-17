@@ -76,6 +76,11 @@ class EnforceAccessProfile
                     ? 'products.hpp.edit'
                     : 'products.stock.manage';
             }
+            if (Str::is('api/master-products/*/variants/*/inventory*', $path)) {
+                return $request->isMethod('GET')
+                    ? 'products.view'
+                    : 'products.stock.manage';
+            }
             if (Str::is(['*hpp*'], $path)) {
                 return 'products.hpp.edit';
             }

@@ -7,6 +7,7 @@ export const PAGE_PERMISSIONS = {
     "/dashboard": "dashboard.view",
     "/stores": "stores.view",
     "/products": "products.view",
+    "/stock-management": "products.view",
     "/orders": "orders.view",
     "/fulfillment-settings": "fulfillment.settings.manage",
     "/profit-tracker": "finance.profit.view",
@@ -16,10 +17,10 @@ export const PAGE_PERMISSIONS = {
 
 const ROUTE_PRIORITY = {
     order_operations: ["/orders", "/fulfillment-settings", "/stores"],
-    product_operations: ["/products", "/stores"],
+    product_operations: ["/products", "/stock-management", "/stores"],
     finance_operations: ["/profit-tracker", "/payable", "/cashflow", "/orders"],
-    read_only: ["/dashboard", "/orders", "/products", "/stores"],
-    custom: ["/dashboard", "/orders", "/products", "/stores", "/profit-tracker", "/payable", "/cashflow"],
+    read_only: ["/dashboard", "/orders", "/products", "/stock-management", "/stores"],
+    custom: ["/dashboard", "/orders", "/products", "/stock-management", "/stores", "/profit-tracker", "/payable", "/cashflow"],
 };
 
 export function getDefaultAccessRoute(access = {}) {
