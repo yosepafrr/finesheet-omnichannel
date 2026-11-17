@@ -72,12 +72,30 @@ function InventoryBreakdown({ row, align = "right", compact = false }) {
     const onOrder = Number(row.on_order || 0);
     const reserved = Number(row.reserved_stock || 0);
 
+    const metrics = [
+        { label: "Fisik", value: onHand },
+        { label: "Order", value: onOrder },
+        { label: "Cadangan", value: reserved },
+    ];
+
     return (
-        <div className={align === "right" ? "text-right" : "text-left"}>
-            <p className={`${compact ? "text-lg" : "text-sm"} font-extrabold text-[#304674] dark:text-blue-300`}>{available.toLocaleString("id-ID")}</p>
-            <p className="mt-0.5 whitespace-nowrap text-[10px] text-slate-400" title="On Hand / On Order / Reserved">
-                {onHand.toLocaleString("id-ID")} fisik · {onOrder.toLocaleString("id-ID")} order · {reserved.toLocaleString("id-ID")} cadangan
-            </p>
+        <div className={`${align === "right" ? "ml-auto items-end" : "items-start"} flex min-w-0 flex-col`}>
+            <div className={`flex items-baseline gap-1.5 ${align === "right" ? "justify-end" : "justify-start"}`}>
+                <span className={`${compact ? "text-xl" : "text-base"} font-extrabold tabular-nums text-[#304674] dark:text-blue-300`}>
+                    {available.toLocaleString("id-ID")}
+                </span>
+                <span className="text-[10px] font-semibold uppercase text-slate-400">tersedia</span>
+            </div>
+            <div className={`mt-1.5 flex items-center ${align === "right" ? "justify-end" : "justify-start"}`}>
+                {metrics.map((metric, index) => (
+                    <div key={metric.label} className={`${index > 0 ? "ml-2 border-l border-slate-200 pl-2 dark:border-slate-700" : ""} min-w-0`}>
+                        <span className="block text-[9px] font-semibold uppercase leading-none text-slate-400">{metric.label}</span>
+                        <span className="mt-1 block text-[11px] font-bold tabular-nums leading-none text-slate-600 dark:text-slate-300">
+                            {metric.value.toLocaleString("id-ID")}
+                        </span>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
@@ -1532,9 +1550,9 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                 ) : (
                     <>
                         <div className="hidden overflow-x-auto md:block">
-                            <table className="w-full min-w-[1040px] table-fixed text-left">
-                                <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                    <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[23%]" : "w-[27%]"} px-3 py-3`}>Produk</th><th className="w-[14%] px-4 py-3">SKU</th><th className="w-[13%] px-4 py-3 text-right">Persediaan</th><th className="w-[12%] px-4 py-3 text-right">HPP</th><th className="w-[13%] px-4 py-3">Sinkronisasi</th><th className="w-[16%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
+                            <table className="w-full min-w-[1180px] table-fixed text-left">
+                                <thead className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                    <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[22%]" : "w-[26%]"} px-5 py-3`}>Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[18%] px-4 py-3 text-right">Persediaan</th><th className="w-[11%] px-4 py-3 text-right">HPP</th><th className="w-[11%] px-4 py-3">Sinkronisasi</th><th className="w-[14%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                     {rows.map((row, index) => {
@@ -1542,16 +1560,16 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                         const previousCluster = index > 0 ? (rows[index - 1].product_cluster_key || "tanpa-cluster") : null;
 
                                         return <React.Fragment key={row.id}>
-                                        {clusterKey !== previousCluster && <tr className="border-y border-slate-200 bg-slate-100/80 dark:border-slate-700 dark:bg-slate-900/60"><td colSpan={bulkMode ? 8 : 7} className="px-4 py-2"><div className="flex items-center gap-2"><span className="material-symbols-rounded text-lg text-[#304674] dark:text-blue-400">folder_copy</span><span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.product_cluster_label || "TANPA CLUSTER"}</span><span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">{pageClusterCounts[clusterKey]} SKU di halaman ini</span></div></td></tr>}
-                                        <tr className={`${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/70 dark:hover:bg-slate-700/30"}`}>
-                                            {bulkMode && <td className="px-4 py-4"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
-                                            <td className="px-3 py-4"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><p className="truncate font-bold text-slate-900 hover:text-[#304674] dark:text-white">{row.name}</p>{row.is_bundle && <BundleBadge />}</div><p className="truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
-                                            <td className="px-4 py-4"><span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
-                                            <td className="px-4 py-4"><button type="button" disabled={row.is_bundle || !actionPermissions.stock} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Atur persediaan"} className="ml-auto block disabled:cursor-default"><InventoryBreakdown row={row} />{!row.is_bundle && actionPermissions.stock && <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-400"><span className="material-symbols-rounded text-[12px]">edit</span>Atur</span>}</button></td>
-                                            <td className="px-4 py-4 text-right">{canViewHpp ? (actionPermissions.hpp ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-[#304674] disabled:cursor-default disabled:hover:text-slate-800 dark:text-slate-100 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRp(row.hpp)}</span>) : <span className="text-xs font-semibold text-slate-400">Akses dibatasi</span>}</td>
-                                            <td className="px-4 py-4"><SyncStatus row={row} /></td>
-                                            <td className="px-4 py-4"><MatchStatus row={row} /></td>
-                                            <td className="px-3 py-4"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} permissions={actionPermissions} /></div></td>
+                                        {clusterKey !== previousCluster && <tr className="border-y border-slate-200 bg-slate-100/70 dark:border-slate-700 dark:bg-slate-900/60"><td colSpan={bulkMode ? 8 : 7} className="px-5 py-2"><div className="flex items-center gap-2"><span className="material-symbols-rounded text-base text-[#304674] dark:text-blue-400">folder_copy</span><span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{row.product_cluster_label || "TANPA CLUSTER"}</span><span className="text-[10px] font-medium text-slate-400">{pageClusterCounts[clusterKey]} SKU</span></div></td></tr>}
+                                        <tr className={`group transition-colors ${bulkMode && selectedIds.has(row.id) ? "bg-blue-50/60 dark:bg-blue-500/5" : "hover:bg-slate-50/80 dark:hover:bg-slate-700/30"}`}>
+                                            {bulkMode && <td className="px-4 py-3"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
+                                            <td className="px-5 py-3"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><p className="truncate text-sm font-bold text-slate-900 transition-colors group-hover:text-[#304674] dark:text-white">{row.name}</p>{row.is_bundle && <BundleBadge />}</div><p className="mt-0.5 truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
+                                            <td className="px-4 py-3"><span className="block truncate font-mono text-[13px] font-bold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
+                                            <td className="px-4 py-3"><button type="button" disabled={row.is_bundle || !actionPermissions.stock} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Atur persediaan"} className="ml-auto block rounded-md px-2 py-1 text-right transition-colors hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-blue-500/10"><InventoryBreakdown row={row} /></button></td>
+                                            <td className="px-4 py-3 text-right">{canViewHpp ? (actionPermissions.hpp ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold tabular-nums text-slate-800 transition-colors hover:bg-slate-100 hover:text-[#304674] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{formatRp(row.hpp)}</span>) : <span className="text-xs font-semibold text-slate-400">Akses dibatasi</span>}</td>
+                                            <td className="px-4 py-3"><SyncStatus row={row} /></td>
+                                            <td className="px-4 py-3"><MatchStatus row={row} /></td>
+                                            <td className="px-3 py-3"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} permissions={actionPermissions} /></div></td>
                                         </tr>
                                         </React.Fragment>;
                                     })}
