@@ -73,9 +73,9 @@ function InventoryBreakdown({ row, align = "right", compact = false }) {
     const reserved = Number(row.reserved_stock || 0);
 
     const metrics = [
-        { label: "Fisik", value: onHand },
-        { label: "Order", value: onOrder },
-        { label: "Cadangan", value: reserved },
+        { label: "On Hand", value: onHand },
+        { label: "On Order", value: onOrder },
+        { label: "Reserved", value: reserved },
     ];
 
     return (
@@ -84,7 +84,7 @@ function InventoryBreakdown({ row, align = "right", compact = false }) {
                 <span className={`${compact ? "text-xl" : "text-base"} font-extrabold tabular-nums text-[#304674] dark:text-blue-300`}>
                     {available.toLocaleString("id-ID")}
                 </span>
-                <span className="text-[10px] font-semibold uppercase text-slate-400">tersedia</span>
+                <span className="text-[10px] font-semibold uppercase text-slate-400">Available</span>
             </div>
             <div className={`mt-1.5 flex items-center ${align === "right" ? "justify-end" : "justify-start"}`}>
                 {metrics.map((metric, index) => (
@@ -1550,9 +1550,9 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                 ) : (
                     <>
                         <div className="hidden overflow-x-auto md:block">
-                            <table className="w-full min-w-[1180px] table-fixed text-left">
+                            <table className="w-full min-w-[1320px] table-fixed text-left">
                                 <thead className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                    <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[22%]" : "w-[26%]"} px-5 py-3`}>Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[18%] px-4 py-3 text-right">Persediaan</th><th className="w-[11%] px-4 py-3 text-right">HPP</th><th className="w-[11%] px-4 py-3">Sinkronisasi</th><th className="w-[14%] px-4 py-3">Deteksi SKU</th><th className="w-[5%] px-3 py-3" /></tr>
+                                    <tr>{bulkMode && <th className="w-[4%] px-4 py-3"><SelectionCheckbox checked={allRowsSelected} indeterminate={someRowsSelected} onChange={toggleAllRows} label="Pilih semua SKU pada halaman ini" /></th>}<th className={`${bulkMode ? "w-[21%]" : "w-[25%]"} px-5 py-3`}>Produk</th><th className="w-[15%] px-4 py-3">SKU</th><th className="w-[20%] px-4 py-3 text-right">Persediaan</th><th className="w-[12%] px-4 py-3 text-right">HPP</th><th className="w-[11%] px-4 py-3">Sinkronisasi</th><th className="w-[13%] px-4 py-3">Deteksi SKU</th><th className="w-[4%] px-3 py-3" /></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                     {rows.map((row, index) => {
@@ -1565,8 +1565,8 @@ export default function MasterProductPanel({ search = "", onManageSuppliers, sup
                                             {bulkMode && <td className="px-4 py-3"><SelectionCheckbox checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} label={`Pilih SKU ${row.sku}`} /></td>}
                                             <td className="px-5 py-3"><button type="button" onClick={() => handleProductClick(row)} className="flex w-full min-w-0 items-center gap-3 text-left"><ProductImage row={row} /><div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><p className="truncate text-sm font-bold text-slate-900 transition-colors group-hover:text-[#304674] dark:text-white">{row.name}</p>{row.is_bundle && <BundleBadge />}</div><p className="mt-0.5 truncate text-xs text-slate-500">{row.supplier_name || "Supplier belum ditentukan"}</p></div></button></td>
                                             <td className="px-4 py-3"><span className="block truncate font-mono text-[13px] font-bold text-slate-800 dark:text-slate-100">{String(row.sku || "").toUpperCase()}</span><div className="mt-1.5 flex flex-wrap gap-1">{row.variant_cluster_labels?.map((label) => <span key={label} className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">{label}</span>)}</div></td>
-                                            <td className="px-4 py-3"><button type="button" disabled={row.is_bundle || !actionPermissions.stock} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Atur persediaan"} className="ml-auto block rounded-md px-2 py-1 text-right transition-colors hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-blue-500/10"><InventoryBreakdown row={row} /></button></td>
-                                            <td className="px-4 py-3 text-right">{canViewHpp ? (actionPermissions.hpp ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold tabular-nums text-slate-800 transition-colors hover:bg-slate-100 hover:text-[#304674] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{formatRp(row.hpp)}</span>) : <span className="text-xs font-semibold text-slate-400">Akses dibatasi</span>}</td>
+                                            <td className="px-4 py-3"><button type="button" disabled={row.is_bundle || !actionPermissions.stock} onClick={() => openValueModal(row, "stock")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit inventory"} className="ml-auto block rounded-md px-2 py-1 text-right transition-colors hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-blue-500/10"><InventoryBreakdown row={row} />{!row.is_bundle && actionPermissions.stock && <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-[#304674] opacity-75 transition-opacity hover:opacity-100 dark:text-blue-300"><span className="material-symbols-rounded text-[13px]">edit</span>Edit</span>}</button></td>
+                                            <td className="px-4 py-3 text-right">{canViewHpp ? (actionPermissions.hpp ? <button type="button" disabled={row.is_bundle} onClick={() => openValueModal(row, "hpp")} title={row.is_bundle ? "Dihitung dari komponen bundle" : "Edit HPP"} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-semibold tabular-nums text-slate-800 transition-colors hover:bg-slate-100 hover:text-[#304674] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:disabled:hover:text-slate-100"><span>{formatRp(row.hpp)}</span><span className="material-symbols-rounded text-[15px] text-slate-400">{row.is_bundle ? "calculate" : "edit"}</span></button> : <span className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{formatRp(row.hpp)}</span>) : <span className="text-xs font-semibold text-slate-400">Akses dibatasi</span>}</td>
                                             <td className="px-4 py-3"><SyncStatus row={row} /></td>
                                             <td className="px-4 py-3"><MatchStatus row={row} /></td>
                                             <td className="px-3 py-3"><div className={busyId === row.id ? "pointer-events-none opacity-50" : ""}><ActionMenu row={row} onEdit={(item) => setModal({ open: true, row: item, preset: null })} onCopy={copyAsNew} onEditStock={(item) => openValueModal(item, "stock")} onEditHpp={(item) => openValueModal(item, "hpp")} onSupplier={openSupplierModal} onDelete={remove} onPush={push} permissions={actionPermissions} /></div></td>
