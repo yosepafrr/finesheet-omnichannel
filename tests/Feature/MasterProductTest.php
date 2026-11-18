@@ -167,6 +167,52 @@ class MasterProductTest extends TestCase
             ->assertJsonMissing(['sku' => 'FOREIGN-STOCK']);
     }
 
+    public function test_stock_management_filters_rows_and_summary_by_clusters_and_supplier(): void
+    {
+        $user = User::factory()->create();
+        $supplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Navy',
+            'period_length_days' => 14,
+        ]);
+        $otherSupplier = Supplier::create([
+            'user_id' => $user->id,
+            'name' => 'Supplier Lain',
+            'period_length_days' => 14,
+        ]);
+        $product = MasterProduct::create([
+            'user_id' => $user->id,
+            'name' => 'Katalog Filter Stock',
+            'status' => 'active',
+            'source' => 'manual',
+        ]);
+
+        foreach ([
+            ['sku' => 'jas-w-navy-xl', 'supplier_id' => $supplier->id, 'stock' => 12],
+            ['sku' => 'jas-w-hitam-l', 'supplier_id' => $otherSupplier->id, 'stock' => 20],
+            ['sku' => 'celana-p-navy-xl', 'supplier_id' => $supplier->id, 'stock' => 30],
+        ] as $variant) {
+            MasterProductVariant::create([
+                'master_product_id' => $product->id,
+                'user_id' => $user->id,
+                'on_order' => 0,
+                'reserved_stock' => 0,
+                'hpp' => 10000,
+                ...$variant,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/master-products/inventory?product_clusters[]=jas-w&variant_clusters[]=navy&supplier_id='.$supplier->id.'&per_page=20')
+            ->assertOk()
+            ->assertJsonPath('summary.total_skus', 1)
+            ->assertJsonPath('summary.total_available', 12)
+            ->assertJsonPath('summary.low_stock', 0)
+            ->assertJsonPath('summary.out_of_stock', 0)
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sku', 'jas-w-navy-xl');
+    }
+
     public function test_inventory_dashboard_uses_inventory_position_when_sync_group_stock_is_stale(): void
     {
         $user = User::factory()->create();

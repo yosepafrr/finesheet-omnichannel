@@ -113,15 +113,31 @@ class MasterProductController extends Controller
             'status' => ['nullable', Rule::in(['all', 'available', 'low', 'out'])],
             'per_page' => ['nullable', 'integer', Rule::in([20, 30, 50, 100])],
             'page' => ['nullable', 'integer', 'min:1'],
+            'product_clusters' => ['nullable', 'array', 'max:100'],
+            'product_clusters.*' => ['string', 'max:160'],
+            'variant_clusters' => ['nullable', 'array', 'max:100'],
+            'variant_clusters.*' => ['string', 'max:160'],
+            'supplier_id' => ['nullable', 'string', 'max:40'],
         ]);
         $userId = $request->user()->id;
         $search = trim((string) ($data['search'] ?? ''));
         $status = $data['status'] ?? 'all';
         $perPage = (int) ($data['per_page'] ?? 30);
+        $productClusters = $this->normalizedFilterValues($request, 'product_clusters', 'product_cluster');
+        $variantClusters = $this->normalizedFilterValues($request, 'variant_clusters', 'variant_cluster');
+        $supplierFilter = trim((string) ($data['supplier_id'] ?? ''));
 
         $baseQuery = MasterProductVariant::query()
             ->where('user_id', $userId)
             ->whereHas('masterProduct', fn (Builder $query) => $query->where('source', 'manual'));
+
+        $baseQuery = $this->applyCatalogFilters(
+            $baseQuery,
+            $search,
+            $productClusters,
+            $variantClusters,
+            $supplierFilter
+        );
 
         $availableStockSql = $this->availableStockSql();
 
@@ -133,14 +149,6 @@ class MasterProductController extends Controller
         ];
 
         $variants = (clone $baseQuery)
-            ->when($search !== '', function (Builder $query) use ($search) {
-                $query->where(function (Builder $nested) use ($search) {
-                    $nested->where('sku', 'ilike', "%{$search}%")
-                        ->orWhere('variant_name', 'ilike', "%{$search}%")
-                        ->orWhereHas('masterProduct', fn (Builder $product) => $product
-                            ->where('name', 'ilike', "%{$search}%"));
-                });
-            })
             ->when($status === 'available', fn (Builder $query) => $query->whereRaw("{$availableStockSql} > 10"))
             ->when($status === 'low', fn (Builder $query) => $query->whereRaw("{$availableStockSql} BETWEEN 1 AND 10"))
             ->when($status === 'out', fn (Builder $query) => $query->whereRaw("{$availableStockSql} <= 0"))

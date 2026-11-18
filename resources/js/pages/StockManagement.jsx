@@ -2,6 +2,8 @@ import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import React, { useCallback, useEffect, useState } from "react";
 import AppLayout from "../../views/components/layouts/AppLayout";
+import ClusterMultiSelect from "../components/ClusterMultiSelect";
+import SupplierSelect from "../components/SupplierSelect";
 import FinesheetSelect from "../components/ui/FinesheetSelect";
 import { useAccess } from "../contexts/AccessContext";
 
@@ -118,7 +120,7 @@ function AdjustmentModal({ action, variant, onClose, onSaved }) {
 
                     {stockOpname && <div className="grid grid-cols-2 gap-3"><div className="rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700"><p className="text-[10px] font-bold uppercase text-slate-400">On Order</p><p className="mt-1 text-lg font-extrabold tabular-nums text-slate-900 dark:text-white">{formatNumber(variant.on_order)}</p><p className="mt-1 text-[10px] text-slate-400">Dialokasikan ke pesanan aktif</p></div><div className="rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700"><p className="text-[10px] font-bold uppercase text-slate-400">Reserved</p><p className="mt-1 text-lg font-extrabold tabular-nums text-slate-900 dark:text-white">{formatNumber(variant.reserved_stock)}</p><p className="mt-1 text-[10px] text-slate-400">Dicadangkan</p></div></div>}
 
-                    <div className={`rounded-lg border px-4 py-3 ${invalid ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"}`}><div className="flex items-center justify-between gap-4"><div><p className={`text-15px] font-bold uppercase ${invalid ? "text-red-600" : "text-emerald-700 dark:text-emerald-300"}`}>Available</p></div><p className={`text-2xl font-extrabold tabular-nums ${invalid ? "text-red-600" : "text-emerald-700 dark:text-emerald-300"}`}>{formatNumber(projectedAvailable)}</p></div></div>
+                    <div className={`rounded-lg border px-4 py-3 ${invalid ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"}`}><div className="flex items-center justify-between gap-4"><div><p className={`text-[11px] font-bold uppercase ${invalid ? "text-red-600" : "text-emerald-700 dark:text-emerald-300"}`}>Available</p></div><p className={`text-2xl font-extrabold tabular-nums ${invalid ? "text-red-600" : "text-emerald-700 dark:text-emerald-300"}`}>{formatNumber(projectedAvailable)}</p></div></div>
                     {invalid && <p className="text-xs font-semibold text-red-600">Jumlah keluar melebihi On Hand saat ini.</p>}
                     <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Catatan penyesuaian <span className="font-normal text-slate-400">(opsional)</span></span><input maxLength="500" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={stockOpname ? "Contoh: Hasil stock opname gudang" : "Contoh: Penyesuaian stok gudang"} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-[#304674] focus:ring-2 focus:ring-[#304674]/15 dark:border-slate-600 dark:bg-slate-900 dark:text-white" /></label>
                 </div>
@@ -220,6 +222,10 @@ export default function StockManagement({ routeParams = {} }) {
     const [status, setStatus] = useState("all");
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(30);
+    const [filterOptions, setFilterOptions] = useState({ product_clusters: [], variant_clusters: [], suppliers: [] });
+    const [productClusters, setProductClusters] = useState([]);
+    const [variantClusters, setVariantClusters] = useState([]);
+    const [supplierFilter, setSupplierFilter] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
@@ -232,14 +238,42 @@ export default function StockManagement({ routeParams = {} }) {
         return () => window.clearTimeout(timer);
     }, [search]);
 
-    useEffect(() => setPage(1), [debouncedSearch, status, perPage]);
+    useEffect(() => setPage(1), [debouncedSearch, status, perPage, productClusters, variantClusters, supplierFilter]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        axios.get("/api/master-products/filters")
+            .then((response) => {
+                if (!cancelled) {
+                    setFilterOptions({
+                        product_clusters: response.data?.product_clusters || [],
+                        variant_clusters: response.data?.variant_clusters || [],
+                        suppliers: response.data?.suppliers || [],
+                    });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setFilterOptions({ product_clusters: [], variant_clusters: [], suppliers: [] });
+            });
+
+        return () => { cancelled = true; };
+    }, []);
 
     const loadInventory = useCallback(async () => {
         setLoading(true);
         setError("");
         try {
             const response = await axios.get("/api/master-products/inventory", {
-                params: { search: debouncedSearch || undefined, status, page, per_page: perPage },
+                params: {
+                    search: debouncedSearch || undefined,
+                    status,
+                    page,
+                    per_page: perPage,
+                    product_clusters: productClusters.length ? productClusters : undefined,
+                    variant_clusters: variantClusters.length ? variantClusters : undefined,
+                    supplier_id: supplierFilter || undefined,
+                },
             });
             setRows(response.data.data || []);
             setSummary(response.data.summary || {});
@@ -249,7 +283,7 @@ export default function StockManagement({ routeParams = {} }) {
         } finally {
             setLoading(false);
         }
-    }, [debouncedSearch, page, perPage, status]);
+    }, [debouncedSearch, page, perPage, productClusters, status, supplierFilter, variantClusters]);
 
     useEffect(() => { loadInventory(); }, [loadInventory]);
 
@@ -315,22 +349,34 @@ export default function StockManagement({ routeParams = {} }) {
                     <section className="grid overflow-hidden rounded-lg border border-slate-200 shadow-sm sm:grid-cols-2 xl:grid-cols-4 dark:border-slate-700"><SummaryCard icon="inventory_2" label="Master SKU" value={summary.total_skus} tone="blue" /><SummaryCard icon="warehouse" label="Total Available" value={summary.total_available} tone="emerald" /><SummaryCard icon="inventory" label="Low Stock" value={summary.low_stock} tone="amber" /><SummaryCard icon="production_quantity_limits" label="Out of Stock" value={summary.out_of_stock} tone="rose" /></section>
 
                     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700">
+                        <div className="border-b border-slate-200 px-4 py-4 dark:border-slate-700">
                             <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">{filters.map((filter) => <button key={filter.key} type="button" onClick={() => setStatus(filter.key)} className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-bold transition ${status === filter.key ? "bg-[#304674] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:border-[#304674]/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>{filter.label}<span className={`rounded px-1.5 py-0.5 text-[10px] ${status === filter.key ? "bg-white/15" : "bg-slate-100 dark:bg-slate-700"}`}>{formatNumber(filter.count)}</span></button>)}</div>
-                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                                <span>Tampilkan</span>
-                                <FinesheetSelect
-                                    value={perPage}
-                                    onChange={(value) => setPerPage(Number(value))}
-                                    options={[20, 30, 50, 100].map((value) => ({ value, label: String(value) }))}
-                                    ariaLabel="Jumlah SKU per halaman"
-                                    compact
-                                    showIcon={false}
-                                    showOptionIcons={false}
-                                    menuMinWidth={96}
-                                    className="w-[78px]"
-                                    triggerClassName="h-9 min-h-9 gap-1 px-3"
-                                    menuClassName="p-1"
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 dark:border-slate-700 dark:bg-slate-900/30">
+                            <ClusterMultiSelect
+                                label="Cluster produk"
+                                options={filterOptions.product_clusters}
+                                selected={productClusters}
+                                onChange={setProductClusters}
+                                placeholder="Semua cluster produk"
+                            />
+                            <ClusterMultiSelect
+                                label="Cluster varian"
+                                options={filterOptions.variant_clusters}
+                                selected={variantClusters}
+                                onChange={setVariantClusters}
+                                placeholder="Semua cluster varian"
+                            />
+                            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                                <span className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Supplier</span>
+                                <SupplierSelect
+                                    value={supplierFilter}
+                                    onChange={setSupplierFilter}
+                                    suppliers={filterOptions.suppliers}
+                                    defaultLabel="Semua supplier"
+                                    includeUnassigned
+                                    buttonClassName="h-10"
                                 />
                             </div>
                         </div>
@@ -371,11 +417,11 @@ export default function StockManagement({ routeParams = {} }) {
                             </table>
                         </div>
 
-                        <div className="divide-y divide-slate-100 lg:hidden dark:divide-slate-700">
-                            {loading ? Array.from({ length: 5 }, (_, index) => <div key={index} className="animate-pulse p-4"><div className="h-36 rounded bg-slate-100 dark:bg-slate-700" /></div>) : rows.map((row) => {
+                        <div className="space-y-2 bg-slate-100/70 p-2 lg:hidden dark:bg-slate-900/50">
+                            {loading ? Array.from({ length: 5 }, (_, index) => <div key={index} className="animate-pulse rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="h-36 rounded bg-slate-100 dark:bg-slate-700" /></div>) : rows.map((row) => {
                                 const focused = focusedVariantId === Number(row.id);
                                 return (
-                                    <article id={`stock-row-${row.id}`} key={row.id} className={`p-4 transition-colors duration-300 ${focused ? "bg-blue-50 ring-1 ring-inset ring-[#304674]/30 dark:bg-blue-500/10" : ""}`}>
+                                    <article id={`stock-row-${row.id}`} key={row.id} className={`rounded-lg border bg-white p-4 shadow-sm transition-all duration-300 dark:bg-slate-800 ${focused ? "border-[#304674]/50 ring-2 ring-[#304674]/15 dark:border-blue-400/50 dark:ring-blue-400/15" : "border-slate-200 dark:border-slate-700"}`}>
                                         <div className="flex items-start gap-3"><ProductImage variant={row} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-900 dark:text-white">{row.name}</p><p className="mt-1 truncate text-xs text-slate-500">{row.variant_name || "Tanpa nama varian"}</p><p className="mt-2 font-mono text-[11px] font-bold text-[#304674] dark:text-blue-300">{String(row.sku || "").toUpperCase()}</p></div><StockStatus available={number(row.available_stock ?? row.stock)} /></div>
                                         <div className="mt-4 grid grid-cols-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">{[["Available", row.available_stock ?? row.stock], ["On Hand", row.on_hand], ["On Order", row.on_order], ["Reserved", row.reserved_stock]].map(([label, value], index) => <div key={label} className={`px-2 py-3 text-center ${index ? "border-l border-slate-200 dark:border-slate-700" : ""}`}><p className="text-[9px] font-bold uppercase text-slate-400">{label}</p><p className={`mt-1 text-sm font-bold tabular-nums ${label === "Available" ? "text-[#304674] dark:text-blue-300" : "text-slate-700 dark:text-slate-200"}`}>{formatNumber(value)}</p></div>)}</div>
                                         <div className="mt-3"><StockActions row={row} canManage={canManage} onAction={openAdjustment} compact /></div>
@@ -386,7 +432,28 @@ export default function StockManagement({ routeParams = {} }) {
 
                         {!loading && rows.length === 0 && <div className="px-5 py-16 text-center"><span className="material-symbols-rounded text-4xl text-slate-300">inventory_2</span><h3 className="mt-3 text-sm font-bold text-slate-700 dark:text-slate-200">Stock tidak ditemukan</h3><p className="mt-1 text-xs text-slate-400">Ubah pencarian atau filter status stock.</p></div>}
 
-                        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><span>Menampilkan {meta.from || 0}-{meta.to || 0} dari {formatNumber(meta.total)} SKU</span><div className="flex items-center gap-2"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40 dark:border-slate-700"><span className="material-symbols-rounded">chevron_left</span></button><span className="min-w-16 text-center font-bold text-slate-700 dark:text-slate-200">{meta.current_page || 1} / {meta.last_page || 1}</span><button type="button" disabled={page >= (meta.last_page || 1) || loading} onClick={() => setPage((current) => current + 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40 dark:border-slate-700"><span className="material-symbols-rounded">chevron_right</span></button></div></div>
+                        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <span>Menampilkan {meta.from || 0}-{meta.to || 0} dari {formatNumber(meta.total)} SKU</span>
+                                <div className="flex items-center gap-2 font-medium text-slate-500 dark:text-slate-400">
+                                    <span>Tampilkan</span>
+                                    <FinesheetSelect
+                                        value={perPage}
+                                        onChange={(value) => setPerPage(Number(value))}
+                                        options={[20, 30, 50, 100].map((value) => ({ value, label: String(value) }))}
+                                        ariaLabel="Jumlah SKU per halaman"
+                                        compact
+                                        showIcon={false}
+                                        showOptionIcons={false}
+                                        menuMinWidth={96}
+                                        className="w-[78px]"
+                                        triggerClassName="h-9 min-h-9 gap-1 px-3"
+                                        menuClassName="p-1"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40 dark:border-slate-700"><span className="material-symbols-rounded">chevron_left</span></button><span className="min-w-16 text-center font-bold text-slate-700 dark:text-slate-200">{meta.current_page || 1} / {meta.last_page || 1}</span><button type="button" disabled={page >= (meta.last_page || 1) || loading} onClick={() => setPage((current) => current + 1)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40 dark:border-slate-700"><span className="material-symbols-rounded">chevron_right</span></button></div>
+                        </div>
                     </section>
                 </div>
             </main>

@@ -31,12 +31,14 @@ export default function FinesheetSelect({
 
         const width = Math.max(rect.width, menuMinWidth);
         const estimatedHeight = Math.min(240, Math.max(52, options.length * 48 + 12));
+        const renderedHeight = menuRef.current?.getBoundingClientRect().height;
+        const menuHeight = renderedHeight > 0 ? renderedHeight : estimatedHeight;
         const roomBelow = window.innerHeight - rect.bottom;
-        const openAbove = roomBelow < estimatedHeight + 16 && rect.top > roomBelow;
+        const openAbove = roomBelow < menuHeight + 16 && rect.top > roomBelow;
         setMenuPosition({
             top: openAbove
-                ? Math.max(8, rect.top - estimatedHeight - 6)
-                : Math.min(rect.bottom + 6, window.innerHeight - estimatedHeight - 8),
+                ? Math.max(8, rect.top - menuHeight - 6)
+                : Math.min(rect.bottom + 6, window.innerHeight - menuHeight - 8),
             left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
             width,
         });
