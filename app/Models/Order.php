@@ -2,7 +2,11 @@
 
 namespace App\Models;
 
+use App\Events\OrderCreated;
+use App\Events\OrderUpdated;
+use App\Services\PayableService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 class Order extends Model
 {
@@ -14,13 +18,13 @@ class Order extends Model
             if ($order->isDirty('order_status') || $order->isDirty('normalized_cancel_category')) {
                 $statusUpper = strtoupper(trim($order->order_status ?? ''));
                 if (in_array($statusUpper, ['CANCEL', 'CANCELLED', 'IN_CANCEL'])) {
-                    app(\App\Services\PayableService::class)->recordCancellationEvent($order, 'FAILED_DELIVERY');
+                    app(PayableService::class)->recordCancellationEvent($order, 'FAILED_DELIVERY');
                 } elseif (empty($statusUpper) || in_array($statusUpper, ['UNPAID', 'UNKNOWN', 'ON_HOLD'])) {
-                    \App\Models\PayableEvent::where('source_id', $order->order_sn)
+                    PayableEvent::where('source_id', $order->order_sn)
                         ->where('source_type', 'CREATE_ORDER')
                         ->delete();
                 } else {
-                    app(\App\Services\PayableService::class)->recordOrderEvent($order);
+                    app(PayableService::class)->recordOrderEvent($order);
                 }
             }
 
@@ -31,18 +35,18 @@ class Order extends Model
             $shouldNotify = false;
             if ($order->wasRecentlyCreated && $isPerluDikirim) {
                 $shouldNotify = true;
-            } elseif (!$order->wasRecentlyCreated && $order->isDirty('order_status')) {
+            } elseif (! $order->wasRecentlyCreated && $order->isDirty('order_status')) {
                 $oldStatus = strtoupper(trim($order->getOriginal('order_status')));
-                if (!in_array($oldStatus, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']) && $isPerluDikirim) {
+                if (! in_array($oldStatus, ['READY_TO_SHIP', 'PROCESSED', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION']) && $isPerluDikirim) {
                     $shouldNotify = true;
                 }
             }
 
             if ($shouldNotify) {
                 try {
-                    event(new \App\Events\OrderCreated($order));
+                    event(new OrderCreated($order));
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderCreated: " . $e->getMessage());
+                    Log::warning('Failed to broadcast OrderCreated: '.$e->getMessage());
                 }
             }
 
@@ -73,7 +77,7 @@ class Order extends Model
 
             // Broadcast only meaningful order-list changes. Bulk sync can save many
             // rows and would otherwise flood the browser with refresh events.
-            $shouldBroadcastUpdate = !$order->wasRecentlyCreated && $order->wasChanged([
+            $shouldBroadcastUpdate = ! $order->wasRecentlyCreated && $order->wasChanged([
                 'order_status',
                 'normalized_cancel_category',
                 'order_selling_price',
@@ -87,13 +91,14 @@ class Order extends Model
                 'fee_details',
                 'fulfillment_status',
                 'fulfillment_error',
+                'shipping_label_printed_at',
             ]);
 
             if ($shouldBroadcastUpdate) {
                 try {
-                    broadcast(new \App\Events\OrderUpdated($order));
+                    broadcast(new OrderUpdated($order));
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning("Failed to broadcast OrderUpdated: " . $e->getMessage());
+                    Log::warning('Failed to broadcast OrderUpdated: '.$e->getMessage());
                 }
             }
         });
@@ -134,6 +139,7 @@ class Order extends Model
         'fulfillment_error',
         'fulfillment_requested_at',
         'fulfillment_completed_at',
+        'shipping_label_printed_at',
         'created_at',
         'updated_at',
     ];
@@ -159,6 +165,7 @@ class Order extends Model
         'cancelled_at' => 'datetime',
         'fulfillment_requested_at' => 'datetime',
         'fulfillment_completed_at' => 'datetime',
+        'shipping_label_printed_at' => 'datetime',
     ];
 
     public function product()

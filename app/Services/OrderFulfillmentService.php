@@ -46,6 +46,8 @@ class OrderFulfillmentService
             'error' => $order->fulfillment_error,
             'requested_at' => $order->fulfillment_requested_at?->toIso8601String(),
             'completed_at' => $order->fulfillment_completed_at?->toIso8601String(),
+            'label_printed' => $order->shipping_label_printed_at !== null,
+            'label_printed_at' => $order->shipping_label_printed_at?->toIso8601String(),
         ];
     }
 

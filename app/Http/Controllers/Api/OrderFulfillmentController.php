@@ -93,6 +93,7 @@ class OrderFulfillmentController extends Controller
 
         try {
             $result = $fulfillment->label($order);
+            $order->forceFill(['shipping_label_printed_at' => now()])->save();
         } catch (RuntimeException $exception) {
             Log::warning('Shipping label could not be prepared', [
                 'order_id' => $order->id,
@@ -171,6 +172,10 @@ class OrderFulfillmentController extends Controller
                 'message' => 'Dokumen resi massal tidak tersedia untuk pilihan pesanan ini.',
             ], 422);
         }
+
+        Order::whereIn('id', $orders->pluck('id'))->update([
+            'shipping_label_printed_at' => now(),
+        ]);
 
         return response($result['body'], 200, [
             'Content-Type' => $result['content_type'],

@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderProduct;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\OrderFulfillmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -72,6 +73,19 @@ class FulfillmentDocumentTest extends TestCase
         ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('order_ids');
+    }
+
+    public function test_fulfillment_capabilities_expose_the_finesheet_print_history(): void
+    {
+        [, $orders] = $this->processedOrders(1);
+        $printedAt = now()->startOfSecond();
+        $order = $orders->first();
+        $order->forceFill(['shipping_label_printed_at' => $printedAt])->saveQuietly();
+
+        $capabilities = app(OrderFulfillmentService::class)->capabilities($order->fresh());
+
+        $this->assertTrue($capabilities['label_printed']);
+        $this->assertSame($printedAt->toIso8601String(), $capabilities['label_printed_at']);
     }
 
     private function processedOrders(int $count, string $status = 'PROCESSED'): array

@@ -99,7 +99,9 @@ function FulfillmentModal({ state, busy, onClose, onSubmit }) {
             <div className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800" onMouseDown={(event) => event.stopPropagation()}>
                 <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
                     <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white">Atur pengiriman</h3>
+                        <h3 className="font-bold text-slate-900 dark:text-white">
+                            {state.printAfterArrange ? "Atur pengiriman + cetak resi" : "Atur pengiriman"}
+                        </h3>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             {state.orderIds.length} pesanan akan diproses di latar belakang.
                         </p>
@@ -121,7 +123,7 @@ function FulfillmentModal({ state, busy, onClose, onSubmit }) {
                     <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">Batal</button>
                     <button type="button" disabled={busy} onClick={onSubmit} className="inline-flex items-center gap-2 rounded-lg bg-[#304674] px-4 py-2 text-sm font-semibold text-white hover:bg-[#263961] disabled:cursor-not-allowed disabled:opacity-50">
                         <span className={`material-symbols-rounded text-[18px] ${busy ? "animate-spin" : ""}`}>{busy ? "progress_activity" : "local_shipping"}</span>
-                        Proses pengiriman
+                        {state.printAfterArrange ? "Atur & siapkan resi" : "Proses pengiriman"}
                     </button>
                 </div>
             </div>
@@ -129,13 +131,15 @@ function FulfillmentModal({ state, busy, onClose, onSubmit }) {
     );
 }
 
-function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings, onArrange, onPrint, compact = false }) {
+function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings, onArrange, onArrangeAndPrint, onPrint, compact = false }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const menuButtonRef = useRef(null);
     const menuRef = useRef(null);
     const arrangeAvailable = canArrange && Boolean(order.fulfillment?.can_arrange);
     const printAvailable = canPrint && Boolean(order.fulfillment?.can_print);
+    const arrangeAndPrintAvailable = arrangeAvailable && canPrint;
+    const hasOverflowMenu = arrangeAvailable || canManageSettings;
 
     useEffect(() => {
         if (!menuOpen) return undefined;
@@ -177,13 +181,19 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
         window.location.hash = "#/fulfillment-settings";
     };
 
+    const handleArrange = (event) => {
+        event.stopPropagation();
+        setMenuOpen(false);
+        onArrange(order.id);
+    };
+
     if (!arrangeAvailable && !printAvailable) return null;
 
     return (
         <div
             className={`flex items-center gap-1.5 ${compact
                 ? "w-full"
-                : "min-w-[196px] justify-end rounded-xl border border-slate-200/90 bg-white/95 p-1.5 opacity-0 translate-y-1 pointer-events-none shadow-[0_12px_32px_rgba(15,23,42,0.16)] backdrop-blur-sm transition-[opacity,transform] duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto dark:border-slate-600 dark:bg-slate-800/95"
+                : `${arrangeAndPrintAvailable ? "min-w-[292px]" : "min-w-[196px]"} justify-end rounded-xl border border-slate-200/90 bg-white/95 p-1.5 opacity-0 translate-y-1 pointer-events-none shadow-[0_12px_32px_rgba(15,23,42,0.16)] backdrop-blur-sm transition-[opacity,transform] duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto dark:border-slate-600 dark:bg-slate-800/95`
             }`}
             onClick={(event) => event.stopPropagation()}
         >
@@ -192,15 +202,19 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                     type="button"
                     onClick={(event) => {
                         event.stopPropagation();
+                        if (arrangeAndPrintAvailable) {
+                            onArrangeAndPrint(order.id);
+                            return;
+                        }
                         onArrange(order.id);
                     }}
-                    title="Atur pengiriman"
-                    className={`group inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 ${compact ? "flex-1" : ""}`}
+                    title={arrangeAndPrintAvailable ? "Atur pengiriman + cetak resi" : "Atur pengiriman"}
+                    className={`group inline-flex min-h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-[#304674] bg-[#304674] px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:border-[#263961] hover:bg-[#263961] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#304674]/25 ${compact ? "flex-1" : ""}`}
                 >
                     <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/12 transition group-hover:bg-white/16">
                         <span className="material-symbols-rounded text-[17px]">local_shipping</span>
                     </span>
-                    Atur pengiriman
+                    {arrangeAndPrintAvailable ? "Atur pengiriman + cetak resi" : "Atur pengiriman"}
                 </button>
             ) : (
                 <button
@@ -218,7 +232,7 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                     Cetak resi
                 </button>
             )}
-            {canManageSettings && (
+            {hasOverflowMenu && (
                 <button
                     ref={menuButtonRef}
                     type="button"
@@ -232,19 +246,29 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                 </button>
             )}
 
-            {canManageSettings && menuOpen && typeof document !== "undefined" && createPortal(
+            {hasOverflowMenu && menuOpen && typeof document !== "undefined" && createPortal(
                 <div
                     ref={menuRef}
                     role="menu"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
                     className="fixed z-[520] w-52 overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)] dark:border-slate-600 dark:bg-slate-800"
                 >
-                    <button type="button" role="menuitem" onClick={handleSettings} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
-                            <span className="material-symbols-rounded text-[18px]">tune</span>
-                        </span>
-                        <span className="flex-1">Pengaturan pengiriman</span>
-                    </button>
+                    {arrangeAvailable && (
+                        <button type="button" role="menuitem" onClick={handleArrange} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
+                                <span className="material-symbols-rounded text-[18px]">local_shipping</span>
+                            </span>
+                            <span className="flex-1">Atur pengiriman</span>
+                        </button>
+                    )}
+                    {canManageSettings && (
+                        <button type="button" role="menuitem" onClick={handleSettings} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
+                                <span className="material-symbols-rounded text-[18px]">tune</span>
+                            </span>
+                            <span className="flex-1">Pengaturan fulfillment</span>
+                        </button>
+                    )}
                 </div>,
                 document.body,
             )}
@@ -356,6 +380,27 @@ function StatusBadge({ status, platform }) {
     return (
         <span className="text-xs font-bold text-gray-700 dark:text-gray-400">
             {label}
+        </span>
+    );
+}
+
+function PrintedLabelBadge({ printedAt }) {
+    const printedTime = printedAt
+        ? new Intl.DateTimeFormat("id-ID", {
+            dateStyle: "medium",
+            timeStyle: "short",
+        }).format(new Date(printedAt))
+        : null;
+
+    return (
+        <span
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+            title={printedTime
+                ? `Resi berhasil disiapkan melalui Finesheet pada ${printedTime}`
+                : "Resi pernah disiapkan melalui Finesheet"}
+        >
+            <span className="material-symbols-rounded text-[12px]" aria-hidden="true">print</span>
+            Dicetak di Finesheet
         </span>
     );
 }
@@ -992,6 +1037,8 @@ export default function OrderList() {
 
     const totalOrdersCount = Number(data?.pagination?.total ?? visibleOrders.length);
 
+    const isNeedsProcessingMode = selectedFilterId === "perlu_dikirim"
+        && selectedShippingProcess === "needs_processing";
     const isPickingListMode = selectedFilterId === "perlu_dikirim"
         && selectedShippingProcess === "processed";
     const canSelectForFulfillment = useCallback((order) => (
@@ -1029,14 +1076,36 @@ export default function OrderList() {
         setSelectedOrderIds(allEligibleSelected ? [] : eligibleOrders.map((order) => order.id));
     };
 
-    const beginArrange = async (orderIds = selectedOrderIds) => {
+    const beginArrange = (orderIds = selectedOrderIds, printAfterArrange = false) => {
         if (!orderIds.length) return;
-        setFulfillmentModal({ orderIds, error: null });
+        setFulfillmentModal({ orderIds, printAfterArrange, error: null });
     };
 
     const submitArrange = async () => {
         if (!fulfillmentModal?.orderIds?.length) return;
         const orderIds = [...fulfillmentModal.orderIds];
+        const printAfterArrange = Boolean(fulfillmentModal.printAfterArrange && canPrintLabels);
+        let labelPreviewWindow = null;
+
+        if (printAfterArrange) {
+            labelPreviewWindow = window.open("", `finesheet-labels-${Date.now()}`);
+            if (!labelPreviewWindow) {
+                setFulfillmentModal((current) => ({
+                    ...current,
+                    error: "Browser memblokir tab resi. Izinkan pop-up untuk Finesheet lalu coba kembali.",
+                }));
+                return;
+            }
+            labelPreviewWindow.opener = null;
+            renderDocumentPreparation(
+                labelPreviewWindow,
+                "Mengatur pengiriman",
+                "Resi akan disiapkan setelah marketplace mengonfirmasi pengiriman.",
+                "Tab ini akan diperbarui otomatis. Harap tidak menutupnya.",
+            );
+            updateDocumentPreparation(labelPreviewWindow, 8, "Mengirim pengaturan ke marketplace...");
+        }
+
         setFulfillmentBusy(true);
         try {
             const response = await axios.post("/api/orders/fulfillment/arrange", {
@@ -1060,17 +1129,25 @@ export default function OrderList() {
                         const pending = statuses.filter((item) => ["queued", "processing", "retrying"].includes(item.status));
 
                         if (failures.length > 0) {
+                            const failureMessage = failures.length === 1
+                                ? (failures[0].error || "Pengaturan pengiriman ditolak marketplace.")
+                                : `${failures.length} pesanan gagal diatur. ${failures[0].error || "Periksa kembali pengaturan toko."}`;
                             setFulfillmentNotice({
                                 type: "error",
-                                message: failures.length === 1
-                                    ? (failures[0].error || "Pengaturan pengiriman ditolak marketplace.")
-                                    : `${failures.length} pesanan gagal diatur. ${failures[0].error || "Periksa kembali pengaturan toko."}`,
+                                message: failureMessage,
                             });
+                            renderDocumentPreparationError(labelPreviewWindow, failureMessage);
                             fetchDataRef.current(true);
                             return;
                         }
 
                         if (pending.length === 0 && statuses.length === orderIds.length) {
+                            if (printAfterArrange) {
+                                updateDocumentPreparation(labelPreviewWindow, 18, "Pengiriman berhasil diatur. Menyiapkan resi...");
+                                await printLabels(orderIds, labelPreviewWindow);
+                                fetchDataRef.current(true);
+                                return;
+                            }
                             setFulfillmentNotice({
                                 type: "success",
                                 message: `${statuses.length} pengiriman berhasil diatur. Resi sekarang dapat dicetak.`,
@@ -1092,25 +1169,37 @@ export default function OrderList() {
                     type: "warning",
                     message: "Marketplace belum memberi konfirmasi setelah 60 detik. Proses tetap dipantau di latar belakang.",
                 });
+                renderDocumentPreparationError(
+                    labelPreviewWindow,
+                    "Marketplace belum memberi konfirmasi pengiriman. Coba cetak resi kembali setelah status pesanan diperbarui.",
+                );
                 fetchDataRef.current(true);
             })();
         } catch (error) {
+            const message = error.response?.data?.message
+                || Object.values(error.response?.data?.errors || {})?.[0]?.[0]
+                || "Pengaturan pengiriman gagal diproses.";
             setFulfillmentModal((current) => ({
                 ...current,
-                error: error.response?.data?.message
-                    || Object.values(error.response?.data?.errors || {})?.[0]?.[0]
-                    || "Pengaturan pengiriman gagal diproses.",
+                error: message,
             }));
+            renderDocumentPreparationError(labelPreviewWindow, message);
         } finally {
             setFulfillmentBusy(false);
         }
     };
 
-    const printLabels = async (orderIds = selectedOrderIds) => {
+    const printLabels = async (orderIds = selectedOrderIds, existingPreviewWindow = null) => {
         if (!orderIds.length) return;
 
         if (orderIds.length === 1) {
-            window.open(`/api/orders/${orderIds[0]}/shipping-label`, "_blank", "noopener,noreferrer");
+            if (existingPreviewWindow && !existingPreviewWindow.closed) {
+                updateDocumentPreparation(existingPreviewWindow, 100, "Resi siap dibuka.");
+                await wait(350);
+                existingPreviewWindow.location.replace(`/api/orders/${orderIds[0]}/shipping-label`);
+            } else {
+                window.open(`/api/orders/${orderIds[0]}/shipping-label`, "_blank", "noopener,noreferrer");
+            }
             setFulfillmentNotice({ type: "success", message: "Dokumen resi dibuka untuk dicetak." });
             setSelectedOrderIds([]);
             return;
@@ -1121,7 +1210,7 @@ export default function OrderList() {
             return;
         }
 
-        const previewWindow = window.open("", `finesheet-labels-${Date.now()}`);
+        const previewWindow = existingPreviewWindow || window.open("", `finesheet-labels-${Date.now()}`);
         if (!previewWindow) {
             setFulfillmentNotice({
                 type: "error",
@@ -1130,12 +1219,16 @@ export default function OrderList() {
             return;
         }
         previewWindow.opener = null;
-        renderDocumentPreparation(
-            previewWindow,
-            "Menyiapkan resi",
-            "Dokumen akan tampil otomatis di tab ini.",
-            "Semakin banyak resi yang dicetak mungkin akan membutuhkan waktu lebih lama. Harap bersabar.",
-        );
+        if (!existingPreviewWindow) {
+            renderDocumentPreparation(
+                previewWindow,
+                "Menyiapkan resi",
+                "Dokumen akan tampil otomatis di tab ini.",
+                "Semakin banyak resi yang dicetak mungkin akan membutuhkan waktu lebih lama. Harap bersabar.",
+            );
+        } else {
+            updateDocumentPreparation(previewWindow, 20, "Mengumpulkan dokumen resi...");
+        }
 
         setPrintingLabels(true);
         try {
@@ -1159,6 +1252,7 @@ export default function OrderList() {
                     await wait(450);
                     previewWindow.location.replace(job.download_url);
                     completed = true;
+                    fetchDataRef.current(true);
                     break;
                 }
 
@@ -1982,6 +2076,9 @@ export default function OrderList() {
                                                                                 Pengantaran Gagal
                                                                             </span>
                                                                         )}
+                                                                        {isPickingListMode && order.fulfillment?.label_printed && (
+                                                                            <PrintedLabelBadge printedAt={order.fulfillment.label_printed_at} />
+                                                                        )}
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 align-top">
@@ -2032,6 +2129,7 @@ export default function OrderList() {
                                                                             canPrint={canPrintLabels}
                                                                             canManageSettings={canManageFulfillmentSettings}
                                                                             onArrange={(id) => beginArrange([id])}
+                                                                            onArrangeAndPrint={(id) => beginArrange([id], true)}
                                                                             onPrint={(id) => printLabels([id])}
                                                                         />
                                                                     </div>
@@ -2238,6 +2336,9 @@ export default function OrderList() {
                                                                             Pengantaran Gagal
                                                                         </span>
                                                                     )}
+                                                                    {isPickingListMode && order.fulfillment?.label_printed && (
+                                                                        <PrintedLabelBadge printedAt={order.fulfillment.label_printed_at} />
+                                                                    )}
                                                                 </div>
                                                                 {order.packages && order.packages.length > 0 ? (
                                                                     <div className="mt-2 space-y-2">
@@ -2325,6 +2426,7 @@ export default function OrderList() {
                                                                 canPrint={canPrintLabels}
                                                                 canManageSettings={canManageFulfillmentSettings}
                                                                 onArrange={(id) => beginArrange([id])}
+                                                                onArrangeAndPrint={(id) => beginArrange([id], true)}
                                                                 onPrint={(id) => printLabels([id])}
                                                                 compact
                                                             />
@@ -2565,16 +2667,30 @@ export default function OrderList() {
                                         </button>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                                    <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
+                                        {isNeedsProcessingMode && canPrintLabels && selectedArrangeIds.length > 0 && (
+                                            <button
+                                                type="button"
+                                                disabled={!selectedArrangeIds.length}
+                                                onClick={() => beginArrange(selectedArrangeIds, true)}
+                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[#394670] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#2b3556] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-700"
+                                            >
+                                                <span className="material-symbols-rounded text-[18px]">local_shipping</span>
+                                                Atur Pengiriman + Cetak Resi{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
+                                            </button>
+                                        )}
                                         {selectedArrangeIds.length > 0 && (
                                             <button
                                                 type="button"
                                                 disabled={!selectedArrangeIds.length}
                                                 onClick={() => beginArrange(selectedArrangeIds)}
-                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[#394670] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#2b3556] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-700"
+                                                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-4 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:text-slate-300 ${isNeedsProcessingMode && canPrintLabels
+                                                    ? "border border-slate-200 bg-white text-slate-700 hover:border-[#304674] hover:text-[#304674] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-blue-400 dark:hover:text-blue-300"
+                                                    : "bg-[#394670] text-white hover:bg-[#2b3556] disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-700"
+                                                }`}
                                             >
                                                 <span className="material-symbols-rounded text-[18px]">local_shipping</span>
-                                                Atur kirim{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
+                                                Atur Pengiriman{selectedArrangeIds.length ? ` (${selectedArrangeIds.length})` : ""}
                                             </button>
                                         )}
                                         {selectedPickingListIds.length > 0 && (
