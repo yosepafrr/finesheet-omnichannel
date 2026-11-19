@@ -91,6 +91,30 @@ class OrderListFilterTest extends TestCase
             ->assertJsonPath('orders.0.store_name', 'Shopee Utama');
     }
 
+    public function test_processed_orders_can_be_filtered_to_labels_not_printed_in_finesheet(): void
+    {
+        $user = User::factory()->create();
+        $shopee = $this->createStore($user, 'Shopee', 'Shopee Utama', 'shop-label-1');
+        $tiktok = $this->createStore($user, 'Tiktokshop', 'TikTok Utama', 'shop-label-2');
+
+        $unprintedShopee = $this->createOrder($shopee, 'SHOPEE-UNPRINTED', 'PROCESSED', now()->subMinutes(3));
+        $printedShopee = $this->createOrder($shopee, 'SHOPEE-PRINTED', 'PROCESSED', now()->subMinutes(2));
+        $unprintedTiktok = $this->createOrder($tiktok, 'TIKTOK-UNPRINTED', 'AWAITING_COLLECTION', now()->subMinute());
+
+        Order::withoutEvents(function () use ($printedShopee) {
+            $printedShopee->update(['shipping_label_printed_at' => now()]);
+        });
+
+        $this->actingAs($user)
+            ->getJson('/api/orders?statuses=READY_TO_SHIP,AWAITING_SHIPMENT,AWAITING_COLLECTION,PROCESSED&shipping_process=processed&shipping_label_print_status=unprinted')
+            ->assertOk()
+            ->assertJsonPath('shipping_label_print_counts.all', 3)
+            ->assertJsonPath('shipping_label_print_counts.unprinted', 2)
+            ->assertJsonCount(2, 'orders')
+            ->assertJsonPath('orders.0.order_sn', 'TIKTOK-UNPRINTED')
+            ->assertJsonPath('orders.1.order_sn', 'SHOPEE-UNPRINTED');
+    }
+
     public function test_store_filter_accepts_multiple_owned_stores(): void
     {
         $user = User::factory()->create();

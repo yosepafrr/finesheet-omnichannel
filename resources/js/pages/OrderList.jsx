@@ -323,6 +323,11 @@ const SHIPPING_PROCESS_FILTERS = [
     { id: "processed", label: "Telah Diproses" },
 ];
 
+const SHIPPING_LABEL_PRINT_FILTERS = [
+    { id: "all", label: "Semua Resi" },
+    { id: "unprinted", label: "Belum Dicetak di Finesheet" },
+];
+
 const PLATFORM_CONFIG = {
     Shopee: {
         bg: "bg-orange-50 dark:bg-orange-500/10",
@@ -604,6 +609,9 @@ export default function OrderList() {
     const [selectedShippingProcess, setSelectedShippingProcess] = useState(
         () => initialNavigation?.selectedShippingProcess || initialSaved?.selectedShippingProcess || "needs_processing"
     );
+    const [selectedShippingLabelPrintStatus, setSelectedShippingLabelPrintStatus] = useState(
+        () => initialSaved?.selectedShippingLabelPrintStatus || "all"
+    );
     const [searchQuery, setSearchQuery] = useState(
         () => initialNavigation ? "" : initialSaved?.searchQuery || ""
     );
@@ -701,6 +709,7 @@ export default function OrderList() {
             selectedStoreIds,
             selectedPlatform,
             selectedShippingProcess,
+            selectedShippingLabelPrintStatus,
             searchQuery,
             limitByStore,
             pageByStore,
@@ -712,7 +721,7 @@ export default function OrderList() {
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, selectedShippingLabelPrintStatus, searchQuery, limitByStore, pageByStore, expandedOrders]);
 
     const handleNavigateToDetail = (orderId) => {
         const currentPos = getScrollTop();
@@ -736,7 +745,7 @@ export default function OrderList() {
         setPageByStore({});
         scrollPosRef.current = 0;
         setScrollTop(0);
-    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, excludeReturns]);
+    }, [searchQuery, selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, selectedShippingLabelPrintStatus, excludeReturns]);
 
     useEffect(() => {
         const timeout = setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 300);
@@ -749,7 +758,7 @@ export default function OrderList() {
         if (!isInitialMount.current) {
             saveStateToStorage();
         }
-    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
+    }, [selectedFilterId, selectedCancelCategory, selectedStoreIds, selectedPlatform, selectedShippingProcess, selectedShippingLabelPrintStatus, searchQuery, limitByStore, pageByStore, expandedOrders, saveStateToStorage]);
 
     // Track scroll events
     useEffect(() => {
@@ -855,6 +864,13 @@ export default function OrderList() {
                 if (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "all") {
                     params.shipping_process = selectedShippingProcess;
                 }
+                if (
+                    selectedFilterId === "perlu_dikirim"
+                    && selectedShippingProcess === "processed"
+                    && selectedShippingLabelPrintStatus === "unprinted"
+                ) {
+                    params.shipping_label_print_status = selectedShippingLabelPrintStatus;
+                }
                 if (selectedFilterId === "batal" && selectedCancelCategory && selectedCancelCategory !== "all") {
                     params.cancel_category = selectedCancelCategory;
                 }
@@ -890,6 +906,7 @@ export default function OrderList() {
         selectedStoreIds,
         selectedPlatform,
         selectedShippingProcess,
+        selectedShippingLabelPrintStatus,
         debouncedSearchQuery,
         excludeReturns,
         requestedPage,
@@ -1374,6 +1391,7 @@ export default function OrderList() {
         setSelectedStoreIds([]);
         setSelectedPlatform("all");
         setSelectedShippingProcess("needs_processing");
+        setSelectedShippingLabelPrintStatus("all");
     };
 
     const hasActiveFilter =
@@ -1382,7 +1400,8 @@ export default function OrderList() {
         (selectedFilterId === "batal" && selectedCancelCategory !== "all") ||
         selectedStoreIds.length > 0 ||
         selectedPlatform !== "all" ||
-        (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "needs_processing");
+        (selectedFilterId === "perlu_dikirim" && selectedShippingProcess !== "needs_processing") ||
+        (selectedFilterId === "perlu_dikirim" && selectedShippingProcess === "processed" && selectedShippingLabelPrintStatus !== "all");
 
     const selectedStoreOption = selectedStoreIds.length === 1
         ? data?.stores?.find((store) => String(store.id) === selectedStoreIds[0])
@@ -1667,7 +1686,53 @@ export default function OrderList() {
                                                 <button
                                                     key={filter.id}
                                                     type="button"
-                                                    onClick={() => setSelectedShippingProcess(filter.id)}
+                                                    onClick={() => {
+                                                        setSelectedShippingProcess(filter.id);
+                                                        if (filter.id !== "processed") {
+                                                            setSelectedShippingLabelPrintStatus("all");
+                                                        }
+                                                    }}
+                                                    className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
+                                                        ? "border-[#304674] bg-[#304674] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600"
+                                                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                        }`}
+                                                >
+                                                    {filter.label}
+                                                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${isActive
+                                                        ? "bg-white/20 text-white"
+                                                        : "bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-300"
+                                                        }`}
+                                                    >
+                                                        {count}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            <AnimatePresence initial={false}>
+                                {selectedFilterId === "perlu_dikirim" && selectedShippingProcess === "processed" && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.15 }}
+                                        className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar"
+                                    >
+                                        <span className="mr-1 shrink-0 text-xs font-semibold text-gray-400 dark:text-slate-500">
+                                            Status Resi:
+                                        </span>
+                                        {SHIPPING_LABEL_PRINT_FILTERS.map((filter) => {
+                                            const isActive = selectedShippingLabelPrintStatus === filter.id;
+                                            const count = data?.shipping_label_print_counts?.[filter.id] || 0;
+
+                                            return (
+                                                <button
+                                                    key={filter.id}
+                                                    type="button"
+                                                    onClick={() => setSelectedShippingLabelPrintStatus(filter.id)}
                                                     className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
                                                         ? "border-[#304674] bg-[#304674] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600"
                                                         : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"

@@ -142,6 +142,7 @@ class OrderController extends Controller
         $shippingCounts = (clone $baseQuery)
             ->selectRaw("SUM(CASE WHEN (platform IN ('Shopee', 'shopee', 'SHOPEE') AND order_status = 'READY_TO_SHIP') OR (platform IN ('Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok') AND order_status = 'AWAITING_SHIPMENT') THEN 1 ELSE 0 END) AS needs_processing_count")
             ->selectRaw("SUM(CASE WHEN (platform IN ('Shopee', 'shopee', 'SHOPEE') AND order_status = 'PROCESSED') OR (platform IN ('Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok') AND order_status = 'AWAITING_COLLECTION') THEN 1 ELSE 0 END) AS processed_count")
+            ->selectRaw("SUM(CASE WHEN ((platform IN ('Shopee', 'shopee', 'SHOPEE') AND order_status = 'PROCESSED') OR (platform IN ('Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok') AND order_status = 'AWAITING_COLLECTION')) AND shipping_label_printed_at IS NULL THEN 1 ELSE 0 END) AS unprinted_label_count")
             ->first();
         $shippingProcessCounts = [
             'needs_processing' => (int) ($shippingCounts->needs_processing_count ?? 0),
@@ -149,6 +150,10 @@ class OrderController extends Controller
         ];
         $shippingProcessCounts['all'] = $shippingProcessCounts['needs_processing']
             + $shippingProcessCounts['processed'];
+        $shippingLabelPrintCounts = [
+            'all' => $shippingProcessCounts['processed'],
+            'unprinted' => (int) ($shippingCounts->unprinted_label_count ?? 0),
+        ];
 
         $query = (clone $baseQuery)
             ->with([
@@ -192,6 +197,10 @@ class OrderController extends Controller
 
         if ($request->filled('shipping_process')) {
             $applyShippingProcessFilter($query, (string) $request->input('shipping_process'));
+        }
+
+        if ($request->input('shipping_label_print_status') === 'unprinted') {
+            $query->whereNull('shipping_label_printed_at');
         }
 
         // Filter by cancel category
@@ -257,6 +266,7 @@ class OrderController extends Controller
             'status_counts' => $statusCounts,
             'cancel_sub_counts' => $cancelSubCounts,
             'shipping_process_counts' => $shippingProcessCounts,
+            'shipping_label_print_counts' => $shippingLabelPrintCounts,
             'stores' => $stores->map(function ($store) {
                 return [
                     'id' => $store->id,
