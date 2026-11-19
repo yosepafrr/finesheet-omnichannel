@@ -1079,14 +1079,37 @@ class PayableController extends Controller
             ],
         ]);
 
-        $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
-
         $supplierId = $validated['supplier_id'] ?? null;
         if (! $supplierId) {
             $userSuppliers = Supplier::where('user_id', $userId)->pluck('id');
             if ($userSuppliers->count() === 1) {
                 $supplierId = $userSuppliers->first();
             }
+        }
+
+        if ($id === 'latest') {
+            if (! $supplierId) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Pilih supplier terlebih dahulu.',
+                ], 422);
+            }
+
+            $supplier = Supplier::where('user_id', $userId)->findOrFail($supplierId);
+            $period = app(PayableService::class)->getPeriodForDate(
+                Carbon::parse($validated['payment_date']),
+                $userId,
+                $supplier,
+            );
+
+            if (! $period) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Supplier belum memiliki konfigurasi periode untuk tanggal tersebut.',
+                ], 422);
+            }
+        } else {
+            $period = PayablePeriod::where('user_id', $userId)->findOrFail($id);
         }
 
         $payment = PayablePayment::create([

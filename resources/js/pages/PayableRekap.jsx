@@ -1164,7 +1164,7 @@ export default function PayableRekap() {
             fetchPeriods(true);
             fetchSuppliers();
         } catch (error) {
-            toast.error("Gagal mencatat hutang supplier");
+            toast.error(error.response?.data?.message || "Gagal mencatat hutang supplier");
         }
     };
 

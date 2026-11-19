@@ -112,6 +112,43 @@ class PayableAllSuppliersTest extends TestCase
         ]);
     }
 
+    public function test_supplier_debt_from_all_suppliers_view_resolves_the_selected_suppliers_period(): void
+    {
+        $user = User::factory()->create();
+        $supplierA = Supplier::create(['user_id' => $user->id, 'name' => 'Supplier A']);
+        $supplierB = Supplier::create(['user_id' => $user->id, 'name' => 'Supplier B']);
+        $this->createPeriod($user, $supplierA, 'Supplier A Period', 'UNPAID', '2026-11-01');
+        $supplierBPeriod = $this->createPeriod($user, $supplierB, 'Supplier B Period', 'UNPAID', '2026-11-01');
+
+        $response = $this->actingAs($user)->postJson('/api/payable/periods/latest/payments', [
+            'supplier_id' => $supplierB->id,
+            'payment_date' => '2026-11-05',
+            'amount' => 150000,
+            'payment_method' => 'Pinjaman uang',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('payable_payments', [
+            'id' => $response->json('data.id'),
+            'supplier_id' => $supplierB->id,
+            'payable_period_id' => $supplierBPeriod->id,
+            'amount' => 150000,
+        ]);
+    }
+
+    public function test_supplier_debt_from_all_suppliers_view_requires_a_supplier(): void
+    {
+        $user = User::factory()->create();
+        Supplier::create(['user_id' => $user->id, 'name' => 'Supplier A']);
+        Supplier::create(['user_id' => $user->id, 'name' => 'Supplier B']);
+
+        $this->actingAs($user)->postJson('/api/payable/periods/latest/payments', [
+            'payment_date' => '2026-11-05',
+            'amount' => 150000,
+            'payment_method' => 'Pinjaman uang',
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Pilih supplier terlebih dahulu.');
+    }
+
     private function createPeriod(
         User $user,
         Supplier $supplier,
