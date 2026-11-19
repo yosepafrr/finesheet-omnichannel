@@ -12,15 +12,16 @@ export const PAGE_PERMISSIONS = {
     "/fulfillment-settings": "fulfillment.settings.manage",
     "/profit-tracker": "finance.profit.view",
     "/payable": "finance.payable.manage",
+    "/balance-sheet": "finance.cashflow.manage",
     "/cashflow": "finance.cashflow.manage",
 };
 
 const ROUTE_PRIORITY = {
     order_operations: ["/orders", "/fulfillment-settings", "/stores"],
     product_operations: ["/products", "/stock-management", "/stores"],
-    finance_operations: ["/profit-tracker", "/payable", "/cashflow", "/orders"],
+    finance_operations: ["/profit-tracker", "/payable", "/balance-sheet", "/cashflow", "/orders"],
     read_only: ["/dashboard", "/orders", "/products", "/stock-management", "/stores"],
-    custom: ["/dashboard", "/orders", "/products", "/stock-management", "/stores", "/profit-tracker", "/payable", "/cashflow"],
+    custom: ["/dashboard", "/orders", "/products", "/stock-management", "/stores", "/profit-tracker", "/payable", "/balance-sheet", "/cashflow"],
 };
 
 export function getDefaultAccessRoute(access = {}) {

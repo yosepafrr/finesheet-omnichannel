@@ -28,7 +28,7 @@ const LAYOUT_META = {
     },
     finance_operations: {
         label: "Finance",
-        description: "Pantau profit serta kelola transaksi supplier dan cashflow tanpa akses operasional lain.",
+        description: "Pantau profit serta kelola transaksi supplier, balance sheet, dan cashflow tanpa akses operasional lain.",
         icon: Landmark,
     },
     read_only: {

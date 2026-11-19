@@ -20,7 +20,7 @@ $permissions = [
     'fulfillment.settings.manage' => ['group' => 'Pesanan', 'label' => 'Kelola pengaturan fulfillment toko'],
     'finance.profit.view' => ['group' => 'Keuangan', 'label' => 'Lihat Profit Tracker'],
     'finance.payable.manage' => ['group' => 'Keuangan', 'label' => 'Kelola transaksi supplier'],
-    'finance.cashflow.manage' => ['group' => 'Keuangan', 'label' => 'Kelola cashflow'],
+    'finance.cashflow.manage' => ['group' => 'Keuangan', 'label' => 'Kelola balance sheet dan cashflow'],
 ];
 
 return [

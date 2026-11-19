@@ -31,6 +31,7 @@ const ProductList = lazy(() => import('./pages/ProductList'));
 const OrderList = lazy(() => import('./pages/OrderList'));
 const ProfitTracker = lazy(() => import('./pages/ProfitTracker'));
 const PayableRekap = lazy(() => import('./pages/PayableRekap'));
+const BalanceSheet = lazy(() => import('./pages/BalanceSheet'));
 const Cashflow = lazy(() => import('./pages/Cashflow'));
 const MeetCreators = lazy(() => import('./pages/MeetCreators'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -55,6 +56,7 @@ const routes = {
     '/orders': OrderList,
     '/profit-tracker': ProfitTracker,
     '/payable': PayableRekap,
+    '/balance-sheet': BalanceSheet,
     '/cashflow': Cashflow,
     '/meet-the-creators': MeetCreators,
     '/profile': Profile,

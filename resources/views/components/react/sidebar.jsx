@@ -232,7 +232,7 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                     {(can('finance.profit.view') || can('finance.payable.manage') || can('finance.cashflow.manage')) && <div>
                         <button
                             onClick={() => toggleMenu("finance")}
-                            className={expandListClass("finance", ['/profit-tracker', '/cashflow', '/payable'])}
+                            className={expandListClass("finance", ['/profit-tracker', '/payable', '/balance-sheet', '/cashflow'])}
                         >
                             <div className="flex items-center gap-3">
                                 <span className="material-symbols-rounded text-xl shrink-0">
@@ -268,6 +268,13 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                                     className={submenuItemClass('/payable')}
                                 >
                                     Suppliers Transactions
+                                </a>}
+                                {can('finance.cashflow.manage') && <a
+                                    href="#/balance-sheet"
+                                    onClick={(e) => handleNav(e, '/balance-sheet')}
+                                    className={submenuItemClass('/balance-sheet')}
+                                >
+                                    Balance Sheet
                                 </a>}
                                 {can('finance.cashflow.manage') && <a
                                     href="#/cashflow"

@@ -70,6 +70,7 @@ class CashflowService
                 'supplier_id' => (int) $supplierId,
                 'supplier_name' => $suppliers->get($supplierId)?->name ?: 'Supplier tidak diketahui',
                 'amount' => $amount,
+                'source' => 'supplier_transactions',
             ];
         })->filter(fn (array $item) => $item['amount'] > 0)
             ->sortByDesc('amount')

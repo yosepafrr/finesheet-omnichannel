@@ -288,7 +288,8 @@ function EmptyRows({ label }) {
     return <div className="px-4 py-7 text-center text-sm text-slate-400">{label}</div>;
 }
 
-export default function Cashflow() {
+export default function Cashflow({ view = "cashflow" }) {
+    const isBalanceSheet = view === "balance-sheet";
     const [baseData, setData] = useState(null);
     const [profitTransactions, setProfitTransactions] = useState([]);
     const [profitLoading, setProfitLoading] = useState(false);
@@ -341,6 +342,23 @@ export default function Cashflow() {
     useEffect(() => { loadData(); }, [loadData]);
 
     useEffect(() => {
+        if (!isBalanceSheet) return undefined;
+
+        const refreshSupplierPayables = () => loadData(true, false, true);
+        window.addEventListener("payable-updated", refreshSupplierPayables);
+
+        return () => window.removeEventListener("payable-updated", refreshSupplierPayables);
+    }, [isBalanceSheet, loadData]);
+
+    useEffect(() => {
+        if (isBalanceSheet) {
+            setProfitTransactions([]);
+            setProfitProgress({ ready: 0, total: 0 });
+            setProfitLoading(false);
+            setProfitLoadFailed(false);
+            return undefined;
+        }
+
         let cancelled = false;
         let pollTimer = null;
 
@@ -391,7 +409,7 @@ export default function Cashflow() {
             cancelled = true;
             if (pollTimer) window.clearTimeout(pollTimer);
         };
-    }, [startDate, endDate, profitRefreshKey]);
+    }, [startDate, endDate, profitRefreshKey, isBalanceSheet]);
 
     const applyPeriod = (value) => {
         setPeriod(value);
@@ -578,22 +596,27 @@ export default function Cashflow() {
                 <div className="mx-auto max-w-[1600px] space-y-6">
                     <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Cashflow</h1>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau posisi keuangan dan catat pergerakan dana usaha.</p>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{isBalanceSheet ? "Balance Sheet" : "Cashflow"}</h1>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                {isBalanceSheet
+                                    ? "Pantau posisi kas, aset, utang, piutang, dan kekayaan bersih."
+                                    : "Pantau pemasukan, pengeluaran, dan arus kas bersih usaha."}
+                            </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => { loadData(true, true); forceProfitRefreshRef.current = true; setProfitRefreshKey((current) => current + 1); }} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                            <button type="button" onClick={() => { loadData(true, isBalanceSheet); if (!isBalanceSheet) { forceProfitRefreshRef.current = true; setProfitRefreshKey((current) => current + 1); } }} disabled={refreshing} className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Perbarui
                             </button>
-                            <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">
+                            {isBalanceSheet && <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">
                                 <Plus className="h-4 w-4" /> Akun atau aset
-                            </button>
-                            <button type="button" onClick={() => openTransaction()} className="flex h-10 items-center gap-2 rounded-md bg-[#304674] px-4 text-sm font-semibold text-white transition hover:bg-[#26395f] active:translate-y-px">
+                            </button>}
+                            {!isBalanceSheet && <button type="button" onClick={() => openTransaction()} className="flex h-10 items-center gap-2 rounded-md bg-[#304674] px-4 text-sm font-semibold text-white transition hover:bg-[#26395f] active:translate-y-px">
                                 <Plus className="h-4 w-4" /> Catat transaksi
-                            </button>
+                            </button>}
                         </div>
                     </header>
 
+                    {isBalanceSheet && <>
                     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700 sm:px-5">
                             <div>
@@ -660,7 +683,13 @@ export default function Cashflow() {
                                 </div>
                                 {data?.supplier_payables?.map((item) => (
                                     <div key={`supplier-${item.supplier_id}`} className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm dark:border-slate-800">
-                                        <div className="min-w-0"><p className="truncate font-semibold text-slate-700 dark:text-slate-200">{item.supplier_name}</p><p className="text-xs text-slate-400">Tagihan supplier otomatis</p></div>
+                                        <div className="min-w-0">
+                                            <p className="truncate font-semibold text-slate-700 dark:text-slate-200">{item.supplier_name}</p>
+                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Utang berjalan</span>
+                                                <span className="text-xs text-slate-400">Dari Supplier Transactions</span>
+                                            </div>
+                                        </div>
                                         <strong className="shrink-0 text-slate-800 dark:text-white">{formatRp(item.amount)}</strong>
                                     </div>
                                 ))}
@@ -691,7 +720,9 @@ export default function Cashflow() {
                             </div>
                         </div>
                     </section>
+                    </>}
 
+                    {!isBalanceSheet && (
                     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
                             <div>
@@ -734,6 +765,7 @@ export default function Cashflow() {
                             </table>
                         </div>
                     </section>
+                    )}
                 </div>
             </main>
 

@@ -127,7 +127,41 @@ class CashflowTest extends TestCase
             ->assertJsonPath('data.summary.total_debt', 3000000)
             ->assertJsonPath('data.summary.net_worth', 9000000)
             ->assertJsonPath('data.supplier_payables.0.supplier_name', 'Supplier A')
-            ->assertJsonPath('data.supplier_payables.0.amount', 3000000);
+            ->assertJsonPath('data.supplier_payables.0.amount', 3000000)
+            ->assertJsonPath('data.supplier_payables.0.source', 'supplier_transactions');
+    }
+
+    public function test_paid_supplier_period_is_not_counted_as_current_debt(): void
+    {
+        $user = User::factory()->create();
+        $supplier = Supplier::create(['user_id' => $user->id, 'name' => 'Supplier Lunas']);
+        $period = PayablePeriod::withoutEvents(fn () => PayablePeriod::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'name' => 'Periode lunas',
+            'start_date' => '2026-10-01 00:00:00',
+            'end_date' => '2026-10-31 23:59:59',
+            'payment_status' => 'PAID',
+            'is_closed' => true,
+            'is_manual' => false,
+        ]));
+        PayableEvent::withoutEvents(fn () => PayableEvent::create([
+            'user_id' => $user->id,
+            'supplier_id' => $supplier->id,
+            'payable_period_id' => $period->id,
+            'platform' => 'Shopee',
+            'source_id' => 'PAID-ORDER-1',
+            'source_type' => 'CREATE_ORDER',
+            'event_date' => '2026-10-15 10:00:00',
+            'amount' => 1500000,
+        ]));
+
+        $this->actingAs($user)
+            ->getJson('/api/cashflow?start_date=2026-10-01&end_date=2026-10-31')
+            ->assertOk()
+            ->assertJsonPath('data.summary.supplier_payable', 0)
+            ->assertJsonPath('data.summary.total_debt', 0)
+            ->assertJsonCount(0, 'data.supplier_payables');
     }
 
     public function test_user_cannot_update_another_users_financial_account(): void

@@ -4,7 +4,7 @@ import AppLayout from "../../views/components/layouts/AppLayout";
 const CREATORS = [
     {
         name: "Yosep Adriana Fauzi R",
-        role: "Undergraduate Computer Science Student",
+        role: "Entrepreneur, Software Engineer, AI, Tech and Finance Enthusiast",
         image: "/images/yosep.jpg",
         bio: "Arsitek di balik logika sistem backend dan manajemen database. Mengubah kopi menjadi kode yang efisien.",
         stack: ["Laravel", "PostgreSQL", "React"],
@@ -12,18 +12,6 @@ const CREATORS = [
             github: "https://github.com/yosepafrr",
             linkedin: "https://linkedin.com/in/",
             email: "yosep.adrianaa@gmail.com",
-        },
-    },
-    {
-        name: "Nama Creator 2",
-        role: "UI/UX & Frontend Dev",
-        image: "https://ui-avatars.com/api/?name=Creator+Two&background=1e2f50&color=fff&size=512",
-        bio: "Pencipta antarmuka yang memanjakan mata. Fokus pada pengalaman pengguna yang mulus dan interaktif.",
-        stack: ["Tailwind", "Alpine.js", "Figma"],
-        social: {
-            github: "https://github.com/",
-            linkedin: "https://linkedin.com/in/",
-            email: "creator2@example.com",
         },
     },
 ];
@@ -86,18 +74,13 @@ function CopyEmailButton({ email }) {
 export default function MeetCreators() {
     return (
         <AppLayout>
-            <div className="min-h-screen bg-gray-50/50 dark:bg-slate-900 relative overflow-hidden transition-colors duration-300">
-                {/* Animated Blobs */}
-                <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-100 dark:bg-blue-900/30 rounded-full mix-blend-multiply dark:mix-blend-normal filter blur-3xl opacity-30 animate-blob"></div>
-                <div className="absolute top-0 right-1/4 w-96 h-96 bg-purple-100 dark:bg-purple-900/30 rounded-full mix-blend-multiply dark:mix-blend-normal filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-
-                <div className="max-w-6xl mx-auto px-6 py-16 relative z-10">
+            <div className="min-h-screen bg-gray-50/50 dark:bg-slate-900 transition-colors duration-300">
+                <div className="max-w-6xl mx-auto px-6 py-16">
 
                     {/* Hero */}
                     <div className="text-center max-w-2xl mx-auto mb-20">
-                        <span className="text-[#304674] dark:text-blue-400 font-bold tracking-wider uppercase text-xs bg-blue-50 dark:bg-blue-500/10 px-3 py-1 rounded-full mb-4 inline-block">The Masterminds</span>
-                        <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 dark:text-white tracking-tight mb-6">
-                            Bertemu dengan <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#304674] to-purple-600 dark:from-blue-400 dark:to-purple-400">Kreator.</span>
+                        <h1 className="text-4xl md:text-5xl text-gray-900 dark:text-white tracking-tight mb-6">
+                            Bertemu dengan <span className="font-bold dark:text-blue-400">Kreator.</span>
                         </h1>
                         <p className="text-gray-500 dark:text-slate-400 text-lg leading-relaxed">
                             Di balik sistem yang efisien, ada pemikiran yang berdedikasi. Kami membangun platform ini untuk menyederhanakan bisnis Kamu.
@@ -105,26 +88,27 @@ export default function MeetCreators() {
                     </div>
 
                     {/* Creator Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
+                    <div className="max-w-3xl mx-auto">
                         {CREATORS.map((creator, idx) => (
                             <div key={idx} className="group relative bg-white dark:bg-slate-800 rounded-[2rem] p-8 shadow-xl shadow-gray-100 dark:shadow-slate-900/50 border border-gray-100 dark:border-slate-700 hover:border-[#304674]/30 dark:hover:border-blue-500/30 hover:shadow-2xl hover:shadow-[#304674]/10 dark:hover:shadow-blue-900/20 transition-all duration-500 ease-out hover:-translate-y-2">
 
                                 {/* Avatar */}
                                 <div className="relative w-32 h-32 mx-auto mb-6">
-                                    <div className="absolute inset-0 bg-gradient-to-tr from-[#304674] to-purple-500 rounded-full blur opacity-40 group-hover:opacity-60 transition-opacity duration-500"></div>
+                                    <div className="absolute -inset-2 rounded-full bg-[#304674]/10 dark:bg-blue-400/10 transition-colors duration-500 group-hover:bg-[#304674]/15 dark:group-hover:bg-blue-400/15"></div>
                                     <img
                                         src={creator.image}
                                         alt={creator.name}
                                         className="relative w-full h-full object-cover rounded-full border-4 border-white dark:border-slate-700 shadow-md group-hover:scale-105 transition-transform duration-500"
                                     />
-                                    <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 px-4 py-1 rounded-full shadow-sm border border-gray-100 dark:border-slate-700 whitespace-nowrap">
-                                        <span className="text-xs font-bold text-[#304674] dark:text-blue-400 tracking-wide">{creator.role}</span>
-                                    </div>
                                 </div>
 
                                 {/* Info */}
                                 <div className="text-center mt-8">
                                     <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{creator.name}</h3>
+
+                                    <p className="mx-auto mb-5 max-w-xl text-sm font-semibold leading-relaxed text-[#304674] dark:text-blue-400">
+                                        {creator.role}
+                                    </p>
 
                                     <div className="flex justify-center gap-2 mb-6">
                                         {creator.stack.map((tech, i) => (
@@ -155,7 +139,7 @@ export default function MeetCreators() {
 
                     {/* Mission Section */}
                     <div className="mt-24 bg-white dark:bg-slate-800 rounded-3xl p-8 md:p-12 border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-[#304674] dark:bg-blue-400"></div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                             <div>
@@ -191,16 +175,6 @@ export default function MeetCreators() {
                 </div>
             </div>
 
-            <style>{`
-                @keyframes blob {
-                    0% { transform: translate(0px, 0px) scale(1); }
-                    33% { transform: translate(30px, -50px) scale(1.1); }
-                    66% { transform: translate(-20px, 20px) scale(0.9); }
-                    100% { transform: translate(0px, 0px) scale(1); }
-                }
-                .animate-blob { animation: blob 7s infinite; }
-                .animation-delay-2000 { animation-delay: 2s; }
-            `}</style>
         </AppLayout>
     );
 }
