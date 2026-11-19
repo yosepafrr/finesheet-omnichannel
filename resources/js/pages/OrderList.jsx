@@ -624,6 +624,7 @@ export default function OrderList() {
     const [copiedSn, setCopiedSn] = useState(null);
     const [excludeReturns, setExcludeReturns] = useState(false);
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+    const [selectedOrderRecords, setSelectedOrderRecords] = useState({});
     const [fulfillmentModal, setFulfillmentModal] = useState(null);
     const [fulfillmentBusy, setFulfillmentBusy] = useState(false);
     const [printingLabels, setPrintingLabels] = useState(false);
@@ -1049,31 +1050,66 @@ export default function OrderList() {
     const eligibleOrders = visibleOrders.filter((order) => canSelectForFulfillment(order));
     const allEligibleSelected = eligibleOrders.length > 0
         && eligibleOrders.every((order) => selectedOrderIds.includes(order.id));
-    const selectedOrders = visibleOrders.filter((order) => selectedOrderIds.includes(order.id));
-    const selectedArrangeIds = selectedOrders
-        .filter((order) => canArrangeShipping && order.fulfillment?.can_arrange)
-        .map((order) => order.id);
-    const selectedPrintIds = selectedOrders
-        .filter((order) => canPrintLabels && order.fulfillment?.can_print)
-        .map((order) => order.id);
-    const selectedPickingListIds = isPickingListMode
-        ? selectedOrders.map((order) => order.id)
-        : [];
+    const selectedRecords = selectedOrderIds
+        .map((id) => selectedOrderRecords[id])
+        .filter(Boolean);
+    const selectedArrangeIds = selectedRecords
+        .filter((record) => record.canArrange)
+        .map((record) => record.order.id);
+    const selectedPrintIds = selectedRecords
+        .filter((record) => record.canPrint)
+        .map((record) => record.order.id);
+    const selectedPickingListIds = selectedRecords
+        .filter((record) => record.canPrintPickingList)
+        .map((record) => record.order.id);
 
-    useEffect(() => {
-        const visibleEligibleIds = new Set(visibleOrders.filter((order) => canSelectForFulfillment(order)).map((order) => order.id));
-        setSelectedOrderIds((current) => current.filter((id) => visibleEligibleIds.has(id)));
-    }, [data, canSelectForFulfillment]);
+    const buildSelectedOrderRecord = (order) => ({
+        order,
+        canArrange: canArrangeShipping && Boolean(order.fulfillment?.can_arrange),
+        canPrint: canPrintLabels && Boolean(order.fulfillment?.can_print),
+        canPrintPickingList: canPrintLabels && isPickingListMode,
+    });
+
+    const clearSelectedOrders = useCallback(() => {
+        setSelectedOrderIds([]);
+        setSelectedOrderRecords({});
+    }, []);
 
     const toggleOrderSelection = (order) => {
         if (!canSelectForFulfillment(order)) return;
-        setSelectedOrderIds((current) => current.includes(order.id)
+        const isSelected = selectedOrderIds.includes(order.id);
+
+        setSelectedOrderIds((current) => isSelected
             ? current.filter((id) => id !== order.id)
             : [...current, order.id]);
+        setSelectedOrderRecords((current) => {
+            const next = { ...current };
+            if (isSelected) {
+                delete next[order.id];
+            } else {
+                next[order.id] = buildSelectedOrderRecord(order);
+            }
+            return next;
+        });
     };
 
     const toggleAllEligible = () => {
-        setSelectedOrderIds(allEligibleSelected ? [] : eligibleOrders.map((order) => order.id));
+        const eligibleIds = new Set(eligibleOrders.map((order) => order.id));
+
+        setSelectedOrderIds((current) => allEligibleSelected
+            ? current.filter((id) => !eligibleIds.has(id))
+            : [...new Set([...current, ...eligibleIds])]);
+        setSelectedOrderRecords((current) => {
+            const next = { ...current };
+            eligibleOrders.forEach((order) => {
+                if (allEligibleSelected) {
+                    delete next[order.id];
+                } else {
+                    next[order.id] = buildSelectedOrderRecord(order);
+                }
+            });
+            return next;
+        });
     };
 
     const beginArrange = (orderIds = selectedOrderIds, printAfterArrange = false) => {
@@ -1113,7 +1149,7 @@ export default function OrderList() {
             });
             setFulfillmentNotice({ type: "success", message: `${response.data.message} Menunggu konfirmasi marketplace...` });
             setFulfillmentModal(null);
-            setSelectedOrderIds([]);
+            clearSelectedOrders();
             fetchDataRef.current(true);
 
             void (async () => {
@@ -1201,7 +1237,7 @@ export default function OrderList() {
                 window.open(`/api/orders/${orderIds[0]}/shipping-label`, "_blank", "noopener,noreferrer");
             }
             setFulfillmentNotice({ type: "success", message: "Dokumen resi dibuka untuk dicetak." });
-            setSelectedOrderIds([]);
+            clearSelectedOrders();
             return;
         }
 
@@ -1267,7 +1303,7 @@ export default function OrderList() {
                 type: "success",
                 message: `${orderIds.length} resi berhasil dibuka di tab baru.`,
             });
-            setSelectedOrderIds([]);
+            clearSelectedOrders();
         } catch (error) {
             const message = error.response?.data?.message || error.message || "Dokumen resi massal gagal disiapkan.";
             renderDocumentPreparationError(previewWindow, message);
@@ -2654,7 +2690,7 @@ export default function OrderList() {
                                 <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                                     <div className="flex items-center justify-between gap-4 sm:justify-start">
                                         <div className="flex items-center gap-3">
-                                            <button type="button" onClick={() => setSelectedOrderIds([])} className="flex h-8 w-8 items-center justify-center rounded-md bg-[#394670] text-white hover:bg-[#2b3556]" title="Batalkan pilihan">
+                                            <button type="button" onClick={clearSelectedOrders} className="flex h-8 w-8 items-center justify-center rounded-md bg-[#394670] text-white hover:bg-[#2b3556]" title="Batalkan pilihan">
                                                 <span className="material-symbols-rounded text-[18px]">remove</span>
                                             </button>
                                             <div>
