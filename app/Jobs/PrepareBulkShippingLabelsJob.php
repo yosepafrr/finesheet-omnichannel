@@ -65,13 +65,14 @@ class PrepareBulkShippingLabelsJob implements ShouldQueue
                 throw new RuntimeException('Dokumen resi selesai dibuat tetapi gagal disimpan.');
             }
 
+            $printedAt = now();
             Order::whereIn('id', $orders->pluck('id'))->update([
-                'shipping_label_printed_at' => now(),
+                'shipping_label_printed_at' => $printedAt,
             ]);
 
             $this->updateStatus('ready', 100, 'Dokumen resi siap dibuka.', [
                 'path' => $path,
-                'filename' => $result['filename'] ?? "resi-{$orders->count()}-pesanan.pdf",
+                'filename' => 'resi-massal-'.$printedAt->format('Y-m-d-H-i').'(dicetak).pdf',
             ]);
         } catch (Throwable $exception) {
             if (! $exception instanceof RuntimeException) {

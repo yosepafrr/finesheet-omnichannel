@@ -285,6 +285,7 @@ const STATUS_CONFIG_SHOPEE = {
     COMPLETED: { label: "Selesai" },
     CANCELLED: { label: "Batal" },
     IN_CANCEL: { label: "Pengajuan Batal" },
+    ORDER_REQUEST_CANCEL: { label: "Pembatalan Diajukan" },
     TO_RETURN: { label: "Pengembalian", isReturn: true },
 };
 
@@ -298,6 +299,7 @@ const STATUS_CONFIG_TIKTOK = {
     COMPLETED: { label: "Selesai" },
     CANCEL: { label: "Batal" },
     CANCELLED: { label: "Batal" },
+    ORDER_REQUEST_CANCEL: { label: "Pembatalan Diajukan" },
 };
 
 const FILTER_GROUPS = [
@@ -650,6 +652,13 @@ export default function OrderList() {
         : "all";
     const requestedPage = pageByStore[paginationKey] || 1;
     const requestedPerPage = limitByStore[paginationKey] || 30;
+
+    const resetActivePagination = useCallback(() => {
+        setPageByStore((current) => ({
+            ...current,
+            [paginationKey]: 1,
+        }));
+    }, [paginationKey]);
 
     const isInitialMount = useRef(true);
     const scrollRestoredRef = useRef(false);
@@ -1604,7 +1613,10 @@ export default function OrderList() {
                                     return (
                                         <button
                                             key={group.id}
-                                            onClick={() => setSelectedFilterId(group.id)}
+                                            onClick={() => {
+                                                resetActivePagination();
+                                                setSelectedFilterId(group.id);
+                                            }}
                                             className={`whitespace-nowrap pb-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${isActive
                                                 ? "border-[#304674] dark:border-blue-500 text-[#304674] dark:text-blue-400"
                                                 : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
@@ -1642,6 +1654,7 @@ export default function OrderList() {
                                             type="button"
                                             aria-label={`Platform: ${platform.label}`}
                                             onClick={() => {
+                                                resetActivePagination();
                                                 setSelectedPlatform(platform.id);
                                                 if (platform.id !== "all") {
                                                     setSelectedStoreIds((current) => current.filter((id) => {
@@ -1687,6 +1700,7 @@ export default function OrderList() {
                                                     key={filter.id}
                                                     type="button"
                                                     onClick={() => {
+                                                        resetActivePagination();
                                                         setSelectedShippingProcess(filter.id);
                                                         if (filter.id !== "processed") {
                                                             setSelectedShippingLabelPrintStatus("all");
@@ -1732,7 +1746,10 @@ export default function OrderList() {
                                                 <button
                                                     key={filter.id}
                                                     type="button"
-                                                    onClick={() => setSelectedShippingLabelPrintStatus(filter.id)}
+                                                    onClick={() => {
+                                                        resetActivePagination();
+                                                        setSelectedShippingLabelPrintStatus(filter.id);
+                                                    }}
                                                     className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${isActive
                                                         ? "border-[#304674] bg-[#304674] text-white shadow-sm dark:border-blue-600 dark:bg-blue-600"
                                                         : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
@@ -1769,7 +1786,10 @@ export default function OrderList() {
                                     </span>
 
                                     <button
-                                        onClick={() => setSelectedCancelCategory("all")}
+                                        onClick={() => {
+                                            resetActivePagination();
+                                            setSelectedCancelCategory("all");
+                                        }}
                                         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "all"
                                                 ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
                                                 : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
@@ -1785,7 +1805,10 @@ export default function OrderList() {
                                     </button>
 
                                     <button
-                                        onClick={() => setSelectedCancelCategory("SELLER_LATE_SHIPMENT")}
+                                        onClick={() => {
+                                            resetActivePagination();
+                                            setSelectedCancelCategory("SELLER_LATE_SHIPMENT");
+                                        }}
                                         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "SELLER_LATE_SHIPMENT"
                                                 ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
                                                 : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
@@ -1801,7 +1824,10 @@ export default function OrderList() {
                                     </button>
 
                                     <button
-                                        onClick={() => setSelectedCancelCategory("BUYER_SIDE")}
+                                        onClick={() => {
+                                            resetActivePagination();
+                                            setSelectedCancelCategory("BUYER_SIDE");
+                                        }}
                                         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${selectedCancelCategory === "BUYER_SIDE"
                                                 ? "bg-[#304674] text-white dark:bg-blue-600 shadow-sm"
                                                 : "bg-gray-100 dark:bg-slate-700/60 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700"
@@ -1943,6 +1969,10 @@ export default function OrderList() {
                         displayStores.map((store) => {
                             const storeOrders = ordersByStore[store.id] || [];
                             if (storeOrders.length === 0) return null;
+
+                            const paginationStateKey = store.isCombined
+                                ? paginationKey
+                                : String(store.id);
 
                             const totalOrders = Number(data?.pagination?.total ?? storeOrders.length);
                             const totalHpp = Number(data?.totals?.hpp_amount || 0);
@@ -2660,13 +2690,13 @@ export default function OrderList() {
                                                         setLimitByStore(
                                                             (prev) => ({
                                                                 ...prev,
-                                                                [store.id]: val,
+                                                                [paginationStateKey]: val,
                                                             }),
                                                         );
                                                         setPageByStore(
                                                             (prev) => ({
                                                                 ...prev,
-                                                                [store.id]: 1,
+                                                                [paginationStateKey]: 1,
                                                             }),
                                                         );
                                                     }}
@@ -2685,7 +2715,7 @@ export default function OrderList() {
                                                 onClick={() =>
                                                     setPageByStore((p) => ({
                                                         ...p,
-                                                        [store.id]:
+                                                        [paginationStateKey]:
                                                             validPage - 1,
                                                     }))
                                                 }
@@ -2703,7 +2733,7 @@ export default function OrderList() {
                                                 onClick={() =>
                                                     setPageByStore((p) => ({
                                                         ...p,
-                                                        [store.id]:
+                                                        [paginationStateKey]:
                                                             validPage + 1,
                                                     }))
                                                 }

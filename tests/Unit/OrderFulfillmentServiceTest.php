@@ -448,7 +448,7 @@ class OrderFulfillmentServiceTest extends TestCase
 
         $this->assertSame('binary', $label['type']);
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame('resi-massal-1-toko-2-pesanan.pdf', $label['filename']);
+        $this->assertMatchesRegularExpression('/^resi-massal-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}\(dicetak\)\.pdf$/', $label['filename']);
         $pdf = new Fpdi;
         $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
 
@@ -538,7 +538,7 @@ class OrderFulfillmentServiceTest extends TestCase
         $label = $service->labels($orders);
 
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame('resi-massal-2-toko-2-pesanan.pdf', $label['filename']);
+        $this->assertMatchesRegularExpression('/^resi-massal-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}\(dicetak\)\.pdf$/', $label['filename']);
 
         $mergedPdf = new Fpdi;
         $pageCount = $mergedPdf->setSourceFile(StreamReader::createByString($label['body']));
@@ -597,7 +597,7 @@ class OrderFulfillmentServiceTest extends TestCase
         $label = $service->labels($orders);
 
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame('resi-massal-1-toko-2-pesanan.pdf', $label['filename']);
+        $this->assertMatchesRegularExpression('/^resi-massal-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}\(dicetak\)\.pdf$/', $label['filename']);
         $pdf = new Fpdi;
         $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
     }
@@ -673,7 +673,7 @@ class OrderFulfillmentServiceTest extends TestCase
         $label = $service->labels([$shopeeOrder, $tiktokOrder]);
 
         $this->assertSame('application/pdf', $label['content_type']);
-        $this->assertSame('resi-massal-2-toko-2-pesanan.pdf', $label['filename']);
+        $this->assertMatchesRegularExpression('/^resi-massal-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}\(dicetak\)\.pdf$/', $label['filename']);
         $pdf = new Fpdi;
         $this->assertSame(2, $pdf->setSourceFile(StreamReader::createByString($label['body'])));
     }

@@ -289,7 +289,10 @@ class OrderFulfillmentService
         }
 
         if ($documents->count() === 1) {
-            return $this->normalizeSingleLabelDocument($documents->first(), $orders->count());
+            $result = $this->normalizeSingleLabelDocument($documents->first(), $orders->count());
+            $result['filename'] = $this->bulkShippingLabelFilename();
+
+            return $result;
         }
 
         $sourceCount = $orders
@@ -472,7 +475,7 @@ class OrderFulfillmentService
                 'type' => 'binary',
                 'body' => $body,
                 'content_type' => 'application/pdf',
-                'filename' => 'resi-massal-'.$storeCount.'-toko-'.$orderCount.'-pesanan.pdf',
+                'filename' => $this->bulkShippingLabelFilename(),
             ];
         } finally {
             foreach (glob($temporaryDirectory.DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
@@ -702,6 +705,11 @@ class OrderFulfillmentService
         $merged['filename'] = $document['filename'] ?? $merged['filename'];
 
         return $merged;
+    }
+
+    private function bulkShippingLabelFilename(): string
+    {
+        return 'resi-massal-'.now()->format('Y-m-d-H-i').'(dicetak).pdf';
     }
 
     /** @return array<int, string> */
