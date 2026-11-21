@@ -72,7 +72,7 @@ class PrepareBulkShippingLabelsJob implements ShouldQueue
 
             $this->updateStatus('ready', 100, 'Dokumen resi siap dibuka.', [
                 'path' => $path,
-                'filename' => 'resi-massal-'.$printedAt->format('Y-m-d-H-i').'(dicetak).pdf',
+                'filename' => 'resi-massal-tanggal-'.$printedAt->format('Y-m-d').'-jam-'.$printedAt->format('H-i').'.pdf',
             ]);
         } catch (Throwable $exception) {
             if (! $exception instanceof RuntimeException) {

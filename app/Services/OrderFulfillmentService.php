@@ -709,7 +709,9 @@ class OrderFulfillmentService
 
     private function bulkShippingLabelFilename(): string
     {
-        return 'resi-massal-'.now()->format('Y-m-d-H-i').'(dicetak).pdf';
+        $printedAt = now();
+
+        return 'resi-massal-tanggal-'.$printedAt->format('Y-m-d').'-jam-'.$printedAt->format('H-i').'.pdf';
     }
 
     /** @return array<int, string> */

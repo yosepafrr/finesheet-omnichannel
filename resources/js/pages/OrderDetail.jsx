@@ -92,6 +92,7 @@ function StatusBadge({ status, platform }) {
 }
 
 const RETURN_LABELS = {
+    ORDER_REQUEST_CANCEL: "Pembatalan Diajukan",
     PENDING: "Pengajuan Return/Refund",
     WAITING_FOR_BUYER: "Menunggu Pembeli Mengirim Barang",
     SHIPPED_BACK: "Barang Sedang Dikembalikan",
@@ -107,7 +108,7 @@ const RETURN_LABELS = {
 };
 
 function ReturnStatusBadge({ status, platformStatus }) {
-    const label = RETURN_LABELS[status] || platformStatus || status || "Pengembalian";
+    const label = RETURN_LABELS[status] || RETURN_LABELS[platformStatus] || platformStatus || status || "Pengembalian";
     return (
         <span className="text-xs font-bold text-red-600 dark:text-red-400">
             {label}
