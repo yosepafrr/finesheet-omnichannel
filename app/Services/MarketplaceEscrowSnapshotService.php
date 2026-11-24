@@ -16,7 +16,7 @@ class MarketplaceEscrowSnapshotService
 
     /**
      * @param  array<int, string>|null  $includedCategories
-     * @return array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>}
+     * @return array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>}
      */
     public function forUser(User $user, ?array $includedCategories = null): array
     {
@@ -25,6 +25,8 @@ class MarketplaceEscrowSnapshotService
             return [
                 'total' => 0.0,
                 'order_count' => 0,
+                'active_order_count' => 0,
+                'settled_order_count' => 0,
                 'stores' => collect(),
             ];
         }
@@ -48,7 +50,7 @@ class MarketplaceEscrowSnapshotService
      * @param  Collection<int, Order>  $orders
      * @param  array<int, string>|null  $includedCategories
      * @param  Collection<int, array<string, mixed>>|null  $financialSummaries
-     * @return array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>}
+     * @return array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>}
      */
     public function summarize(
         Collection $stores,
@@ -70,6 +72,8 @@ class MarketplaceEscrowSnapshotService
             $statusEscrow = $this->emptyCategoryValues(0.0);
             $amount = 0.0;
             $orderCount = 0;
+            $activeOrderCount = 0;
+            $settledOrderCount = 0;
 
             foreach ($ordersByStore->get($store->id, collect()) as $order) {
                 $category = $this->orderEscrowService->category($order);
@@ -78,15 +82,27 @@ class MarketplaceEscrowSnapshotService
                 }
 
                 $orderAmount = (float) ($financialSummaries->get($order->id)['escrow_amount'] ?? 0);
+                $enteredSellerBalance = $this->hasEnteredSellerBalance($order);
                 if ($category === OrderEscrowService::CATEGORY_RETURN_CANCEL) {
                     $statusCounts[OrderEscrowService::CATEGORY_SHIPPED]++;
-                    $statusEscrow[OrderEscrowService::CATEGORY_SHIPPED] += $orderAmount;
+                    if (! $enteredSellerBalance) {
+                        $statusEscrow[OrderEscrowService::CATEGORY_SHIPPED] += $orderAmount;
+                    }
                 }
 
                 $statusCounts[$category]++;
-                $statusEscrow[$category] += $orderAmount;
+                if (! $enteredSellerBalance) {
+                    $statusEscrow[$category] += $orderAmount;
+                }
 
                 if (! in_array($category, $includedCategories, true)) {
+                    continue;
+                }
+
+                $activeOrderCount++;
+                if ($enteredSellerBalance) {
+                    $settledOrderCount++;
+
                     continue;
                 }
 
@@ -99,6 +115,8 @@ class MarketplaceEscrowSnapshotService
                 'store_name' => $store->store_name,
                 'platform' => $store->platform,
                 'order_count' => $orderCount,
+                'active_order_count' => $activeOrderCount,
+                'settled_order_count' => $settledOrderCount,
                 'amount' => $amount,
                 'status_counts' => $statusCounts,
                 'status_escrow' => $statusEscrow,
@@ -108,8 +126,16 @@ class MarketplaceEscrowSnapshotService
         return [
             'total' => (float) $breakdown->sum('amount'),
             'order_count' => (int) $breakdown->sum('order_count'),
+            'active_order_count' => (int) $breakdown->sum('active_order_count'),
+            'settled_order_count' => (int) $breakdown->sum('settled_order_count'),
             'stores' => $breakdown,
         ];
+    }
+
+    public function hasEnteredSellerBalance(Order $order): bool
+    {
+        return strtolower(trim((string) $order->platform)) === 'tiktokshop'
+            && strtolower(trim((string) data_get($order->fee_details, 'source'))) === 'settled';
     }
 
     /** @return array<int, string> */
@@ -219,17 +245,21 @@ class MarketplaceEscrowSnapshotService
         });
     }
 
-    /** @return array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>} */
+    /** @return array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>} */
     private function emptySnapshot(Collection $stores): array
     {
         return [
             'total' => 0.0,
             'order_count' => 0,
+            'active_order_count' => 0,
+            'settled_order_count' => 0,
             'stores' => $stores->map(fn ($store) => [
                 'store_id' => $store->id,
                 'store_name' => $store->store_name,
                 'platform' => $store->platform,
                 'order_count' => 0,
+                'active_order_count' => 0,
+                'settled_order_count' => 0,
                 'amount' => 0.0,
                 'status_counts' => $this->emptyCategoryValues(0),
                 'status_escrow' => $this->emptyCategoryValues(0.0),
@@ -238,9 +268,9 @@ class MarketplaceEscrowSnapshotService
     }
 
     /**
-     * @param  array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>}  $current
-     * @param  array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>}  $chunk
-     * @return array{total: float, order_count: int, stores: Collection<int, array<string, mixed>>}
+     * @param  array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>}  $current
+     * @param  array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>}  $chunk
+     * @return array{total: float, order_count: int, active_order_count: int, settled_order_count: int, stores: Collection<int, array<string, mixed>>}
      */
     private function mergeSnapshots(array $current, array $chunk): array
     {
@@ -252,6 +282,8 @@ class MarketplaceEscrowSnapshotService
             }
 
             $store['order_count'] += $addition['order_count'];
+            $store['active_order_count'] += $addition['active_order_count'];
+            $store['settled_order_count'] += $addition['settled_order_count'];
             $store['amount'] += $addition['amount'];
             foreach (array_keys($store['status_counts']) as $category) {
                 $store['status_counts'][$category] += $addition['status_counts'][$category] ?? 0;
@@ -262,6 +294,8 @@ class MarketplaceEscrowSnapshotService
         })->values();
         $current['total'] += $chunk['total'];
         $current['order_count'] += $chunk['order_count'];
+        $current['active_order_count'] += $chunk['active_order_count'];
+        $current['settled_order_count'] += $chunk['settled_order_count'];
 
         return $current;
     }

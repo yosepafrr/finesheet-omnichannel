@@ -422,7 +422,7 @@ function AnalyticsLoadingNotice({ hasPreviousData = false, progress = 0 }) {
     );
 }
 
-function MetricCard({ label, value, orders, icon, tone }) {
+function MetricCard({ label, value, orders, activeOrders, settledOrders, icon, tone }) {
     const tones = {
         escrow: {
             icon: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
@@ -447,8 +447,14 @@ function MetricCard({ label, value, orders, icon, tone }) {
                 </h3>
                 <span className={`mt-4 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ${theme.badge}`}>
                     <span className="material-symbols-rounded text-sm">receipt_long</span>
-                    {Number(orders || 0).toLocaleString("id-ID")} pesanan
+                    {Number(orders || 0).toLocaleString("id-ID")} masih dalam escrow
                 </span>
+                <p className="mt-2 text-xs font-medium text-gray-500 dark:text-slate-400">
+                    {Number(activeOrders || 0).toLocaleString("id-ID")} pesanan aktif
+                    {Number(settledOrders || 0) > 0 && (
+                        <> · {Number(settledOrders).toLocaleString("id-ID")} masuk saldo</>
+                    )}
+                </p>
             </div>
         </div>
     );
@@ -1086,6 +1092,8 @@ export default function ProfitTracker() {
                                     label="Total Dana Escrow"
                                     value={data.total_escrow_amount}
                                     orders={data.total_order_count}
+                                    activeOrders={data.total_active_order_count}
+                                    settledOrders={data.total_settled_order_count}
                                     icon="savings"
                                     tone="escrow"
                                 />
@@ -1093,6 +1101,8 @@ export default function ProfitTracker() {
                                     label="Total Dana HPP"
                                     value={data.total_hpp_amount}
                                     orders={data.total_order_count}
+                                    activeOrders={data.total_active_order_count}
+                                    settledOrders={data.total_settled_order_count}
                                     icon="inventory_2"
                                     tone="hpp"
                                 />
@@ -1141,10 +1151,16 @@ export default function ProfitTracker() {
                                                         <div className="min-w-0">
                                                             <h3 className="truncate text-sm font-bold text-gray-800 dark:text-white" title={store.store_name}>{store.store_name}</h3>
                                                             <p className="text-[10px] uppercase text-gray-400 dark:text-slate-500">{store.platform}</p>
+                                                            <p className="mt-1 text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                                                                {Number(store.active_order_count || 0).toLocaleString("id-ID")} aktif
+                                                                {Number(store.settled_order_count || 0) > 0 && (
+                                                                    <> · {Number(store.settled_order_count).toLocaleString("id-ID")} masuk saldo</>
+                                                                )}
+                                                            </p>
                                                         </div>
                                                     </div>
                                                     <span className="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                                                        {store.included_order_count} pesanan
+                                                        {store.included_order_count} dalam escrow
                                                     </span>
                                                 </div>
 

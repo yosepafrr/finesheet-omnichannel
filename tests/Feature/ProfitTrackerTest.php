@@ -125,6 +125,33 @@ class ProfitTrackerTest extends TestCase
         $this->assertSame((float) $response->json('total_escrow_amount'), (float) $storeTotal);
     }
 
+    public function test_settled_tiktok_orders_remain_active_but_are_excluded_from_realtime_escrow_and_hpp(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok Settlement', 'tiktok-settlement');
+
+        $unsettled = $this->createOrder($store, 'TIKTOK-UNSETTLED', 'SHIPPED', 100_000);
+        $settled = $this->createOrder($store, 'TIKTOK-SETTLED', 'SHIPPED', 200_000);
+        $unsettled->forceFill(['fee_details' => ['source' => 'unsettled']])->saveQuietly();
+        $settled->forceFill(['fee_details' => ['source' => 'settled']])->saveQuietly();
+        $this->attachHppItem($unsettled, 40_000);
+        $this->attachHppItem($settled, 50_000);
+
+        $response = $this->actingAs($user)->getJson('/api/profit-tracker?include_analytics=0');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('total_escrow_amount', 100_000)
+            ->assertJsonPath('total_hpp_amount', 40_000)
+            ->assertJsonPath('total_order_count', 1)
+            ->assertJsonPath('total_active_order_count', 2)
+            ->assertJsonPath('total_settled_order_count', 1)
+            ->assertJsonPath('stores.0.included_order_count', 1)
+            ->assertJsonPath('stores.0.active_order_count', 2)
+            ->assertJsonPath('stores.0.settled_order_count', 1)
+            ->assertJsonPath('stores.0.status_counts.dikirim', 2);
+    }
+
     public function test_realtime_hpp_uses_the_same_orders_as_escrow_and_analytics_includes_completed_sales(): void
     {
         $user = User::factory()->create();

@@ -89,16 +89,20 @@ class ProfitController extends Controller
             $storeSummaries = $allStores->map(function ($store) use (
                 $realtimeOrders,
                 $escrowService,
+                $escrowSnapshotService,
                 $realtimeFinancialSummaries,
                 $includedCategories,
                 $escrowStores,
             ) {
                 $storeOrders = $realtimeOrders->where('store_id', $store->id);
-                $includedOrders = $storeOrders->filter(function (Order $order) use ($escrowService, $includedCategories) {
+                $activeIncludedOrders = $storeOrders->filter(function (Order $order) use ($escrowService, $includedCategories) {
                     $category = $escrowService->category($order);
 
                     return $category !== null && in_array($category, $includedCategories, true);
                 });
+                $includedOrders = $activeIncludedOrders->reject(
+                    fn (Order $order) => $escrowSnapshotService->hasEnteredSellerBalance($order),
+                );
                 $includedFinance = $includedOrders->map(
                     fn (Order $order) => $realtimeFinancialSummaries->get($order->id),
                 )->filter();
@@ -114,6 +118,8 @@ class ProfitController extends Controller
                     'hpp' => $hppAmount,
                     'profit' => $escrowAmount - $hppAmount,
                     'included_order_count' => (int) ($escrowStore['order_count'] ?? 0),
+                    'active_order_count' => (int) ($escrowStore['active_order_count'] ?? 0),
+                    'settled_order_count' => (int) ($escrowStore['settled_order_count'] ?? 0),
                     'missing_hpp_order_count' => $includedFinance->where('has_missing_hpp', true)->count(),
                     'status_counts' => $escrowStore['status_counts'] ?? [],
                     'status_escrow' => $escrowStore['status_escrow'] ?? [],
@@ -145,6 +151,8 @@ class ProfitController extends Controller
                 'total_hpp_amount' => $totalHppAmount,
                 'total_profit_amount' => $totalProfitAmount,
                 'total_order_count' => $totalOrderCount,
+                'total_active_order_count' => (int) $realtimeSnapshot['active_order_count'],
+                'total_settled_order_count' => (int) $realtimeSnapshot['settled_order_count'],
                 'missing_hpp_order_count' => (int) $storeSummaries->sum('missing_hpp_order_count'),
                 'stores' => $storeSummaries,
             ]);
