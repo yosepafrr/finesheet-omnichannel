@@ -421,7 +421,7 @@ export default function OrderDetail({ routeParams }) {
                                         </div>
                                     )}
                                 <div className="flex items-start justify-between gap-4 py-2 text-gray-700 dark:text-slate-300">
-                                    <span className="font-semibold">Penghasilan kotor</span>
+                                    <span className="font-semibold">{String(order.platform).toLowerCase() === "shopee" ? "Subtotal pesanan" : "Penghasilan kotor"}</span>
                                     <span className="font-semibold tabular-nums">{formatRp(financialBreakdown.gross_amount)}</span>
                                 </div>
 
@@ -444,6 +444,12 @@ export default function OrderDetail({ routeParams }) {
                                         </span>
                                     </div>
                                 ))}
+
+                                {String(order.platform).toLowerCase() === "shopee" && Math.abs(Number(financialBreakdown.reconciliation_difference || 0)) > 0.5 && (
+                                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                                        Rincian API belum sepenuhnya menjelaskan escrow (selisih {formatRp(Math.abs(financialBreakdown.reconciliation_difference))}). Nilai escrow tetap mengikuti platform.
+                                    </div>
+                                )}
 
                                 {financialBreakdown.has_financial_correction && Number(financialBreakdown.sale_escrow_amount || 0) > 0 && (
                                     <div className="mt-2 flex items-center justify-between gap-4 border-t border-dashed border-slate-200 py-3 dark:border-slate-600">

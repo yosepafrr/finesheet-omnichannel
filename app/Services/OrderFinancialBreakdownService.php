@@ -7,9 +7,10 @@ use App\Models\Order;
 class OrderFinancialBreakdownService
 {
     private const SHOPEE_DEDUCTIONS = [
-        'commission_fee' => 'Biaya komisi',
-        'service_fee' => 'Biaya layanan',
+        'commission_fee' => 'Biaya administrasi',
+        'service_fee' => 'Biaya layanan Shopee',
         'seller_transaction_fee' => 'Biaya transaksi',
+        'seller_order_processing_fee' => 'Biaya proses pesanan',
         'escrow_tax' => 'Pajak escrow',
         'cross_border_tax' => 'Pajak lintas batas',
         'withholding_tax' => 'Pajak pemotongan',
@@ -17,20 +18,14 @@ class OrderFinancialBreakdownService
         'campaign_fee' => 'Biaya kampanye',
         'reverse_shipping_fee' => 'Biaya pengiriman balik',
         'reverse_shipping_fee_sst' => 'Pajak pengiriman balik',
-        'credit_card_transaction_fee' => 'Biaya transaksi kartu',
         'fbs_fee' => 'Biaya fulfillment Shopee',
-        'seller_discount' => 'Diskon penjual',
         'voucher_from_seller' => 'Voucher penjual',
+        'seller_coin_cash_back' => 'Cashback koin ditanggung penjual',
         'seller_return_refund' => 'Refund pengembalian',
-        'refund_amount_to_buyer' => 'Refund ke pembeli',
     ];
 
     private const SHOPEE_ADDITIONS = [
-        'buyer_paid_shipping_fee' => 'Ongkir dibayar pembeli',
-        'shopee_shipping_rebate' => 'Subsidi ongkir Shopee',
-        'shipping_fee_discount_from_3pl' => 'Diskon ongkir kurir',
         'seller_lost_compensation' => 'Kompensasi penjual',
-        'seller_coin_cash_back' => 'Cashback koin penjual',
         'sip_subsidy' => 'Subsidi SIP',
     ];
 
@@ -91,7 +86,15 @@ class OrderFinancialBreakdownService
             return $component;
         }, $components);
 
-        $components = $this->reconcile($components, $grossAmount, $escrowAmount, $details !== [], $source);
+        $reconciliationDifference = 0.0;
+        if ($isShopee) {
+            $computed = $grossAmount + collect($components)->sum(
+                fn (array $component) => $component['operator'] === '+' ? $component['amount'] : -$component['amount']
+            );
+            $reconciliationDifference = round($escrowAmount - $computed, 2);
+        } else {
+            $components = $this->reconcile($components, $grossAmount, $escrowAmount, $details !== [], $source);
+        }
 
         return [
             'gross_amount' => $grossAmount,
@@ -102,6 +105,7 @@ class OrderFinancialBreakdownService
             'has_platform_details' => $details !== [],
             'source' => $source,
             'is_estimated' => ! $isShopee && $source !== 'settled',
+            'reconciliation_difference' => $reconciliationDifference,
         ];
     }
 
@@ -116,6 +120,9 @@ class OrderFinancialBreakdownService
         foreach (self::SHOPEE_DEDUCTIONS as $key => $label) {
             $value = $income[$key]
                 ?? array_sum($this->numericValuesForKey($income['items'] ?? [], $key));
+            if ($key === 'service_fee' && $this->appendShopeeServiceFees($components, $income, $value)) {
+                continue;
+            }
             $this->appendComponent(
                 $components,
                 $key,
@@ -124,6 +131,10 @@ class OrderFinancialBreakdownService
                 '-',
                 $key === 'order_ams_commission_fee'
             );
+        }
+
+        if (! array_key_exists('seller_return_refund', $income)) {
+            $this->appendComponent($components, 'refund_amount_to_buyer', 'Refund pengembalian', $income['refund_amount_to_buyer'] ?? null, '-');
         }
 
         foreach (self::SHOPEE_ADDITIONS as $key => $label) {
@@ -144,19 +155,54 @@ class OrderFinancialBreakdownService
             );
         }
 
+        // A final shipping balance already includes shipping credits and costs.
+        // Only derive it from actual costs when the platform has not supplied it.
         $finalShippingFee = $income['final_shipping_fee'] ?? null;
+        if (! is_numeric($finalShippingFee) && is_numeric($income['actual_shipping_fee'] ?? null)) {
+            $finalShippingFee = (float) ($income['buyer_paid_shipping_fee'] ?? 0)
+                + (float) ($income['shopee_shipping_rebate'] ?? 0)
+                + (float) ($income['shipping_fee_discount_from_3pl'] ?? 0)
+                - (float) $income['actual_shipping_fee'];
+        }
         if (is_numeric($finalShippingFee) && abs((float) $finalShippingFee) > 0.0001) {
             $operator = (float) $finalShippingFee < 0 ? '-' : '+';
             $this->appendComponent(
                 $components,
                 'final_shipping_fee',
-                $operator === '-' ? 'Biaya pengiriman' : 'Pendapatan pengiriman',
+                'Subtotal ongkos kirim',
                 $finalShippingFee,
                 $operator
             );
         }
 
         return $components;
+    }
+
+    private function appendShopeeServiceFees(array &$components, array $income, mixed $total): bool
+    {
+        $rules = $income['net_service_fee_info_list'] ?? [];
+        if (! is_array($rules) || ! is_numeric($total) || (float) $total <= 0) {
+            return false;
+        }
+        if (isset($rules['fee_amount'])) {
+            $rules = [$rules];
+        }
+        $ruleCount = count($rules);
+        $rules = array_values(array_filter($rules, fn ($rule) => is_array($rule)
+            && is_numeric($rule['fee_amount'] ?? null)
+            && (float) $rule['fee_amount'] >= 0
+            && is_string($rule['rule_display_name'] ?? null)
+            && trim($rule['rule_display_name']) !== ''
+            && trim($rule['rule_display_name']) !== '-'));
+        if ($rules === [] || count($rules) !== $ruleCount
+            || abs(array_sum(array_column($rules, 'fee_amount')) - (float) $total) > 0.01) {
+            return false;
+        }
+        foreach ($rules as $index => $rule) {
+            $this->appendComponent($components, 'service_fee_rule_'.$index, trim($rule['rule_display_name']), $rule['fee_amount'], '-');
+        }
+
+        return true;
     }
 
     /** @return array<int, array<string, mixed>> */

@@ -32,7 +32,139 @@ class OrderFinancialBreakdownServiceTest extends TestCase
         $this->assertSame(16900.0, $components['order_ams_commission_fee']['amount']);
         $this->assertSame('-', $components['order_ams_commission_fee']['operator']);
         $this->assertSame(10.0, $components['order_ams_commission_fee']['percentage']);
-        $this->assertTrue($components->has('platform_adjustment'));
+        $this->assertFalse($components->has('platform_adjustment'));
+        $this->assertNotSame(0.0, $breakdown['reconciliation_difference']);
+    }
+
+    public function test_shopee_processing_fee_is_read_from_api_without_deducting_card_aggregate(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_selling_price' => 169000,
+            'escrow_amount' => 140287,
+            'fee_details' => ['order_income' => [
+                'commission_fee' => 13943,
+                'service_fee' => 12675,
+                'withholding_tax' => 845,
+                'seller_order_processing_fee' => 1250,
+                'seller_transaction_fee' => 0,
+                'buyer_transaction_fee' => 1000,
+                'credit_card_transaction_fee' => 1000,
+                'items' => [['seller_order_processing_fee' => 1250]],
+            ]],
+        ]);
+
+        $breakdown = $this->service()->forOrder($order);
+        $components = collect($breakdown['components'])->keyBy('key');
+
+        $this->assertSame('Biaya proses pesanan', $components['seller_order_processing_fee']['label']);
+        $this->assertSame(1250.0, $components['seller_order_processing_fee']['amount']);
+        $this->assertFalse($components->has('credit_card_transaction_fee'));
+        $this->assertFalse($components->has('seller_transaction_fee'));
+        $this->assertFalse($components->has('platform_adjustment'));
+        $this->assertSame(140287.0, $breakdown['escrow_amount']);
+    }
+
+    public function test_shopee_processing_fee_uses_item_totals_and_does_not_assume_a_fixed_rate(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee',
+            'order_selling_price' => 10000,
+            'escrow_amount' => 8800,
+            'fee_details' => [
+                'seller_transaction_fee' => 200,
+                'credit_card_transaction_fee' => 1200,
+                'items' => [
+                    ['seller_order_processing_fee' => 400],
+                    ['seller_order_processing_fee' => 600],
+                ],
+            ],
+        ]);
+
+        $components = collect($this->service()->forOrder($order)['components'])->keyBy('key');
+        $this->assertSame(1000.0, $components['seller_order_processing_fee']['amount']);
+        $this->assertSame(200.0, $components['seller_transaction_fee']['amount']);
+        $this->assertFalse($components->has('credit_card_transaction_fee'));
+        $this->assertFalse($components->has('platform_adjustment'));
+
+        $order->fee_details = ['seller_order_processing_fee' => 0,
+            'items' => [['seller_order_processing_fee' => 1250]]];
+        $components = collect($this->service()->forOrder($order)['components'])->keyBy('key');
+        $this->assertFalse($components->has('seller_order_processing_fee'));
+
+        $order->fee_details = ['commission_fee' => 100];
+        $components = collect($this->service()->forOrder($order)['components'])->keyBy('key');
+        $this->assertFalse($components->has('seller_order_processing_fee'));
+    }
+
+    public function test_shopee_net_subtotal_does_not_deduct_discount_twice_or_add_shipping_rebate_twice(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee', 'order_selling_price' => 169000, 'escrow_amount' => 140287,
+            'fee_details' => [
+                'commission_fee' => 13943, 'service_fee' => 12675,
+                'withholding_tax' => 845, 'seller_order_processing_fee' => 1250,
+                'seller_discount' => 66000, 'shopee_shipping_rebate' => 6500,
+                'buyer_paid_shipping_fee' => 0, 'actual_shipping_fee' => 6500,
+                'final_shipping_fee' => 0,
+                'net_service_fee_info_list' => [[
+                    'rule_display_name' => 'Biaya Gratis Ongkir XTRA', 'fee_amount' => 12675,
+                ]],
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $components = collect($result['components'])->keyBy('key');
+        $this->assertSame(0.0, $result['reconciliation_difference']);
+        $this->assertSame('Biaya administrasi', $components['commission_fee']['label']);
+        $this->assertSame('Biaya Gratis Ongkir XTRA', $components['service_fee_rule_0']['label']);
+        foreach (['seller_discount', 'buyer_paid_shipping_fee', 'shopee_shipping_rebate', 'platform_adjustment', 'service_fee'] as $key) {
+            $this->assertFalse($components->has($key), $key);
+        }
+    }
+
+    public function test_shopee_shipping_uses_final_net_balance_or_actual_cost_but_never_estimates(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee', 'order_selling_price' => 100000, 'escrow_amount' => 97500,
+            'fee_details' => [
+                'buyer_paid_shipping_fee' => 2500, 'shopee_shipping_rebate' => 60000,
+                'actual_shipping_fee' => 65000, 'final_shipping_fee' => -2500,
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $this->assertCount(1, $result['components']);
+        $this->assertSame(2500.0, $result['components'][0]['amount']);
+        $this->assertSame('-', $result['components'][0]['operator']);
+        $this->assertSame(0.0, $result['reconciliation_difference']);
+
+        $details = $order->fee_details;
+        unset($details['final_shipping_fee']);
+        $order->fee_details = $details;
+        $this->assertSame($result['components'], $this->service()->forOrder($order)['components']);
+
+        unset($details['actual_shipping_fee']);
+        $details['estimated_shipping_fee'] = 65000;
+        $order->fee_details = $details;
+        $result = $this->service()->forOrder($order);
+        $this->assertSame([], $result['components']);
+        $this->assertSame(-2500.0, $result['reconciliation_difference']);
+    }
+
+    public function test_shopee_unmatched_service_rules_do_not_replace_api_total(): void
+    {
+        $order = new Order([
+            'platform' => 'Shopee', 'order_selling_price' => 100000, 'escrow_amount' => 94000,
+            'fee_details' => [
+                'service_fee' => 5000, 'seller_coin_cash_back' => 1000,
+                'net_service_fee_info_list' => [['rule_display_name' => 'Biaya Gratis Ongkir XTRA', 'fee_amount' => 4000]],
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $components = collect($result['components'])->keyBy('key');
+        $this->assertSame(5000.0, $components['service_fee']['amount']);
+        $this->assertFalse($components->has('service_fee_rule_0'));
+        $this->assertSame('-', $components['seller_coin_cash_back']['operator']);
+        $this->assertSame(0.0, $result['reconciliation_difference']);
     }
 
     public function test_it_uses_tiktok_transaction_components_without_double_counting_nested_values(): void
