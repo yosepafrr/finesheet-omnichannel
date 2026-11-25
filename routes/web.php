@@ -133,6 +133,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::put('/cashflow/obligations/{id}', [CashflowController::class, 'updateObligation']);
         Route::delete('/cashflow/obligations/{id}', [CashflowController::class, 'destroyObligation']);
         Route::post('/cashflow/transactions', [CashflowController::class, 'storeTransaction']);
+        Route::post('/cashflow/transfers', [CashflowController::class, 'storeTransfer']);
         Route::put('/cashflow/transactions/{id}', [CashflowController::class, 'updateTransaction']);
         Route::delete('/cashflow/transactions/{id}', [CashflowController::class, 'destroyTransaction']);
         Route::get('/tiktok-ads/status', [TiktokAdsController::class, 'status']);

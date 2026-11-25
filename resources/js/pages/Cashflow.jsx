@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import {
     ArrowDownLeft,
     ArrowUpRight,
+    ArrowRightLeft,
     Banknote,
     Building2,
     Cable,
@@ -124,7 +125,7 @@ function mergeCashflowData(baseData, profitTransactions) {
         const amount = Number(transaction.amount || 0);
 
         if (transaction.direction === "income") point.income += amount;
-        else point.expense += amount;
+        else if (transaction.direction === "expense") point.expense += amount;
         point.net = point.income - point.expense;
         chartByDate.set(date, point);
     });
@@ -309,11 +310,13 @@ export default function Cashflow({ view = "cashflow" }) {
     const [accountForm, setAccountForm] = useState(emptyAccount);
     const [obligationForm, setObligationForm] = useState(emptyObligation);
     const [transactionForm, setTransactionForm] = useState(emptyTransaction);
+    const [transferForm, setTransferForm] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const data = useMemo(
         () => mergeCashflowData(baseData, profitTransactions),
         [baseData, profitTransactions],
     );
+    const transferAccounts = (data?.accounts || []).filter((account) => account.category === "cash" && !account.source_type);
 
     const loadData = useCallback(async (silent = false, refreshIntegrations = false, background = false) => {
         if (!background) silent ? setRefreshing(true) : setLoading(true);
@@ -554,6 +557,24 @@ export default function Cashflow({ view = "cashflow" }) {
         } finally { setSaving(false); }
     };
 
+    const openTransfer = () => {
+        setTransferForm({ source_account_id: "", destination_account_id: "", amount: "", fee: "0", occurred_at: localDateTime(), request_key: crypto.randomUUID() });
+        setModal("transfer");
+    };
+
+    const saveTransfer = async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        try {
+            await axios.post("/api/cashflow/transfers", transferForm);
+            toast.success("Dana berhasil dipindahkan");
+            resetModal();
+            await loadData(true);
+        } catch (error) {
+            toast.error(Object.values(error.response?.data?.errors || {}).flat()[0] || error.response?.data?.message || "Gagal memindahkan dana");
+        } finally { setSaving(false); }
+    };
+
     const removeTarget = async () => {
         if (!deleteTarget) return;
         setSaving(true);
@@ -609,6 +630,9 @@ export default function Cashflow({ view = "cashflow" }) {
                             </button>
                             {isBalanceSheet && <button type="button" onClick={() => openAccount()} className="flex h-10 items-center gap-2 rounded-md border border-[#304674] bg-white px-3 text-sm font-semibold text-[#304674] transition hover:bg-[#304674]/5 dark:bg-slate-900 dark:text-blue-300">
                                 <Plus className="h-4 w-4" /> Akun atau aset
+                            </button>}
+                            {isBalanceSheet && <button type="button" onClick={openTransfer} disabled={transferAccounts.length < 2} title={transferAccounts.length < 2 ? "Tambahkan minimal dua akun kas manual" : "Transfer antar akun"} className="flex h-10 items-center gap-2 rounded-md bg-[#304674] px-4 text-sm font-semibold text-white transition hover:bg-[#26395f] disabled:cursor-not-allowed disabled:opacity-50">
+                                <ArrowRightLeft className="h-4 w-4" /> Transfer Dana
                             </button>}
                             {!isBalanceSheet && <button type="button" onClick={() => openTransaction()} className="flex h-10 items-center gap-2 rounded-md bg-[#304674] px-4 text-sm font-semibold text-white transition hover:bg-[#26395f] active:translate-y-px">
                                 <Plus className="h-4 w-4" /> Catat transaksi
@@ -750,7 +774,16 @@ export default function Cashflow({ view = "cashflow" }) {
                             <table className="w-full min-w-[760px] text-left">
                                 <thead className="bg-slate-50 text-[11px] font-bold uppercase text-slate-400 dark:bg-slate-950/40"><tr><th className="px-4 py-3">Tanggal</th><th className="px-4 py-3">Transaksi</th><th className="px-4 py-3">Akun</th><th className="px-4 py-3 text-right">Pemasukan</th><th className="px-4 py-3 text-right">Pengeluaran</th><th className="w-20 px-4 py-3"></th></tr></thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {data?.transactions?.map((transaction) => (
+                                    {data?.transactions?.map((transaction) => transaction.direction === "transfer" ? (
+                                        <tr key={`transfer-${transaction.id}`} className="text-sm transition hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
+                                            <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{formatDate(transaction.occurred_at, true)}</td>
+                                            <td className="px-4 py-3"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-[#304674] dark:bg-blue-500/10 dark:text-blue-300"><ArrowRightLeft className="h-4 w-4" /></span><div><p className="font-semibold text-slate-800 dark:text-slate-100">Perpindahan Dana</p><p className="text-xs text-slate-500">{formatRp(transaction.amount)}</p></div></div></td>
+                                            <td className="px-4 py-3 text-xs font-medium text-slate-500">{transaction.account?.name}</td>
+                                            <td className="px-4 py-3 text-right text-slate-400">-</td>
+                                            <td className="px-4 py-3 text-right text-slate-400">-</td>
+                                            <td className="px-4 py-3" />
+                                        </tr>
+                                    ) : (
                                         <tr key={`${transaction.source}-${transaction.id}`} className="text-sm transition hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
                                             <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{formatDate(transaction.occurred_at, true)}</td>
                                             <td className="px-4 py-3"><div className="flex items-center gap-2.5"><div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${transaction.direction === "income" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10" : "bg-rose-50 text-rose-600 dark:bg-rose-500/10"}`}>{transaction.direction === "income" ? <ArrowDownLeft className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}</div><div><p className="font-semibold text-slate-800 dark:text-slate-100">{transaction.description}</p><p className="text-xs text-slate-400">{transaction.category || "Tanpa kategori"}{transaction.is_read_only ? " · Otomatis" : ""}</p></div></div></td>
@@ -768,6 +801,22 @@ export default function Cashflow({ view = "cashflow" }) {
                     )}
                 </div>
             </main>
+
+            {modal === "transfer" && <Modal title="Transfer Dana" subtitle="Perpindahan antar akun dicatat terpisah dari pemasukan dan pengeluaran." icon={ArrowRightLeft} onClose={closeModal} footer={<><button type="button" onClick={closeModal} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Batal</button><button type="submit" form="transfer-form" disabled={saving} className="flex h-10 min-w-28 items-center justify-center rounded-md bg-[#304674] px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Transfer Dana"}</button></>}>
+                <form id="transfer-form" onSubmit={saveTransfer} className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Akun sumber"><SelectField value={transferForm.source_account_id} onChange={(event) => setTransferForm((current) => ({ ...current, source_account_id: event.target.value, destination_account_id: current.destination_account_id === event.target.value ? "" : current.destination_account_id }))}><option value="">Pilih akun sumber</option>{transferAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></Field>
+                    <Field label="Akun tujuan"><SelectField value={transferForm.destination_account_id} onChange={(event) => setTransferForm((current) => ({ ...current, destination_account_id: event.target.value }))}><option value="">Pilih akun tujuan</option>{transferAccounts.filter((account) => String(account.id) !== String(transferForm.source_account_id)).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</SelectField></Field>
+                    <Field label="Nominal transfer"><input required type="number" min="0.01" max="999999999999" step="0.01" value={transferForm.amount} onChange={(event) => setTransferForm((current) => ({ ...current, amount: event.target.value }))} className={inputClass} placeholder="0" /></Field>
+                    <Field label="Biaya transfer (opsional)"><input required type="number" min="0" max="999999999999" step="0.01" value={transferForm.fee} onChange={(event) => setTransferForm((current) => ({ ...current, fee: event.target.value }))} className={inputClass} /></Field>
+                    <div className="sm:col-span-2"><Field label="Tanggal dan waktu"><input required type="datetime-local" max={localDateTime()} value={transferForm.occurred_at} onChange={(event) => setTransferForm((current) => ({ ...current, occurred_at: event.target.value }))} className={inputClass} /></Field></div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800 sm:col-span-2">
+                        <p className="text-slate-500">Saldo sumber: <strong className="text-slate-800 dark:text-slate-100">{formatRp(transferAccounts.find((account) => String(account.id) === String(transferForm.source_account_id))?.balance)}</strong></p>
+                        <p className="mt-1 text-slate-500">Total didebit: <strong className="text-slate-800 dark:text-slate-100">{formatRp(Number(transferForm.amount || 0) + Number(transferForm.fee || 0))}</strong></p>
+                        <p className="mt-1 text-slate-500">Diterima tujuan: <strong className="text-slate-800 dark:text-slate-100">{formatRp(transferForm.amount)}</strong></p>
+                        <p className="mt-2 text-xs text-slate-500">Hanya biaya transfer masuk pengeluaran. Escrow otomatis tidak dapat dipindahkan. Riwayat tersedia di Cashflow.</p>
+                    </div>
+                </form>
+            </Modal>}
 
             {modal === "account" && <Modal title={editing ? "Edit akun atau aset" : "Tambah akun atau aset"} subtitle="Saldo dapat diperbarui kembali kapan saja." icon={Landmark} onClose={closeModal} footer={<><button type="button" onClick={closeModal} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Batal</button><button type="submit" form="account-form" disabled={saving} className="flex h-10 min-w-28 items-center justify-center rounded-md bg-[#304674] px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Simpan"}</button></>}>
                 <form id="account-form" onSubmit={saveAccount} className="grid gap-4 sm:grid-cols-2">

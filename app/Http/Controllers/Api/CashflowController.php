@@ -8,6 +8,7 @@ use App\Jobs\RefreshMarketplaceEscrowSnapshotJob;
 use App\Models\CashflowProfitSnapshot;
 use App\Models\CashflowTransaction;
 use App\Models\FinancialAccount;
+use App\Models\FinancialTransfer;
 use App\Models\FinancialObligation;
 use App\Services\CashflowService;
 use App\Services\MarketplaceEscrowSnapshotService;
@@ -112,7 +113,29 @@ class CashflowController extends Controller
             ]);
         // Profit history can be expensive for users with many orders. It is loaded
         // incrementally through profit() so the main Cashflow payload stays fast.
-        $transactions = $manualTransactions
+        $transferTransactions = FinancialTransfer::query()
+            ->where('user_id', $user->id)
+            ->whereBetween('occurred_at', [$start, $end])
+            ->get()
+            ->flatMap(function (FinancialTransfer $transfer) {
+                $entry = [
+                    'id' => $transfer->id,
+                    'source' => 'transfer',
+                    'direction' => 'transfer',
+                    'category' => 'Perpindahan Dana',
+                    'description' => 'Perpindahan Dana',
+                    'amount' => (float) $transfer->amount,
+                    'occurred_at' => $transfer->occurred_at->toIso8601String(),
+                    'account' => ['name' => $transfer->source_name.' → '.$transfer->destination_name],
+                    'is_read_only' => true,
+                ];
+
+                return (float) $transfer->fee > 0
+                    ? [$entry, [...$entry, 'source' => 'transfer_fee', 'direction' => 'expense',
+                        'category' => 'Biaya transfer', 'description' => 'Biaya transfer', 'amount' => (float) $transfer->fee]]
+                    : [$entry];
+            });
+        $transactions = $manualTransactions->concat($transferTransactions)
             ->sortByDesc('occurred_at')
             ->values();
 
@@ -167,7 +190,8 @@ class CashflowController extends Controller
                 'cashflow_totals' => [
                     'income' => (float) $transactions->where('direction', 'income')->sum('amount'),
                     'expense' => (float) $transactions->where('direction', 'expense')->sum('amount'),
-                    'net' => (float) $transactions->sum(fn (array $item) => $item['direction'] === 'income' ? $item['amount'] : -$item['amount']),
+                    'net' => (float) $transactions->where('direction', 'income')->sum('amount')
+                        - (float) $transactions->where('direction', 'expense')->sum('amount'),
                 ],
             ],
         ]);
@@ -409,6 +433,65 @@ class CashflowController extends Controller
         $this->obligation($id)->delete();
 
         return response()->json(['status' => 'success']);
+    }
+
+    public function storeTransfer(Request $request)
+    {
+        $validated = $request->validate([
+            'source_account_id' => 'required|integer',
+            'destination_account_id' => 'required|integer|different:source_account_id',
+            'amount' => 'required|numeric|min:0.01|max:999999999999|decimal:0,2',
+            'fee' => 'required|numeric|min:0|max:999999999999|decimal:0,2',
+            'occurred_at' => 'required|date|before_or_equal:now',
+            'request_key' => 'required|uuid',
+        ]);
+
+        $transfer = DB::transaction(function () use ($validated) {
+            // Lock both accounts in a stable order, including opposite-direction transfers.
+            $accounts = FinancialAccount::query()->where('user_id', Auth::id())
+                ->whereIn('id', [$validated['source_account_id'], $validated['destination_account_id']])
+                ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            foreach (['source_account_id', 'destination_account_id'] as $field) {
+                $account = $accounts->get($validated[$field]);
+                if (! $account || ! $account->is_active || $account->category !== 'cash' || $account->source_type) {
+                    throw ValidationException::withMessages([
+                        $field => 'Pilih akun kas aktif milik Anda yang tidak terintegrasi otomatis.',
+                    ]);
+                }
+            }
+
+            $existing = FinancialTransfer::where('user_id', Auth::id())
+                ->where('request_key', $validated['request_key'])->first();
+            if ($existing) {
+                if ((int) $existing->source_account_id !== (int) $validated['source_account_id']
+                    || (int) $existing->destination_account_id !== (int) $validated['destination_account_id']
+                    || (string) $existing->amount !== number_format((float) $validated['amount'], 2, '.', '')
+                    || (string) $existing->fee !== number_format((float) $validated['fee'], 2, '.', '')) {
+                    throw ValidationException::withMessages(['request_key' => 'Permintaan ini sudah digunakan untuk transfer lain.']);
+                }
+
+                return $existing;
+            }
+
+            $source = $accounts[$validated['source_account_id']];
+            $destination = $accounts[$validated['destination_account_id']];
+            $amount = (int) round((float) $validated['amount'] * 100);
+            $fee = (int) round((float) $validated['fee'] * 100);
+            $sourceBalance = (int) round((float) $source->balance * 100);
+            if ($sourceBalance < $amount + $fee) {
+                throw ValidationException::withMessages(['amount' => 'Saldo sumber tidak cukup untuk nominal dan biaya transfer.']);
+            }
+
+            $source->update(['balance' => ($sourceBalance - $amount - $fee) / 100]);
+            $destination->update(['balance' => ((int) round((float) $destination->balance * 100) + $amount) / 100]);
+
+            return FinancialTransfer::create([
+                ...$validated, 'user_id' => Auth::id(),
+                'source_name' => $source->name, 'destination_name' => $destination->name,
+            ]);
+        });
+
+        return response()->json(['status' => 'success', 'data' => $transfer], 201);
     }
 
     public function storeTransaction(Request $request)
