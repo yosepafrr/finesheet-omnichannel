@@ -58,6 +58,7 @@ class OrderFinancialBreakdownServiceTest extends TestCase
         $components = collect($breakdown['components'])->keyBy('key');
 
         $this->assertSame('Biaya proses pesanan', $components['seller_order_processing_fee']['label']);
+        $this->assertSame('PPh 22 0,5%', $components['withholding_tax']['label']);
         $this->assertSame(1250.0, $components['seller_order_processing_fee']['amount']);
         $this->assertFalse($components->has('credit_card_transaction_fee'));
         $this->assertFalse($components->has('seller_transaction_fee'));
@@ -263,6 +264,108 @@ class OrderFinancialBreakdownServiceTest extends TestCase
         $breakdown = $this->service()->forOrder($order);
 
         $this->assertSame(270000.0, $breakdown['gross_amount']);
+    }
+
+    public function test_tiktok_settled_breaks_down_dynamic_commission_processing_and_income_tax(): void
+    {
+        $order = new Order([
+            'platform' => 'Tiktokshop', 'order_selling_price' => 294659, 'escrow_amount' => 240500,
+            'fee_details' => [
+                'source' => 'settled',
+                'summary' => ['revenue_amount' => '295000', 'settlement_amount' => '240500'],
+                'transactions' => [[
+                    'revenue_amount' => '295000', 'fee_tax_amount' => '-53510', 'shipping_cost_amount' => '-990',
+                    'fee_tax_breakdown' => [
+                        'fee' => [
+                            'affiliate_commission_amount' => '-11786',
+                            'platform_commission_amount' => '-15399',
+                            'dynamic_commission_amount' => '-23600',
+                            'fee_per_item_sold_amount' => '-1250',
+                            'affiliate_commission_amount_before_pit' => '-11786',
+                        ],
+                        'tax' => ['pit_amount' => '-1475'],
+                    ],
+                    'supplementary_component' => ['platform_commission_amount' => '-15399'],
+                    'sku_transactions' => [['fee_tax_breakdown' => ['fee' => ['dynamic_commission_amount' => '-23600']]]],
+                ]],
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $components = collect($result['components'])->keyBy('key');
+        $this->assertFalse($result['is_estimated']);
+        $this->assertSame(240500.0, $result['escrow_amount']);
+        $this->assertSame(23600.0, $components['dynamic_commission_amount']['amount']);
+        $this->assertSame('Komisi dinamis', $components['dynamic_commission_amount']['label']);
+        $this->assertSame(1250.0, $components['fee_per_item_sold_amount']['amount']);
+        $this->assertSame(1475.0, $components['pit_amount']['amount']);
+        $this->assertFalse($components->has('platform_adjustment'));
+        $this->assertFalse($components->has('unitemized_fee_tax'));
+        $this->assertFalse($components->has('affiliate_commission_amount_before_pit'));
+        $this->assertSame(4.0, $result['affiliate_percentage']);
+    }
+
+    public function test_tiktok_unsettled_uses_order_revenue_and_the_same_itemized_schema(): void
+    {
+        $order = new Order([
+            'platform' => 'Tiktokshop', 'order_selling_price' => 300000, 'escrow_amount' => 244648,
+            'fee_details' => [
+                'source' => 'unsettled',
+                'summary' => ['revenue_amount' => '9000000', 'sum_est_settlement_amount' => '8000000'],
+                'transactions' => [[
+                    'est_revenue_amount' => '287951', 'est_settlement_amount' => '244648',
+                    'est_fee_tax_amount' => '-43303', 'est_shipping_cost_amount' => '0',
+                    'fee_tax_breakdown' => [
+                        'fee' => ['platform_commission_amount' => '-20000', 'dynamic_commission_amount' => '-20614', 'fee_per_item_sold_amount' => '-1250'],
+                        'tax' => ['pit_amount' => '-1439'],
+                    ],
+                ]],
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $components = collect($result['components'])->keyBy('key');
+        $this->assertTrue($result['is_estimated']);
+        $this->assertSame(287951.0, $result['gross_amount']);
+        $this->assertSame(244648.0, $result['escrow_amount']);
+        $this->assertCount(4, $components);
+        $this->assertFalse($components->has('platform_adjustment'));
+    }
+
+    public function test_tiktok_canonical_sku_rows_keep_fee_refunds_and_do_not_duplicate_totals(): void
+    {
+        $order = new Order([
+            'platform' => 'Tiktokshop', 'order_selling_price' => 10000, 'escrow_amount' => 9400,
+            'fee_details' => [
+                'source' => 'settled', 'summary' => ['revenue_amount' => 10000],
+                'transactions' => [[
+                    'sku_transactions' => [
+                        ['fee_tax_amount' => -1000, 'fee_tax_breakdown' => ['fee' => ['dynamic_commission_amount' => -1000]]],
+                        ['fee_tax_amount' => 400, 'fee_tax_breakdown' => ['fee' => ['dynamic_commission_amount' => 400]]],
+                    ],
+                ]],
+            ],
+        ]);
+        $result = $this->service()->forOrder($order);
+        $this->assertCount(1, $result['components']);
+        $this->assertSame(600.0, $result['components'][0]['amount']);
+        $this->assertSame('-', $result['components'][0]['operator']);
+    }
+
+    public function test_tiktok_partial_breakdown_does_not_invent_missing_fees(): void
+    {
+        $order = new Order([
+            'platform' => 'Tiktokshop', 'order_selling_price' => 10000, 'escrow_amount' => 8500,
+            'fee_details' => [
+                'source' => 'settled', 'transactions' => [[
+                    'fee_tax_amount' => -1500,
+                    'fee_tax_breakdown' => ['fee' => ['platform_commission_amount' => -1000]],
+                ]],
+            ],
+        ]);
+        $components = collect($this->service()->forOrder($order)['components'])->keyBy('key');
+        $this->assertSame(500.0, $components['unitemized_fee_tax']['amount']);
+        $this->assertFalse($components->has('dynamic_commission_amount'));
+        $this->assertFalse($components->has('fee_per_item_sold_amount'));
+        $this->assertFalse($components->has('platform_adjustment'));
     }
 
     private function service(): OrderFinancialBreakdownService

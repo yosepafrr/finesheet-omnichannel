@@ -399,7 +399,7 @@ export default function OrderDetail({ routeParams }) {
                                 )}
                                 {!financialBreakdown.sync_pending && financialBreakdown.is_estimated && (
                                     <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
-                                        Nilai ini masih estimasi. TikTok menyediakan rincian biaya final setelah statement transaksi tersedia.
+                                        Rincian dan escrow berikut masih estimasi dari API TikTok dan dapat berubah hingga transaksi settled. Biaya yang belum dirinci ditampilkan terpisah.
                                     </div>
                                 )}
                                 {financialBreakdown.has_financial_correction && financialBreakdown.sale_escrow_is_estimated && (
