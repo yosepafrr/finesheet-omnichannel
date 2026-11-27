@@ -86,6 +86,25 @@ class OrderFulfillmentController extends Controller
         ]);
     }
 
+    public function updateLabelPrintStatus(Request $request, int $id, AccessControlService $access, OrderFulfillmentService $fulfillment)
+    {
+        abort_unless($access->allows($request, 'orders.print'), 403);
+        $validated = $request->validate(['printed' => ['required', 'boolean']]);
+        $order = $this->ownedOrder($id);
+        $order->shipping_label_printed_at = $validated['printed']
+            ? ($order->shipping_label_printed_at ?? now())
+            : null;
+        $order->save();
+
+        return response()->json([
+            'id' => $order->id,
+            'fulfillment' => $fulfillment->capabilities($order),
+            'message' => $validated['printed']
+                ? 'Pesanan ditandai sudah dicetak di Finesheet.'
+                : 'Pesanan ditandai belum dicetak di Finesheet.',
+        ]);
+    }
+
     public function label(Request $request, int $id, AccessControlService $access, OrderFulfillmentService $fulfillment)
     {
         abort_unless($access->allows($request, 'orders.print'), 403);

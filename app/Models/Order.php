@@ -14,6 +14,13 @@ class Order extends Model
 
     protected static function booted()
     {
+        static::saving(function (Order $order) {
+            if ($order->isDirty('raw_data') && is_array($order->raw_data)) {
+                foreach (app(\App\Services\OrderListSortService::class)->dates($order->raw_data, (string) $order->platform) as $key => $value) {
+                    $order->setAttribute($key, $value);
+                }
+            }
+        });
         static::saved(function ($order) {
             if ($order->isDirty('order_status') || $order->isDirty('normalized_cancel_category')) {
                 $statusUpper = strtoupper(trim($order->order_status ?? ''));
@@ -113,6 +120,7 @@ class Order extends Model
         'booking_sn',
         'order_status',
         'order_time',
+        'ready_to_ship_at',
         'cod',
         'ship_by_date',
         'message_to_seller',
@@ -148,6 +156,7 @@ class Order extends Model
         'cod' => 'boolean',
         'ship_by_date' => 'datetime',
         'order_time' => 'datetime',
+        'ready_to_ship_at' => 'datetime',
         'raw_data' => 'array',
         'fee_details' => 'array',
         'total_amount' => 'float',

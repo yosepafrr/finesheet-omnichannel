@@ -244,6 +244,44 @@ class OrderListFilterTest extends TestCase
             ->assertJsonPath('pagination.total', 1);
     }
 
+    public function test_sorting_is_server_side_stable_across_pages_and_places_missing_dates_last(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Shopee', 'Sorting', 'sort-shop');
+        $a = $this->createOrder($store, 'SORT-A', 'PROCESSED', now()->subDays(3));
+        $b = $this->createOrder($store, 'SORT-B', 'PROCESSED', now()->subDays(2));
+        $c = $this->createOrder($store, 'SORT-C', 'PROCESSED', now()->subDay());
+        $a->forceFill(['ready_to_ship_at' => now()->subHour(), 'ship_by_date' => now()->addDay()])->saveQuietly();
+        $b->forceFill(['ready_to_ship_at' => now()->subHours(2), 'ship_by_date' => now()->addDays(2)])->saveQuietly();
+        $this->actingAs($user);
+        foreach ([
+            'ready_oldest' => ['SORT-B', 'SORT-A', 'SORT-C'],
+            'ready_newest' => ['SORT-A', 'SORT-B', 'SORT-C'],
+            'deadline_oldest' => ['SORT-A', 'SORT-B', 'SORT-C'],
+            'deadline_newest' => ['SORT-B', 'SORT-A', 'SORT-C'],
+            'created_newest' => ['SORT-C', 'SORT-B', 'SORT-A'],
+        ] as $sort => $expected) {
+            $response = $this->getJson('/api/orders?statuses=PROCESSED&sort_by='.$sort)->assertOk();
+            $this->assertSame($expected, array_column($response->json('orders'), 'order_sn'));
+            $this->getJson('/api/orders?statuses=PROCESSED&sort_by='.$sort.'&per_page=1&page=2')
+                ->assertOk()->assertJsonPath('orders.0.order_sn', $expected[1]);
+        }
+        $this->getJson('/api/orders?sort_by=invalid')->assertUnprocessable();
+    }
+
+    public function test_sort_dates_are_normalized_when_platform_payload_is_saved(): void
+    {
+        $user = User::factory()->create();
+        $store = $this->createStore($user, 'Tiktokshop', 'TikTok', 'sort-tiktok');
+        $order = $this->createOrder($store, 'DATES', 'AWAITING_COLLECTION', now());
+        $paid = now()->subHours(3)->startOfSecond();
+        $deadline = now()->addDays(2)->startOfSecond();
+        $order->update(['raw_data' => ['rts_time' => 0, 'paid_time' => $paid->timestamp, 'rts_sla_time' => $deadline->timestamp]]);
+        $this->assertSame($paid->timestamp, $order->fresh()->ready_to_ship_at->timestamp);
+        $this->assertSame($deadline->timestamp, $order->fresh()->ship_by_date->timestamp);
+        $this->assertNull((new \App\Services\OrderListSortService)->dates(['pay_time' => 'invalid'], 'Shopee')['ready_to_ship_at'] ?? null);
+    }
+
     private function createStore(User $user, string $platform, string $name, string $shopId): Store
     {
         return Store::create([

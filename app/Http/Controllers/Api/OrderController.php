@@ -13,6 +13,7 @@ use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
 use App\Services\OrderFulfillmentService;
 use App\Services\OrderProfitService;
+use App\Services\OrderListSortService;
 use App\Services\PayableService;
 use App\Services\TiktokEscrowAmountResolver;
 use Carbon\Carbon;
@@ -30,6 +31,8 @@ class OrderController extends Controller
         OrderFulfillmentService $fulfillmentService,
     ) {
         $user = Auth::user();
+        $request->validate(['sort_by' => ['nullable', \Illuminate\Validation\Rule::in(array_keys(OrderListSortService::OPTIONS))]]);
+        $sortBy = $request->input('sort_by') ?: 'created_newest';
         $canViewFinance = $access->allows($request, 'orders.finance.view');
         $stores = $user->stores()->get();
         $storeIds = $stores->pluck('id');
@@ -161,9 +164,8 @@ class OrderController extends Controller
                 'returns',
                 'packages',
                 'store',
-            ])
-            ->orderByDesc('order_time')
-            ->orderByDesc('id');
+            ]);
+        app(OrderListSortService::class)->apply($query, $sortBy);
 
         // Filter by failed delivery
         if ($request->has('is_failed_delivery') && $request->is_failed_delivery === 'true') {

@@ -6,6 +6,7 @@ import React, {
     Fragment,
 } from "react";
 import axios from "axios";
+import { PrinterCheck, Printer, LoaderCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,6 +16,15 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import { OrderSyncStatus } from "@/components/OrderSyncStatus";
 import { useOrderSyncStatus } from "@/hooks/useOrderSyncStatus";
 import { useAccess } from "@/contexts/AccessContext";
+import FinesheetSelect from "@/components/ui/FinesheetSelect";
+
+const ORDER_SORT_OPTIONS = [
+    { value: "ready_oldest", label: "Tanggal Pesanan Siap Dikirim (Terlama ke Terbaru)" },
+    { value: "ready_newest", label: "Tanggal Pesanan Siap Dikirim (Terbaru ke Terlama)" },
+    { value: "deadline_oldest", label: "Batas Pengiriman (Terlama ke Terbaru)" },
+    { value: "deadline_newest", label: "Batas Pengiriman (Terbaru ke Terlama)" },
+    { value: "created_newest", label: "Tanggal Pesanan Dibuat (Terbaru ke Terlama)" },
+];
 
 const ORDER_TOUR_STEPS = [
     {
@@ -131,15 +141,16 @@ function FulfillmentModal({ state, busy, onClose, onSubmit }) {
     );
 }
 
-function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings, onArrange, onArrangeAndPrint, onPrint, compact = false }) {
+function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings, onArrange, onArrangeAndPrint, onPrint, onChangePrintStatus, compact = false }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    const [updatingPrintStatus, setUpdatingPrintStatus] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const menuButtonRef = useRef(null);
     const menuRef = useRef(null);
     const arrangeAvailable = canArrange && Boolean(order.fulfillment?.can_arrange);
     const printAvailable = canPrint && Boolean(order.fulfillment?.can_print);
     const arrangeAndPrintAvailable = arrangeAvailable && canPrint;
-    const hasOverflowMenu = arrangeAvailable || canManageSettings;
+    const hasOverflowMenu = arrangeAvailable || canManageSettings || canPrint;
 
     useEffect(() => {
         if (!menuOpen) return undefined;
@@ -149,7 +160,14 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                 setMenuOpen(false);
             }
         };
-        const closeOnViewportChange = () => setMenuOpen(false);
+        const closeOnViewportChange = (event) => {
+            if (!(event.target instanceof Node) || !menuRef.current?.contains(event.target)) setMenuOpen(false);
+        };
+        const menuRect = menuRef.current?.getBoundingClientRect();
+        if (menuRect && menuRect.bottom > window.innerHeight - 8) {
+            const buttonRect = menuButtonRef.current?.getBoundingClientRect();
+            setMenuPosition((position) => ({ ...position, top: Math.max(8, (buttonRect?.top || window.innerHeight) - menuRect.height - 6) }));
+        }
         document.addEventListener("mousedown", closeMenu);
         window.addEventListener("resize", closeOnViewportChange);
         window.addEventListener("scroll", closeOnViewportChange, true);
@@ -187,13 +205,25 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
         onArrange(order.id);
     };
 
-    if (!arrangeAvailable && !printAvailable) return null;
+    const changePrintStatus = async (event) => {
+        event.stopPropagation();
+        if (updatingPrintStatus) return;
+        setUpdatingPrintStatus(true);
+        try {
+            await onChangePrintStatus(order.id, !Boolean(order.fulfillment?.label_printed));
+            setMenuOpen(false);
+        } finally {
+            setUpdatingPrintStatus(false);
+        }
+    };
+
+    if (!arrangeAvailable && !printAvailable && !canPrint) return null;
 
     return (
         <div
-            className={`flex items-center gap-1.5 ${compact
+            className={`flex items-center gap-1.5 ${menuOpen ? "!opacity-100 !translate-y-0 !pointer-events-auto" : ""} ${compact
                 ? "w-full"
-                : `${arrangeAndPrintAvailable ? "min-w-[292px]" : "min-w-[196px]"} justify-end rounded-xl border border-slate-200/90 bg-white/95 p-1.5 opacity-0 translate-y-1 pointer-events-none shadow-[0_12px_32px_rgba(15,23,42,0.16)] backdrop-blur-sm transition-[opacity,transform] duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto dark:border-slate-600 dark:bg-slate-800/95`
+                : `${arrangeAndPrintAvailable ? "min-w-[292px]" : arrangeAvailable || printAvailable ? "min-w-[196px]" : ""} justify-end rounded-xl border border-slate-200/90 bg-white/95 p-1.5 opacity-0 translate-y-1 pointer-events-none shadow-[0_12px_32px_rgba(15,23,42,0.16)] backdrop-blur-sm transition-[opacity,transform] duration-150 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto dark:border-slate-600 dark:bg-slate-800/95`
             }`}
             onClick={(event) => event.stopPropagation()}
         >
@@ -216,7 +246,7 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                     </span>
                     {arrangeAndPrintAvailable ? "Atur pengiriman + cetak resi" : "Atur pengiriman"}
                 </button>
-            ) : (
+            ) : printAvailable ? (
                 <button
                     type="button"
                     onClick={(event) => {
@@ -231,7 +261,7 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                     </span>
                     Cetak resi
                 </button>
-            )}
+            ) : null}
             {hasOverflowMenu && (
                 <button
                     ref={menuButtonRef}
@@ -251,8 +281,16 @@ function FulfillmentRowActions({ order, canArrange, canPrint, canManageSettings,
                     ref={menuRef}
                     role="menu"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
-                    className="fixed z-[520] w-52 overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)] dark:border-slate-600 dark:bg-slate-800"
+                    className="fixed z-[520] max-h-[calc(100dvh-16px)] w-52 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)] dark:border-slate-600 dark:bg-slate-800"
                 >
+                    {canPrint && (
+                        <button type="button" role="menuitem" disabled={updatingPrintStatus} onClick={changePrintStatus} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 disabled:cursor-wait disabled:opacity-60 dark:text-slate-200 dark:hover:bg-blue-400/10">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] dark:bg-blue-400/15 dark:text-blue-200">
+                                {updatingPrintStatus ? <LoaderCircle className="h-4 w-4 animate-spin" /> : order.fulfillment?.label_printed ? <Printer className="h-4 w-4" /> : <PrinterCheck className="h-4 w-4" />}
+                            </span>
+                            <span>{updatingPrintStatus ? "Menyimpan..." : order.fulfillment?.label_printed ? "Tandai belum dicetak di Finesheet" : "Tandai sudah dicetak di Finesheet"}</span>
+                        </button>
+                    )}
                     {arrangeAvailable && (
                         <button type="button" role="menuitem" onClick={handleArrange} className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[#304674]/5 dark:text-slate-200 dark:hover:bg-blue-400/10">
                             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#304674]/10 text-[#304674] transition group-hover:bg-[#304674] group-hover:text-white dark:bg-blue-400/15 dark:text-blue-200">
@@ -593,6 +631,13 @@ export default function OrderList() {
     const tour = useOnboarding("orders", ORDER_TOUR_STEPS.length);
 
     const [data, setData] = useState(null);
+    const sortStorageKey = `finesheet:order-sort:${window.authUser?.id || "default"}`;
+    const [selectedSort, setSelectedSort] = useState(() => {
+        try {
+            const saved = localStorage.getItem(sortStorageKey);
+            return ORDER_SORT_OPTIONS.some((option) => option.value === saved) ? saved : "created_newest";
+        } catch { return "created_newest"; }
+    });
     const [loading, setLoading] = useState(true);
     const [selectedFilterId, setSelectedFilterId] = useState(
         () => initialNavigation?.selectedFilterId || initialSaved?.selectedFilterId || "perlu_dikirim"
@@ -893,6 +938,7 @@ export default function OrderList() {
             }
             params.page = requestedPage;
             params.per_page = requestedPerPage;
+            params.sort_by = selectedSort;
             
             const res = await axios.get("/api/orders", { 
                 params,
@@ -921,6 +967,7 @@ export default function OrderList() {
         excludeReturns,
         requestedPage,
         requestedPerPage,
+        selectedSort,
     ]);
 
     useEffect(() => {
@@ -949,6 +996,15 @@ export default function OrderList() {
     // without needing to re-register on every filter change
     const fetchDataRef = useRef(fetchData);
     const realtimeRefreshTimeoutRef = useRef(null);
+    const updatePrintStatus = async (id, printed) => {
+        try {
+            const response = await axios.patch(`/api/orders/${id}/shipping-label-status`, { printed });
+            setFulfillmentNotice({ type: "success", message: response.data.message });
+            await fetchDataRef.current(true);
+        } catch (error) {
+            setFulfillmentNotice({ type: "error", message: error.response?.data?.message || "Status cetak belum dapat diperbarui. Coba kembali." });
+        }
+    };
     useEffect(() => {
         fetchDataRef.current = fetchData;
     });
@@ -1848,6 +1904,23 @@ export default function OrderList() {
                     </div>
 
                     {/* Order Content */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                        <span className="shrink-0 text-xs font-semibold text-slate-500">Urutkan:</span>
+                        <FinesheetSelect
+                            value={selectedSort}
+                            options={ORDER_SORT_OPTIONS}
+                            onChange={(value) => {
+                                try { localStorage.setItem(sortStorageKey, value); } catch { /* Storage may be blocked by browser policy. */ }
+                                resetActivePagination();
+                                setSelectedSort(value);
+                            }}
+                            icon="sort"
+                            ariaLabel="Urutan pesanan"
+                            className="w-full sm:max-w-[520px]"
+                            triggerClassName="min-h-10 text-xs"
+                            menuMinWidth={280}
+                        />
+                    </div>
                     {loading ? (
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
                             <SkeletonRow />
@@ -2083,7 +2156,7 @@ export default function OrderList() {
                                                                 className="relative hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                                                             >
                                                                 <td className="px-6 py-4 align-top">
-                                                                    {hasFulfillmentTools && canSelectForFulfillment(order) && (
+                                                                    {hasFulfillmentTools && (canSelectForFulfillment(order) || canPrintLabels) && (
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={selectedOrderIds.includes(order.id)}
@@ -2263,6 +2336,7 @@ export default function OrderList() {
                                                                             onArrange={(id) => beginArrange([id])}
                                                                             onArrangeAndPrint={(id) => beginArrange([id], true)}
                                                                             onPrint={(id) => printLabels([id])}
+                                                                            onChangePrintStatus={updatePrintStatus}
                                                                         />
                                                                     </div>
                                                                     )}
@@ -2550,7 +2624,7 @@ export default function OrderList() {
                                                         <HppWarning className="mb-3" />
                                                     )}
 
-                                                    {hasFulfillmentTools && canSelectForFulfillment(order) && (
+                                                    {hasFulfillmentTools && (canSelectForFulfillment(order) || canPrintLabels) && (
                                                         <div className="mb-3">
                                                             <FulfillmentRowActions
                                                                 order={order}
@@ -2560,6 +2634,7 @@ export default function OrderList() {
                                                                 onArrange={(id) => beginArrange([id])}
                                                                 onArrangeAndPrint={(id) => beginArrange([id], true)}
                                                                 onPrint={(id) => printLabels([id])}
+                                                                onChangePrintStatus={updatePrintStatus}
                                                                 compact
                                                             />
                                                         </div>

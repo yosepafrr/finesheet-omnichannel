@@ -8,6 +8,8 @@ use App\Models\OrderProduct;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\OrderFulfillmentService;
+use App\Services\AccessControlService;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -86,6 +88,67 @@ class FulfillmentDocumentTest extends TestCase
 
         $this->assertTrue($capabilities['label_printed']);
         $this->assertSame($printedAt->toIso8601String(), $capabilities['label_printed_at']);
+    }
+
+    public function test_manual_print_status_can_be_marked_and_cleared_without_contacting_marketplace(): void
+    {
+        Http::fake();
+        [$user, $orders] = $this->processedOrders(1);
+        $order = $orders->first();
+        $url = "/api/orders/{$order->id}/shipping-label-status";
+        $this->actingAs($user)->patchJson($url, ['printed' => true])->assertOk()
+            ->assertJsonPath('fulfillment.label_printed', true);
+        $timestamp = $order->fresh()->shipping_label_printed_at->toIso8601String();
+        $this->travel(5)->minutes();
+        $this->patchJson($url, ['printed' => true])->assertOk()
+            ->assertJsonPath('fulfillment.label_printed_at', $timestamp);
+        $this->patchJson($url, ['printed' => false])->assertOk()
+            ->assertJsonPath('fulfillment.label_printed', false)
+            ->assertJsonPath('fulfillment.label_printed_at', null);
+        $this->assertNull($order->fresh()->shipping_label_printed_at);
+        $this->assertSame('PROCESSED', $order->fresh()->order_status);
+        Http::assertNothingSent();
+    }
+
+    public function test_manual_print_status_updates_the_unprinted_order_filter(): void
+    {
+        [$user, $orders] = $this->processedOrders(1);
+        $url = "/api/orders/{$orders->first()->id}/shipping-label-status";
+        $filter = '/api/orders?statuses=PROCESSED&shipping_process=processed&shipping_label_print_status=unprinted';
+        $this->actingAs($user)->patchJson($url, ['printed' => true])->assertOk();
+        $this->getJson($filter)->assertOk()->assertJsonCount(0, 'orders');
+        $this->patchJson($url, ['printed' => false])->assertOk();
+        $this->getJson($filter)->assertOk()->assertJsonCount(1, 'orders');
+    }
+
+    public function test_print_operator_can_change_tiktok_print_status(): void
+    {
+        [$user, $orders] = $this->processedOrders(1);
+        $order = $orders->first();
+        $order->forceFill(['platform' => 'Tiktokshop', 'order_status' => 'AWAITING_COLLECTION'])->saveQuietly();
+        $profile = $user->accessProfiles()->create([
+            'name' => 'Fulfillment', 'layout' => 'order_operations',
+            'permissions' => ['orders.view', 'orders.print'], 'is_active' => true,
+        ]);
+        $this->actingAs($user)->withSession([AccessControlService::SESSION_KEY => $profile->id])
+            ->patchJson("/api/orders/{$order->id}/shipping-label-status", ['printed' => true])
+            ->assertOk()->assertJsonPath('fulfillment.label_printed', true);
+    }
+
+    public function test_manual_print_status_requires_ownership_print_permission_and_explicit_boolean(): void
+    {
+        [$user, $orders] = $this->processedOrders(1);
+        $url = "/api/orders/{$orders->first()->id}/shipping-label-status";
+        $this->actingAs(User::factory()->create())->patchJson($url, ['printed' => true])->assertNotFound();
+        $profile = $user->accessProfiles()->create([
+            'name' => 'Read only', 'layout' => 'read_only',
+            'permissions' => ['orders.view'], 'is_active' => true,
+        ]);
+        $this->actingAs($user)->withSession([AccessControlService::SESSION_KEY => $profile->id])
+            ->patchJson($url, ['printed' => true])->assertForbidden();
+        $this->withSession([AccessControlService::SESSION_KEY => null])->patchJson($url, [])->assertUnprocessable();
+        $this->patchJson($url, ['printed' => 'invalid'])->assertUnprocessable();
+        $this->assertNull($orders->first()->fresh()->shipping_label_printed_at);
     }
 
     private function processedOrders(int $count, string $status = 'PROCESSED'): array

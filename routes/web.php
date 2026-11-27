@@ -115,6 +115,7 @@ Route::middleware(['auth', 'verified', 'access.profile'])->group(function () {
         Route::get('/orders/fulfillment/shipping-label-jobs/{token}/document', [OrderFulfillmentController::class, 'labelJobDocument']);
         Route::post('/orders/fulfillment/picking-list', [OrderFulfillmentController::class, 'pickingList']);
         Route::get('/orders/{id}/shipping-label', [OrderFulfillmentController::class, 'label']);
+        Route::patch('/orders/{id}/shipping-label-status', [OrderFulfillmentController::class, 'updateLabelPrintStatus']);
         Route::get('/fulfillment-settings', [FulfillmentSettingController::class, 'index']);
         Route::put('/fulfillment-settings/stores', [FulfillmentSettingController::class, 'bulkUpdate']);
         Route::put('/fulfillment-settings/stores/{storeId}', [FulfillmentSettingController::class, 'update']);
