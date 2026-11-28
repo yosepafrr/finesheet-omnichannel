@@ -1112,21 +1112,9 @@ export default function OrderList() {
         setExpandedOrders((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
     };
 
-    // Keep a dedicated store header for one selected store. Multiple stores use
-    // one chronological stream so their orders can be compared directly.
+    // Preserve server sorting and pagination for both single-store and merged views.
     const ordersByStore = {};
-    const visibleOrders = [];
-    if (data?.orders) {
-        data.orders.forEach((order) => {
-            visibleOrders.push(order);
-        });
-    }
-
-    visibleOrders.sort((a, b) => {
-        const timeA = new Date(a.order_time || a.created_at || 0).getTime();
-        const timeB = new Date(b.order_time || b.created_at || 0).getTime();
-        return timeB - timeA;
-    });
+    const visibleOrders = data?.orders || [];
 
     if (selectedStoreIds.length === 1) {
         ordersByStore[selectedStoreIds[0]] = visibleOrders;

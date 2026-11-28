@@ -49,6 +49,42 @@ test.describe('Order Management', () => {
     await expect(page.locator('text=ORD-A-1')).toHaveCount(0);
   });
 
+  test('Sort dropdown preserves API order instead of re-sorting by creation date', async ({ page }) => {
+    const response = await page.request.get('/api/orders');
+    const baseline = await response.json();
+    expect(baseline.orders.length).toBeGreaterThan(0);
+    const original = baseline.orders[0];
+    const oldest = { ...original, id: 900001, order_sn: 'SORT-OLDEST', order_time: '2026-01-01T10:00:00+07:00' };
+    const newest = { ...original, id: 900002, order_sn: 'SORT-NEWEST', order_time: '2026-02-01T10:00:00+07:00' };
+    await page.route('**/api/orders?*', async route => {
+      const sort = new URL(route.request().url()).searchParams.get('sort_by');
+      const rows = sort === 'created_newest' ? [newest, oldest] : [oldest, newest];
+      await route.fulfill({ json: {
+        ...baseline,
+        orders: rows,
+        pagination: { current_page: 1, per_page: 30, total: 2, last_page: 1 },
+      } });
+    });
+    const cases = [
+      ['Tanggal Pesanan Dibuat (Terlama ke Terbaru)', 'SORT-OLDEST'],
+      ['Tanggal Pesanan Dibuat (Terbaru ke Terlama)', 'SORT-NEWEST'],
+      ['Batas Pengiriman (Terlama ke Terbaru)', 'SORT-OLDEST'],
+      ['Tanggal Pesanan Siap Dikirim (Terlama ke Terbaru)', 'SORT-OLDEST'],
+    ];
+    for (const [label, first] of cases) {
+      const dropdown = page.getByRole('combobox', { name: 'Urutan pesanan' });
+      await dropdown.scrollIntoViewIfNeeded();
+      await dropdown.click();
+      const updated = page.waitForResponse(r => r.url().includes('/api/orders?') && r.status() === 200);
+      await page.getByRole('option').filter({ hasText: label }).click();
+      await updated;
+      await expect(page.locator('tbody tr').filter({ hasText: /SORT-OLDEST|SORT-NEWEST/ }).first()).toContainText(first);
+    }
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: 'Urutan pesanan' })).toContainText(cases[3][0]);
+    await expect(page.locator('tbody tr').filter({ hasText: /SORT-OLDEST|SORT-NEWEST/ }).first()).toContainText('SORT-OLDEST');
+  });
+
   test('Order Detail shows correct information', async ({ page }) => {
     // Reset search
     await page.fill('input[placeholder*="Cari order ID atau produk"]', '');
