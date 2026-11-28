@@ -259,6 +259,7 @@ class OrderListFilterTest extends TestCase
             'ready_newest' => ['SORT-A', 'SORT-B', 'SORT-C'],
             'deadline_oldest' => ['SORT-A', 'SORT-B', 'SORT-C'],
             'deadline_newest' => ['SORT-B', 'SORT-A', 'SORT-C'],
+            'created_oldest' => ['SORT-A', 'SORT-B', 'SORT-C'],
             'created_newest' => ['SORT-C', 'SORT-B', 'SORT-A'],
         ] as $sort => $expected) {
             $response = $this->getJson('/api/orders?statuses=PROCESSED&sort_by='.$sort)->assertOk();

@@ -8,6 +8,7 @@ export const PAGE_PERMISSIONS = {
     "/stores": "stores.view",
     "/products": "products.view",
     "/stock-management": "products.view",
+    "/shopee-boost": "products.boost.manage",
     "/orders": "orders.view",
     "/fulfillment-settings": "fulfillment.settings.manage",
     "/profit-tracker": "finance.profit.view",

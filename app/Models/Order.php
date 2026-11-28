@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Events\OrderCreated;
 use App\Events\OrderUpdated;
+use App\Services\OrderListSortService;
 use App\Services\PayableService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +17,7 @@ class Order extends Model
     {
         static::saving(function (Order $order) {
             if ($order->isDirty('raw_data') && is_array($order->raw_data)) {
-                foreach (app(\App\Services\OrderListSortService::class)->dates($order->raw_data, (string) $order->platform) as $key => $value) {
+                foreach (app(OrderListSortService::class)->dates($order->raw_data, (string) $order->platform) as $key => $value) {
                     $order->setAttribute($key, $value);
                 }
             }
@@ -189,7 +190,7 @@ class Order extends Model
 
     public function store()
     {
-        return $this->belongsTo(Store::class, 'store_id', 'id');
+        return $this->belongsTo(Store::class, 'store_id', 'id')->withoutGlobalScope('marketplace');
     }
 
     public function returns()

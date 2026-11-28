@@ -60,6 +60,9 @@ class EnforceAccessProfile
         if ($path === 'dashboard/stats') {
             return 'dashboard.view';
         }
+        if (Str::is('api/shopee-boost*', $path)) {
+            return 'products.boost.manage';
+        }
         if (Str::is('api/stores*', $path)) {
             return $method === 'GET' ? 'stores.view' : 'stores.manage';
         }
@@ -96,6 +99,9 @@ class EnforceAccessProfile
 
         if ($path === 'api/sync/products') {
             return 'products.sync';
+        }
+        if (Str::is('api/manual-orders*', $path)) {
+            return 'orders.manual.manage';
         }
         if (Str::is('api/orders*', $path)) {
             return 'orders.view';

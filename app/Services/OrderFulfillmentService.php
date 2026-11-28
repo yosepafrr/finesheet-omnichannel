@@ -961,6 +961,10 @@ class OrderFulfillmentService
 
     private function platform(Order $order): string
     {
+        if ($order->platform === 'Manual') {
+            return 'Manual';
+        }
+
         return strcasecmp((string) $order->platform, 'Shopee') === 0 ? 'Shopee' : 'Tiktokshop';
     }
 

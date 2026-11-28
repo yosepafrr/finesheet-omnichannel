@@ -12,6 +12,7 @@ class OrderListSortService
         'ready_newest' => ['ready_to_ship_at', 'desc'],
         'deadline_oldest' => ['ship_by_date', 'asc'],
         'deadline_newest' => ['ship_by_date', 'desc'],
+        'created_oldest' => ['order_time', 'asc'],
         'created_newest' => ['order_time', 'desc'],
     ];
 

@@ -105,6 +105,7 @@ class AccessControlService
     {
         $permissions = array_values(array_unique(array_intersect($permissions, $this->allowedPermissions())));
         $dependencies = [
+            'orders.manual.manage' => 'orders.view',
             'stores.manage' => 'stores.view',
             'products.edit' => 'products.view',
             'products.stock.manage' => 'products.view',
@@ -112,6 +113,7 @@ class AccessControlService
             'products.hpp.edit' => 'products.hpp.view',
             'products.supplier.manage' => 'products.view',
             'products.sync' => 'products.view',
+            'products.boost.manage' => 'products.view',
             'orders.process' => 'orders.view',
             'orders.ship' => 'orders.view',
             'orders.print' => 'orders.view',

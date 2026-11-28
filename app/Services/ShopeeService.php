@@ -535,6 +535,49 @@ class ShopeeService
         return $items;
     }
 
+    public function getBoostedList(Store $store): array
+    {
+        return $this->boostRequest($store, '/api/v2/product/get_boosted_list');
+    }
+
+    public function boostItems(Store $store, array $itemIds): array
+    {
+        if (count($itemIds) < 1 || count($itemIds) > 5) {
+            throw new RuntimeException('Pilih 1 sampai 5 produk untuk dinaikkan.');
+        }
+
+        return $this->boostRequest($store, '/api/v2/product/boost_item', [
+            'item_id_list' => array_map('intval', $itemIds),
+        ]);
+    }
+
+    private function boostRequest(Store $store, string $path, ?array $body = null): array
+    {
+        $token = $this->ensureValidToken($store);
+        $timestamp = time();
+        $query = [
+            'partner_id' => $this->partnerId,
+            'timestamp' => $timestamp,
+            'sign' => $this->generateSign($path, $timestamp, $token, $store->shopee_shop_id),
+            'shop_id' => $store->shopee_shop_id,
+            'access_token' => $token,
+        ];
+        $url = $this->baseUrl.$path;
+        $response = $body === null
+            ? $this->httpClient()->get($url, $query)
+            : $this->httpClient()->post($url.'?'.http_build_query($query), $body);
+        $data = $response->json();
+        if (! $response->successful() || ! is_array($data) || ! empty($data['error'])) {
+            throw new RuntimeException('Shopee boost: '.($data['message'] ?? $data['error'] ?? 'Respons tidak valid')
+                .' (request '.($data['request_id'] ?? '-').')');
+        }
+        if (! is_array($data['response'] ?? null)) {
+            throw new RuntimeException('Shopee tidak mengembalikan data boost yang valid.');
+        }
+
+        return $data['response'];
+    }
+
     public function getItemBaseInfo($store, array $itemIds)
     {
         $shop_id = $store->shopee_shop_id;

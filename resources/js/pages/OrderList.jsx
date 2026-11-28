@@ -6,7 +6,8 @@ import React, {
     Fragment,
 } from "react";
 import axios from "axios";
-import { PrinterCheck, Printer, LoaderCircle } from "lucide-react";
+import { PrinterCheck, Printer, LoaderCircle, Plus, Settings2 } from "lucide-react";
+import ManualOrderModal from "@/components/ManualOrderModal";
 import { createPortal } from "react-dom";
 import AppLayout from "../../views/components/layouts/AppLayout";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,8 +24,18 @@ const ORDER_SORT_OPTIONS = [
     { value: "ready_newest", label: "Tanggal Pesanan Siap Dikirim (Terbaru ke Terlama)" },
     { value: "deadline_oldest", label: "Batas Pengiriman (Terlama ke Terbaru)" },
     { value: "deadline_newest", label: "Batas Pengiriman (Terbaru ke Terlama)" },
+    { value: "created_oldest", label: "Tanggal Pesanan Dibuat (Terlama ke Terbaru)" },
     { value: "created_newest", label: "Tanggal Pesanan Dibuat (Terbaru ke Terlama)" },
 ];
+
+function ManualOrderMeta({ order, canManage, onManage }) {
+    const payment = { PAID: "Lunas", PARTIAL: "Dibayar sebagian", UNPAID: "Belum dibayar" }[order.manual_data?.payment_status];
+    return <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+        <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-semibold text-[#304674]">Manual</span>
+        <span className="text-gray-500 dark:text-slate-300">{order.manual_data?.source} / {payment}</span>
+        {canManage && <button type="button" onClick={(e) => { e.stopPropagation(); onManage(order); }} className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 font-semibold text-[#304674] hover:bg-blue-50 dark:bg-slate-700 dark:text-white"><Settings2 size={12} /> Kelola</button>}
+    </div>;
+}
 
 const ORDER_TOUR_STEPS = [
     {
@@ -355,6 +366,7 @@ const PLATFORM_FILTERS = [
     { id: "all", label: "Semua" },
     { id: "Shopee", label: "Shopee" },
     { id: "Tiktokshop", label: "TikTok Shop" },
+    { id: "Manual", label: "Manual" },
 ];
 
 const SHIPPING_PROCESS_FILTERS = [
@@ -618,6 +630,9 @@ const formatDate = (dateString) => {
 
 export default function OrderList() {
     const access = useAccess();
+    const canManageManual = access.can("orders.manual.manage");
+    const [manualModal, setManualModal] = useState(null);
+    const closeManualModal = useCallback(() => setManualModal(null), []);
     const canViewFinance = access.can("orders.finance.view");
     const canSyncOrders = access.can("orders.sync");
     const canArrangeShipping = access.can("orders.ship");
@@ -1125,7 +1140,7 @@ export default function OrderList() {
         && selectedShippingProcess === "needs_processing";
     const isPickingListMode = selectedFilterId === "perlu_dikirim"
         && selectedShippingProcess === "processed";
-    const canSelectForFulfillment = useCallback((order) => (
+    const canSelectForFulfillment = useCallback((order) => order.platform !== "Manual" && (
         (canArrangeShipping && Boolean(order.fulfillment?.can_arrange))
         || (canPrintLabels && Boolean(order.fulfillment?.can_print))
         || (canPrintLabels && isPickingListMode)
@@ -1506,6 +1521,7 @@ export default function OrderList() {
 
                             {/* Search and Store Filter */}
                             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
+                                {canManageManual && <button type="button" onClick={() => setManualModal({})} className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-[#304674] bg-white px-3 py-2 text-sm font-semibold text-[#304674] hover:bg-blue-50 md:w-auto dark:bg-slate-800 dark:text-white"><Plus size={16} /> Pesanan manual</button>}
                                 {canSyncOrders && <button
                                     onClick={handleSync}
                                     disabled={isSyncBusy}
@@ -2050,7 +2066,7 @@ export default function OrderList() {
 
                             const totalOrders = Number(data?.pagination?.total ?? storeOrders.length);
                             const totalHpp = Number(data?.totals?.hpp_amount || 0);
-                            const totalEscrow = Number(data?.totals?.escrow_amount || 0);
+                            const totalEscrow = Number(data?.totals?.escrow_amount || 0) + Number(data?.totals?.manual_revenue_amount || 0);
                             const totalProfit = Number(data?.totals?.profit_amount || 0);
                             const itemsPerPage = Number(data?.pagination?.per_page ?? requestedPerPage);
                             const totalPages = Math.max(Number(data?.pagination?.last_page ?? 1), 1);
@@ -2257,6 +2273,7 @@ export default function OrderList() {
                                                                                 order.platform
                                                                             }
                                                                         />
+                                                                        {order.platform === "Manual" && <ManualOrderMeta order={order} canManage={canManageManual} onManage={setManualModal} />}
                                                                         {order.is_affiliate && (
                                                                             <AffiliateBadge percentage={order.affiliate_percentage} />
                                                                         )}
@@ -2350,7 +2367,7 @@ export default function OrderList() {
                                                                             )}
                                                                         </td>
                                                                         <td className="px-6 py-4 align-top text-right font-semibold text-[#304674] dark:text-blue-400">
-                                                                            {formatRp(order.escrow_amount)}
+                                                                            {order.platform === "Manual" ? <><span>{formatRp(order.revenue_amount)}</span><small className="block text-[10px] font-normal text-gray-500">Pendapatan manual, bukan escrow</small></> : formatRp(order.escrow_amount)}
                                                                         </td>
                                                                         <td className="px-6 py-4 align-top text-right">
                                                                             <p className={`font-bold ${Number(order.profit_amount || 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
@@ -2518,6 +2535,7 @@ export default function OrderList() {
                                                                             order.platform
                                                                         }
                                                                     />
+                                                                    {order.platform === "Manual" && <ManualOrderMeta order={order} canManage={canManageManual} onManage={setManualModal} />}
                                                                     {order.is_affiliate && (
                                                                         <AffiliateBadge percentage={order.affiliate_percentage} />
                                                                     )}
@@ -2607,9 +2625,9 @@ export default function OrderList() {
                                                             </p>
                                                         </div>
                                                         <div className="min-w-0 px-2 py-2.5">
-                                                            <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">Escrow</p>
+                                                            <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-slate-500">{order.platform === "Manual" ? "Pendapatan" : "Escrow"}</p>
                                                             <p className="mt-0.5 truncate text-xs font-bold text-[#304674] dark:text-blue-400">
-                                                                {formatRp(order.escrow_amount)}
+                                                                {formatRp(order.platform === "Manual" ? order.revenue_amount : order.escrow_amount)}
                                                             </p>
                                                         </div>
                                                         <div className="min-w-0 px-2 py-2.5">
@@ -2624,7 +2642,7 @@ export default function OrderList() {
                                                         <HppWarning className="mb-3" />
                                                     )}
 
-                                                    {hasFulfillmentTools && (canSelectForFulfillment(order) || canPrintLabels) && (
+                                                    {hasFulfillmentTools && order.platform !== "Manual" && (canSelectForFulfillment(order) || canPrintLabels) && (
                                                         <div className="mb-3">
                                                             <FulfillmentRowActions
                                                                 order={order}
@@ -2961,6 +2979,14 @@ export default function OrderList() {
                 onSubmit={submitArrange}
             />
             <ScrollToTopButton markerId="order-scroll-top-marker" />
+            {manualModal && <ManualOrderModal order={manualModal.id ? manualModal : null} onClose={closeManualModal} onSaved={() => {
+                const wasNew = !manualModal.id;
+                setManualModal(null);
+                if (wasNew) {
+                    setSelectedPlatform("Manual"); setSelectedStoreIds([]); setSelectedFilterId("perlu_dikirim"); setSelectedShippingProcess("processed"); setSelectedShippingLabelPrintStatus("all"); setSearchQuery(""); resetActivePagination();
+                }
+                fetchDataRef.current?.(true);
+            }} />}
         </AppLayout>
     );
 }

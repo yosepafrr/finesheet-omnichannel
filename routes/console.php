@@ -17,6 +17,16 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::call(function () {
+    \App\Models\ShopeeBoostSetting::where('enabled', true)
+        ->where(fn ($q) => $q->whereNull('next_check_at')->orWhere('next_check_at', '<=', now()))
+        ->select(['id', 'store_id'])->chunkById(100, function ($settings) {
+            foreach ($settings as $setting) {
+                \App\Jobs\SyncShopeeBoostJob::dispatch($setting->store_id);
+            }
+        });
+})->everyMinute()->name('dispatch-shopee-product-boost')->withoutOverlapping(5);
+
+Schedule::call(function () {
     Store::query()
         ->whereIn('platform', ['Shopee', 'Tiktokshop'])
         ->select(['id', 'platform'])

@@ -49,6 +49,17 @@ class OrderProfitService
                 $hasMissingHpp = $hasMissingHpp || ! $details['available'];
             }
 
+            if ($order->platform === 'Manual') {
+                $revenue = ManualOrderService::revenueAmount($order);
+
+                return [$order->id => [
+                    'hpp_amount' => $order->order_status === 'CANCELLED' ? 0 : $hppAmount,
+                    'escrow_amount' => 0, 'profit_amount' => $revenue - ($order->order_status === 'CANCELLED' ? 0 : $hppAmount),
+                    'sale_escrow_amount' => 0, 'sale_profit_amount' => 0,
+                    'sale_escrow_source' => 'manual', 'sale_escrow_is_estimated' => false,
+                    'sale_escrow_sample_size' => 0, 'has_missing_hpp' => $hasMissingHpp,
+                ]];
+            }
             $escrowAmount = (float) $this->escrowService->amount($order);
             $saleEscrow = $this->saleEscrow(
                 $order,

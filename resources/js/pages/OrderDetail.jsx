@@ -474,16 +474,16 @@ export default function OrderDetail({ routeParams }) {
                                     <div className="flex items-center justify-between gap-4 rounded-lg bg-blue-50 px-3 py-3 dark:bg-blue-900/20">
                                         <div>
                                             <p className="font-bold text-gray-900 dark:text-white">
-                                                {financialBreakdown.has_financial_correction ? "Escrow akhir" : "Escrow"}
+                                                {order.platform === "Manual" ? "Pendapatan pesanan manual" : financialBreakdown.has_financial_correction ? "Escrow akhir" : "Escrow"}
                                             </p>
                                             <p className="text-[11px] text-gray-500 dark:text-slate-400">
-                                                {financialBreakdown.has_financial_correction
+                                                {order.platform === "Manual" ? "Nilai pesanan, bukan saldo escrow marketplace" : financialBreakdown.has_financial_correction
                                                     ? "Saldo setelah pengembalian atau pengantaran gagal"
                                                     : "Penghasilan bersih dari platform"}
                                             </p>
                                         </div>
                                         <span className="text-base font-bold tabular-nums text-[#304674] dark:text-blue-300">
-                                            {formatRp(financialBreakdown.display_escrow_amount ?? financialBreakdown.escrow_amount)}
+                                            {formatRp(order.platform === "Manual" ? financialBreakdown.revenue_amount : financialBreakdown.display_escrow_amount ?? financialBreakdown.escrow_amount)}
                                         </span>
                                     </div>
                                 </div>

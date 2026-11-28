@@ -8,6 +8,7 @@ class CashflowTransaction extends Model
 {
     protected $fillable = [
         'user_id',
+        'manual_order_id',
         'financial_account_id',
         'direction',
         'category',

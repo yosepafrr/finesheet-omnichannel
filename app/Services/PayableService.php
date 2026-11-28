@@ -298,6 +298,11 @@ class PayableService
      */
     public function recordOrderEvent(Order $order)
     {
+        if ($order->platform === 'Manual') {
+            app(ManualOrderService::class)->reconcilePayables($order, $this);
+
+            return;
+        }
         Log::info('PayableService::recordOrderEvent called for Order '.$order->order_sn);
 
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
@@ -1140,6 +1145,11 @@ class PayableService
      */
     public function recordCancellationEvent(Order $order, string $type = 'FAILED_DELIVERY')
     {
+        if ($order->platform === 'Manual') {
+            app(ManualOrderService::class)->reconcilePayables($order, $this);
+
+            return;
+        }
         $statusUpper = strtoupper(trim($order->order_status ?? ''));
         $hasFailedPackage = $this->hasConfirmedFailedPackage($order);
         $hasReturn = PayableEvent::where('source_id', $order->order_sn)
@@ -1460,7 +1470,7 @@ class PayableService
 
         $this->cleanupStaleFailedDeliveryEvents($userId);
 
-        $userStores = Store::where('user_id', $userId)->pluck('id');
+        $userStores = Store::withoutGlobalScope('marketplace')->where('user_id', $userId)->pluck('id');
         if ($userStores->isEmpty()) {
             return;
         }
@@ -1489,6 +1499,7 @@ class PayableService
             ->values();
 
         $staleEvents = PayableEvent::where('user_id', $userId)
+            ->where(fn ($query) => $query->where('platform', '!=', 'Manual')->orWhereNull('platform'))
             ->whereNotNull('supplier_id');
 
         if ($mappedSupplierIds->isEmpty()) {

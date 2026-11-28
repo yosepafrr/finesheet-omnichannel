@@ -91,6 +91,6 @@ class PayableEvent extends Model
 
     public function store()
     {
-        return $this->belongsTo(Store::class);
+        return $this->belongsTo(Store::class)->withoutGlobalScope('marketplace');
     }
 }

@@ -100,7 +100,7 @@ class CashflowController extends Controller
             ->get()
             ->map(fn (CashflowTransaction $transaction) => [
                 'id' => $transaction->id,
-                'source' => 'manual',
+                'source' => $transaction->manual_order_id ? 'manual_order' : 'manual',
                 'direction' => $transaction->direction,
                 'category' => $transaction->category,
                 'description' => $transaction->description,
@@ -109,7 +109,7 @@ class CashflowController extends Controller
                 'notes' => $transaction->notes,
                 'financial_account_id' => $transaction->financial_account_id,
                 'account' => $transaction->account,
-                'is_read_only' => false,
+                'is_read_only' => $transaction->manual_order_id !== null,
             ]);
         // Profit history can be expensive for users with many orders. It is loaded
         // incrementally through profit() so the main Cashflow payload stays fast.
@@ -517,6 +517,7 @@ class CashflowController extends Controller
         $transaction = DB::transaction(function () use ($validated, $id) {
             $transaction = CashflowTransaction::query()
                 ->where('user_id', Auth::id())
+                ->whereNull('manual_order_id')
                 ->lockForUpdate()
                 ->findOrFail($id);
             $oldAccount = $this->transactionAccount($transaction->financial_account_id, true);
@@ -537,6 +538,7 @@ class CashflowController extends Controller
         DB::transaction(function () use ($id) {
             $transaction = CashflowTransaction::query()
                 ->where('user_id', Auth::id())
+                ->whereNull('manual_order_id')
                 ->lockForUpdate()
                 ->findOrFail($id);
             $account = $this->transactionAccount($transaction->financial_account_id, true);

@@ -202,6 +202,12 @@ export default function Sidebar({ isMobileOpen, closeMobile, user = { name: "Loa
                         {renderTooltip("Stock Management")}
                     </a>}
 
+                    {can('products.boost.manage') && <a href="#/shopee-boost" onClick={(e) => handleNav(e, '/shopee-boost')} className={navItemClass('/shopee-boost')}>
+                        <span className="material-symbols-rounded text-xl shrink-0">trending_up</span>
+                        {!sidebarCollapsed && <span className="font-medium whitespace-nowrap text-sm">Naikkan Produk</span>}
+                        {renderTooltip("Naikkan Produk")}
+                    </a>}
+
                     {can('orders.view') && <a href="#/orders" onClick={(e) => handleNav(e, '/orders')} className={navItemClass('/orders')}>
                         <span className="material-symbols-rounded text-xl shrink-0">
                             shopping_cart

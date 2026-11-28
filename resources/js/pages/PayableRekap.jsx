@@ -994,6 +994,7 @@ export default function PayableRekap() {
 
     const getReturnTypeLabel = (type) => {
         switch (type) {
+            case 'MANUAL_CANCEL': return 'Pembatalan Manual';
             case 'CREATE_ORDER': return 'Order';
             case 'RETURN_ORDER': return 'Pengembalian';
             case 'FAILED_DELIVERY': return 'Pengantaran Gagal';
@@ -1221,6 +1222,7 @@ export default function PayableRekap() {
 
     const getReturnLabel = (type) => {
         switch (type) {
+            case 'MANUAL_CANCEL': return 'Pembatalan Manual';
             case 'RETURN_ORDER': return 'Pengembalian';
             case 'FAILED_DELIVERY': return 'Pengantaran Gagal';
             case 'BUYER_CANCEL': return 'Batal Pembeli';

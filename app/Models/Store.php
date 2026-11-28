@@ -8,6 +8,8 @@ class Store extends Model
 {
     protected static function booted(): void
     {
+        // Internal order sources are not authorized marketplace stores.
+        static::addGlobalScope('marketplace', fn ($query) => $query->where('stores.platform', '!=', 'Manual'));
         static::creating(function (Store $store) {
             $normalizedPlatform = strtolower(preg_replace('/[\s_-]+/', '', (string) $store->platform));
 

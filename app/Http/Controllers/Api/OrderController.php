@@ -9,16 +9,18 @@ use App\Models\Order;
 use App\Models\VariantProduct;
 use App\Services\AccessControlService;
 use App\Services\LogisticsStatusNormalizer;
+use App\Services\ManualOrderService;
 use App\Services\OrderEscrowService;
 use App\Services\OrderFinancialBreakdownService;
 use App\Services\OrderFulfillmentService;
-use App\Services\OrderProfitService;
 use App\Services\OrderListSortService;
+use App\Services\OrderProfitService;
 use App\Services\PayableService;
 use App\Services\TiktokEscrowAmountResolver;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class OrderController extends Controller
 {
@@ -31,10 +33,10 @@ class OrderController extends Controller
         OrderFulfillmentService $fulfillmentService,
     ) {
         $user = Auth::user();
-        $request->validate(['sort_by' => ['nullable', \Illuminate\Validation\Rule::in(array_keys(OrderListSortService::OPTIONS))]]);
+        $request->validate(['sort_by' => ['nullable', Rule::in(array_keys(OrderListSortService::OPTIONS))]]);
         $sortBy = $request->input('sort_by') ?: 'created_newest';
         $canViewFinance = $access->allows($request, 'orders.finance.view');
-        $stores = $user->stores()->get();
+        $stores = $user->stores()->withoutGlobalScope('marketplace')->get();
         $storeIds = $stores->pluck('id');
 
         $baseQuery = Order::whereIn('store_id', $storeIds);
@@ -59,13 +61,14 @@ class OrderController extends Controller
         $platform = match (strtolower((string) $request->input('platform'))) {
             'shopee' => 'Shopee',
             'tiktokshop', 'tiktok' => 'Tiktokshop',
+            'manual' => 'Manual',
             default => null,
         };
 
         if ($platform) {
             $baseQuery->whereIn('platform', $platform === 'Shopee'
                 ? ['Shopee', 'shopee', 'SHOPEE']
-                : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok']);
+                : ($platform === 'Manual' ? ['Manual'] : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok']));
         }
 
         $shippingProcessFilters = [
@@ -76,6 +79,7 @@ class OrderController extends Controller
             'processed' => [
                 'Shopee' => 'PROCESSED',
                 'Tiktokshop' => 'AWAITING_COLLECTION',
+                'Manual' => 'PROCESSED',
             ],
         ];
 
@@ -92,7 +96,7 @@ class OrderController extends Controller
                         $platformQuery
                             ->whereIn('platform', $statusPlatform === 'Shopee'
                                 ? ['Shopee', 'shopee', 'SHOPEE']
-                                : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok'])
+                                : ($statusPlatform === 'Manual' ? ['Manual'] : ['Tiktokshop', 'TikTokShop', 'tiktokshop', 'Tiktok', 'tiktok']))
                             ->where('order_status', $status);
                     });
                 }
@@ -151,10 +155,11 @@ class OrderController extends Controller
             'needs_processing' => (int) ($shippingCounts->needs_processing_count ?? 0),
             'processed' => (int) ($shippingCounts->processed_count ?? 0),
         ];
+        $shippingProcessCounts['processed'] += (clone $baseQuery)->where('platform', 'Manual')->where('order_status', 'PROCESSED')->count();
         $shippingProcessCounts['all'] = $shippingProcessCounts['needs_processing']
             + $shippingProcessCounts['processed'];
         $shippingLabelPrintCounts = [
-            'all' => $shippingProcessCounts['processed'],
+            'all' => (int) ($shippingCounts->processed_count ?? 0),
             'unprinted' => (int) ($shippingCounts->unprinted_label_count ?? 0),
         ];
 
@@ -202,7 +207,7 @@ class OrderController extends Controller
         }
 
         if ($request->input('shipping_label_print_status') === 'unprinted') {
-            $query->whereNull('shipping_label_printed_at');
+            $query->where('platform', '!=', 'Manual')->whereNull('shipping_label_printed_at');
         }
 
         // Filter by cancel category
@@ -283,6 +288,7 @@ class OrderController extends Controller
             'totals' => $canViewFinance ? [
                 'hpp_amount' => (float) $listFinancialSummaries->sum('hpp_amount'),
                 'escrow_amount' => (float) $listFinancialSummaries->sum('escrow_amount'),
+                'manual_revenue_amount' => (float) $orders->where('platform', 'Manual')->sum(fn ($o) => ManualOrderService::revenueAmount($o)),
                 'profit_amount' => (float) $listFinancialSummaries->sum('profit_amount'),
                 'has_missing_hpp' => $listFinancialSummaries->contains('has_missing_hpp', true),
             ] : null,
@@ -310,6 +316,8 @@ class OrderController extends Controller
                         default => $order->platform,
                     },
                     'order_sn' => $order->order_sn,
+                    'manual_data' => $order->platform === 'Manual' ? $order->raw_data : null,
+                    'revenue_amount' => $canViewFinance && $order->platform === 'Manual' ? ($financialBreakdown['revenue_amount'] ?? 0) : null,
                     'order_status' => $order->order_status,
                     'order_time' => $order->order_time?->setTimezone('Asia/Jakarta')->toIso8601String(),
                     'created_at' => $order->created_at?->setTimezone('Asia/Jakarta')->toIso8601String(),
@@ -405,7 +413,7 @@ class OrderController extends Controller
     ) {
         $user = Auth::user();
         $canViewFinance = $access->allows($request, 'orders.finance.view');
-        $stores = $user->stores()->pluck('id');
+        $stores = $user->stores()->withoutGlobalScope('marketplace')->pluck('id');
 
         $order = Order::with(['orderProducts.product', 'returns.items', 'store', 'packages'])
             ->whereIn('store_id', $stores)
@@ -416,6 +424,14 @@ class OrderController extends Controller
 
         $rawData = $order->raw_data;
         if ($rawData) {
+            if ($order->platform === 'Manual') {
+                $customerInfo = ['name' => $rawData['buyer_name'] ?? null, 'phone' => $rawData['buyer_phone'] ?? null];
+                $shippingInfo = [
+                    'provider' => $rawData['shipping_provider'] ?? null,
+                    'tracking_number' => $rawData['tracking_number'] ?? null,
+                    'address' => null,
+                ];
+            }
             if ($order->platform === 'Shopee') {
                 $customerInfo = [
                     'name' => $rawData['recipient_address']['name'] ?? null,
@@ -518,7 +534,7 @@ class OrderController extends Controller
                 return [
                     'product_name' => $product->product_name,
                     'model_name' => $product->model_name,
-                    'sku' => $variant ? $variant->model_sku : null,
+                    'sku' => $variant ? $variant->model_sku : $product->sku,
                     'quantity_purchased' => $product->quantity_purchased,
                     'price' => $product->price,
                     'subtotal' => $product->price * $product->quantity_purchased,

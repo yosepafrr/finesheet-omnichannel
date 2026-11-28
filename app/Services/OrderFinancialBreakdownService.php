@@ -39,6 +39,7 @@ class OrderFinancialBreakdownService
         'gst_amount' => 'Pajak GST',
         'sst_amount' => 'Pajak SST',
     ];
+
     private const SHOPEE_DEDUCTIONS = [
         'commission_fee' => 'Biaya administrasi',
         'service_fee' => 'Biaya layanan Shopee',
@@ -85,6 +86,16 @@ class OrderFinancialBreakdownService
      */
     public function forOrder(Order $order): array
     {
+        if ($order->platform === 'Manual') {
+            $revenue = ManualOrderService::revenueAmount($order);
+
+            return [
+                'gross_amount' => $revenue, 'revenue_amount' => $revenue, 'escrow_amount' => 0,
+                'components' => [], 'is_affiliate' => false, 'affiliate_percentage' => null,
+                'has_platform_details' => true, 'source' => 'manual', 'is_estimated' => false,
+                'reconciliation_difference' => 0,
+            ];
+        }
         $details = is_array($order->fee_details) ? $order->fee_details : [];
         $grossAmount = (float) ($order->order_selling_price ?? 0);
         if ($grossAmount <= 0 && $order->relationLoaded('orderProducts')) {
@@ -353,6 +364,7 @@ class OrderFinancialBreakdownService
         if (($details['source'] ?? null) === 'unsettled') {
             return $fallback;
         }
+
         return $fallback;
     }
 

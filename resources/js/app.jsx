@@ -38,6 +38,7 @@ const Profile = lazy(() => import('./pages/Profile'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const MasterProductDetail = lazy(() => import('./pages/MasterProductDetail'));
 const StockManagement = lazy(() => import('./pages/StockManagement'));
+const ShopeeBoost = lazy(() => import('./pages/ShopeeBoost'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Register = lazy(() => import('./pages/auth/Register'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -53,6 +54,7 @@ const routes = {
     '/stores': StoreList,
     '/products': ProductList,
     '/stock-management': StockManagement,
+    '/shopee-boost': ShopeeBoost,
     '/orders': OrderList,
     '/profit-tracker': ProfitTracker,
     '/payable': PayableRekap,

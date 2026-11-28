@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PayableService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -12,7 +13,7 @@ class OrderProduct extends Model
     protected static function booted()
     {
         static::saved(function ($orderProduct) {
-            app(\App\Services\PayableService::class)->recordOrderEvent($orderProduct->order);
+            app(PayableService::class)->recordOrderEvent($orderProduct->order);
 
             if ($orderProduct->wasRecentlyCreated || $orderProduct->wasChanged([
                 'order_id',
@@ -41,7 +42,10 @@ class OrderProduct extends Model
         'quantity_purchased',
         'price',
         'image',
+        'manual_snapshot',
     ];
+
+    protected $casts = ['manual_snapshot' => 'array'];
 
     public function order()
     {

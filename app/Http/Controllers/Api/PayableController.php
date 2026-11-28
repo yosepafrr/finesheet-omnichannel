@@ -93,7 +93,7 @@ class PayableController extends Controller
                 return $supplier;
             });
 
-        $storeIds = Store::where('user_id', $userId)->pluck('id');
+        $storeIds = Store::withoutGlobalScope('marketplace')->where('user_id', $userId)->pluck('id');
         $hasMasterVariants = MasterProductVariant::where('user_id', $userId)->exists();
         $unassignedProductsCount = $hasMasterVariants
             ? MasterProductVariant::where('user_id', $userId)
@@ -134,7 +134,7 @@ class PayableController extends Controller
             );
 
             // Get all store IDs for this user
-            $storeIds = Store::where('user_id', $userId)->pluck('id');
+            $storeIds = Store::withoutGlobalScope('marketplace')->where('user_id', $userId)->pluck('id');
 
             // 1. Assign all products of this user's stores to this supplier
             Product::whereIn('store_id', $storeIds)->update(['supplier_id' => $supplier->id]);
@@ -257,7 +257,7 @@ class PayableController extends Controller
     public function getProductsForMapping(ProductHppService $hppService)
     {
         $userId = Auth::id();
-        $storeIds = Store::where('user_id', $userId)->pluck('id');
+        $storeIds = Store::withoutGlobalScope('marketplace')->where('user_id', $userId)->pluck('id');
 
         $masterVariants = MasterProductVariant::query()
             ->where('user_id', $userId)
@@ -573,7 +573,7 @@ class PayableController extends Controller
             return false;
         }
 
-        $storeIds = Store::where('user_id', $userId)->pluck('id');
+        $storeIds = Store::withoutGlobalScope('marketplace')->where('user_id', $userId)->pluck('id');
         $product = Product::query()
             ->whereIn('store_id', $storeIds)
             ->with('variantProducts')
@@ -942,7 +942,10 @@ class PayableController extends Controller
 
         $postShipmentAdjustmentIds = PayableEvent::where('user_id', $userId)
             ->whereIn('source_id', $sourceIds)
-            ->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY', 'SELLER_LATE_CANCEL'])
+            ->where(function ($q) {
+                $q->whereIn('source_type', ['RETURN_ORDER', 'FAILED_DELIVERY', 'SELLER_LATE_CANCEL'])
+                    ->orWhere(fn ($manual) => $manual->where('platform', 'Manual')->where('source_type', 'MANUAL_CANCEL'));
+            })
             ->pluck('source_id')
             ->flip();
 
@@ -964,6 +967,10 @@ class PayableController extends Controller
                 $firstProduct = null;
                 if ($event->supplier_id) {
                     $firstProduct = $order->orderProducts->first(function ($op) use ($event) {
+                        if (is_array($op->manual_snapshot)) {
+                            return isset($op->manual_snapshot['suppliers'][$event->supplier_id]);
+                        }
+
                         return $op->product && $op->product->supplier_id == $event->supplier_id;
                     });
                 }
@@ -979,7 +986,7 @@ class PayableController extends Controller
                     $event->first_product = [
                         'product_name' => $firstProduct->product_name,
                         'model_name' => $firstProduct->model_name,
-                        'image' => $firstProduct->product->image ?? null,
+                        'image' => $firstProduct->product->image ?? $firstProduct->image,
                         'variant_image' => $variant ? $variant->variant_image : null,
                         'quantity' => $firstProduct->quantity_purchased,
                     ];

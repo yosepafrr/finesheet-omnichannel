@@ -95,6 +95,9 @@ class ProductHppService
 
     public function orderItemHpp(object $item): float
     {
+        if (is_array($item->manual_snapshot ?? null)) {
+            return (float) $item->manual_snapshot['hpp'];
+        }
         $product = $this->marketplaceProductForOrderItem($item);
         if (! $product) {
             return (float) ($item->price ?? 0);
@@ -148,6 +151,10 @@ class ProductHppService
      */
     public function orderItemHppDetails(object $item): array
     {
+        if (is_array($item->manual_snapshot ?? null)) {
+            return ['hpp' => (float) $item->manual_snapshot['hpp'], 'source' => 'manual_snapshot',
+                'master_variant_id' => $item->manual_snapshot['variant_id'], 'available' => true];
+        }
         $product = $this->marketplaceProductForOrderItem($item);
         if (! $product) {
             return $this->unavailableOrderItemHpp();
